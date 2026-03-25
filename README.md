@@ -1,36 +1,55 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# rental-portal-fun
 
-## Getting Started
+Custom **online rental / booking** UI that talks to Bond’s **hosted public HTTP APIs** only (no Bond monorepo dependency). The app keeps **`X-Api-Key` on the server** and exposes a small BFF under `/api/bond/...`.
 
-First, run the development server:
+## Docs in this repo
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+| Doc | Purpose |
+|-----|--------|
+| **[docs/RENTAL_PORTAL_PLAN.md](docs/RENTAL_PORTAL_PLAN.md)** | Full Phase 1 / Phase 2 plan (migrate your Cursor work around this file). |
+| **[docs/MIGRATION_AND_CURSOR.md](docs/MIGRATION_AND_CURSOR.md)** | How to move Cursor / “the agent” to this folder and attach the plan. |
+| **[docs/bond/](docs/bond/)** | Copied integrator reference; **Swagger is still canonical** for request shapes. |
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Stack
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- **Next.js 16** (App Router, React 19) — Route Handlers for the BFF, strong defaults for performance and DX
+- **TanStack Query** — server-state for portal, products, and schedule
+- **TypeScript** + **Tailwind CSS**
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Setup
 
-## Learn More
+1. Copy env template and fill in values:
 
-To learn more about Next.js, take a look at the following resources:
+   ```bash
+   cp .env.example .env.local
+   ```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+2. Set:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+   - `BOND_API_BASE_URL` — e.g. `https://public.api.squad-c.bondsports.co`
+   - `BOND_API_KEY` — organization public API key (**server only**, never `NEXT_PUBLIC_*`)
+   - `NEXT_PUBLIC_BOND_ORG_ID` / `NEXT_PUBLIC_BOND_PORTAL_ID` — for the booking experience config
 
-## Deploy on Vercel
+3. Run the dev server:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+   ```bash
+   npm run dev
+   ```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Open [http://localhost:3000](http://localhost:3000).
+
+## BFF
+
+- **GET/POST** `/api/bond/v1/organization/...` forwards to `{BOND_API_BASE_URL}/v1/organization/...` with `X-Api-Key`.
+- Only paths under `v1/organization/` are allowed (admin and other prefixes are blocked).
+- Optional JWT headers from the browser are forwarded as `X-BondUserAccessToken` / `X-BondUserIdToken` for logged-in routes.
+
+Use `src/lib/bond-client.ts` from client code to build URLs to this BFF.
+
+## Docs
+
+- Hosted spec: [Squad C Swagger](https://public.api.squad-c.bondsports.co/public-api/)
+
+## Deploy
+
+Configure the same env vars on your host (Vercel, etc.). Never expose `BOND_API_KEY` to the client bundle.

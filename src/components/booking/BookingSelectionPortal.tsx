@@ -1,0 +1,60 @@
+"use client";
+
+import { createPortal } from "react-dom";
+import { useSyncExternalStore, type CSSProperties } from "react";
+import { IconCartShopping } from "./booking-icons";
+
+type Props = {
+  slotCount: number;
+  error: string | null;
+  onClear: () => void;
+  /** `--cb-*` variables from `resolveBookingThemeStyle` so tokens apply on `body` portal. */
+  themeStyle: CSSProperties;
+};
+
+function useIsClient(): boolean {
+  return useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false
+  );
+}
+
+/**
+ * Fixed bottom booking summary (viewport) — single primary CTA row + cart affordance per mocks.
+ */
+export function BookingSelectionPortal({ slotCount, error, onClear, themeStyle }: Props) {
+  const isClient = useIsClient();
+
+  if (!isClient || typeof document === "undefined") return null;
+
+  const show = slotCount > 0 || (error != null && error.length > 0);
+  if (!show) return null;
+
+  return createPortal(
+    <div className="cb-selection-portal" style={themeStyle}>
+      {error && slotCount === 0 ? <p className="cb-selection-err">{error}</p> : null}
+      {slotCount > 0 ? (
+        <div className="cb-selection-cluster">
+          <div className="cb-selection-fab-row">
+            <div className="cb-selection-fab" aria-hidden>
+              <IconCartShopping className="text-[var(--cb-primary)]" />
+            </div>
+          </div>
+          <div className="cb-selection-bar cb-selection-bar--unified" role="status">
+            <div className="cb-selection-actions">
+              <button type="button" className="cb-selection-clearlink" onClick={onClear}>
+                Clear
+              </button>
+              <button type="button" className="cb-selection-book cb-selection-book--unified">
+                {slotCount} slot{slotCount === 1 ? "" : "s"} selected — Book now →
+              </button>
+            </div>
+          </div>
+          {error ? <p className="cb-selection-err-below">{error}</p> : null}
+        </div>
+      ) : null}
+    </div>,
+    document.body
+  );
+}
