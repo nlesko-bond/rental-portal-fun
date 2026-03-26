@@ -41,7 +41,7 @@ const BASKETBALL_IMAGES = [
   "https://images.unsplash.com/photo-1572454181157-0b40dd7667fe?w=640&q=80&auto=format&fit=crop",
   "https://images.unsplash.com/photo-1559692048-79a3f837883d?w=640&q=80&auto=format&fit=crop",
   "https://images.unsplash.com/photo-1709264407689-da8c63f63c2d?w=640&q=80&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1724195407019-9c72da174d2f?w=640&q=80&auto=format&fit=crop",
+  "https://images.unsplash.com/photo-1521412644187-c49fa049e84d?w=640&q=80&auto=format&fit=crop",
   "https://images.unsplash.com/photo-1719521178357-64ac2316f0ea?w=640&q=80&auto=format&fit=crop",
   "https://images.unsplash.com/photo-1488085061387-422e29b40080?w=640&q=80&auto=format&fit=crop",
   "https://images.unsplash.com/photo-1601391721091-4646369e0bb5?w=640&q=80&auto=format&fit=crop",

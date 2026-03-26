@@ -1120,7 +1120,7 @@ export function BookingExperience() {
                   </h3>
                   <button
                     type="button"
-                    className="cb-preferred-start-field mt-3 w-full"
+                    className="cb-preferred-start-field mt-3 w-full max-w-full self-start sm:w-auto sm:max-w-md"
                     aria-haspopup="dialog"
                     aria-expanded={picker === "start"}
                     aria-labelledby="pick-start-heading"
