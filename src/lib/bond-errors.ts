@@ -24,6 +24,21 @@ export function formatBondUserMessage(err: BondBffError): string {
   return base;
 }
 
+/** Short, non-technical copy for checkout / booking flows (hides internal codes). */
+export function formatConsumerBookingError(err: BondBffError): string {
+  const body = asBondApiErrorBody(err.body);
+  const code = body?.code;
+  if (code === "ONLINE_BOOKING.INVALID_PRODUCT") {
+    return "We couldn’t complete this booking with the selected options. Try different times or remove some add-ons, or contact the venue if this keeps happening.";
+  }
+  if (code === "SCHEDULE.MINIMUM_NOTICE_VIOLATION") {
+    return formatBondUserMessage(err);
+  }
+  const raw = err.message || "Something went wrong. Please try again.";
+  if (raw.length > 220) return `${raw.slice(0, 217)}…`;
+  return raw;
+}
+
 export function extractEarliestBookableInstantFromNoticeMessage(message: string): string | null {
   const quoted = message.match(/which\s+is\s+["']([^"']+)["']/i);
   if (quoted?.[1]) return normalizeInstant(quoted[1]);

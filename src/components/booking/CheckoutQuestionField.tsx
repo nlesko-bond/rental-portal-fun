@@ -4,12 +4,66 @@ import DOMPurify from "dompurify";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { NormalizedQuestion } from "@/lib/questionnaire-parse";
 
+const PREFILL_HINT = "Pre-filled from your profile";
+
 type Props = {
   q: NormalizedQuestion;
   value: string;
   onChange: (v: string) => void;
   namePrefix: string;
+  /** Shown under email/phone/date/address when value matches profile prefill */
+  prefilledHint?: boolean;
 };
+
+function IconEmail({ className }: { className?: string }) {
+  return (
+    <svg className={className} width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M4 6h16v12H4V6zm2 2 8 5 8-5"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function IconPhone({ className }: { className?: string }) {
+  return (
+    <svg className={className} width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M6.5 4.5h3.5l1.5 4-2.2 1.3c.8 1.6 2.3 3.1 3.9 3.9l1.3-2.2 4 1.5v3.5a1.5 1.5 0 0 1-1.6 1.5C9.8 18.5 4 12.7 4 5.6A1.5 1.5 0 0 1 5.5 4h1z"
+        stroke="currentColor"
+        strokeWidth="1.35"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function IconPinField({ className }: { className?: string }) {
+  return (
+    <svg className={className} width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M12 21s7-4.35 7-11a7 7 0 1 0-14 0c0 6.65 7 11 7 11z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+      <circle cx="12" cy="10" r="2.25" stroke="currentColor" strokeWidth="1.5" />
+    </svg>
+  );
+}
+
+function IconCalendar({ className }: { className?: string }) {
+  return (
+    <svg className={className} width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <rect x="4" y="5" width="16" height="15" rx="2" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M8 3v4M16 3v4M4 11h16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
 
 function WaiverBlock({
   id,
@@ -88,9 +142,15 @@ function WaiverBlock({
   );
 }
 
-export function CheckoutQuestionField({ q, value, onChange, namePrefix }: Props) {
+export function CheckoutQuestionField({ q, value, onChange, namePrefix, prefilledHint }: Props) {
   const id = `${namePrefix}-${q.id}`;
   const required = q.mandatory;
+
+  const hintRow = prefilledHint ? (
+    <p className="cb-q-field-hint" role="status">
+      {PREFILL_HINT}
+    </p>
+  ) : null;
 
   if (q.kind === "waiver") {
     return (
@@ -140,79 +200,115 @@ export function CheckoutQuestionField({ q, value, onChange, namePrefix }: Props)
 
   if (q.kind === "email") {
     return (
-      <label className="cb-checkout-field" htmlFor={id}>
-        <span className="cb-checkout-field-label">
-          {q.label}
-          {required ? <span className="cb-q-req"> *</span> : null}
-        </span>
-        <input
-          id={id}
-          type="email"
-          autoComplete="email"
-          className="cb-input w-full"
-          value={value}
-          required={required}
-          onChange={(e) => onChange(e.target.value)}
-        />
-      </label>
+      <div className="cb-checkout-field">
+        <div className="cb-q-field-row">
+          <span className="cb-q-field-icon" aria-hidden>
+            <IconEmail className="text-[var(--cb-primary)]" />
+          </span>
+          <div className="cb-q-field-main">
+            <label className="cb-checkout-field-label flex items-baseline gap-1" htmlFor={id}>
+              {q.label}
+              {required ? <span className="cb-q-req"> *</span> : null}
+            </label>
+            <input
+              id={id}
+              type="email"
+              autoComplete="email"
+              className="cb-input cb-q-input-enhanced w-full"
+              placeholder="name@example.com"
+              value={value}
+              required={required}
+              onChange={(e) => onChange(e.target.value)}
+            />
+            {hintRow}
+          </div>
+        </div>
+      </div>
     );
   }
 
   if (q.kind === "tel") {
     return (
-      <label className="cb-checkout-field" htmlFor={id}>
-        <span className="cb-checkout-field-label">
-          {q.label}
-          {required ? <span className="cb-q-req"> *</span> : null}
-        </span>
-        <input
-          id={id}
-          type="tel"
-          autoComplete="tel"
-          className="cb-input w-full"
-          value={value}
-          required={required}
-          onChange={(e) => onChange(e.target.value)}
-        />
-      </label>
+      <div className="cb-checkout-field">
+        <div className="cb-q-field-row">
+          <span className="cb-q-field-icon" aria-hidden>
+            <IconPhone className="text-[var(--cb-primary)]" />
+          </span>
+          <div className="cb-q-field-main">
+            <label className="cb-checkout-field-label flex items-baseline gap-1" htmlFor={id}>
+              {q.label}
+              {required ? <span className="cb-q-req"> *</span> : null}
+            </label>
+            <input
+              id={id}
+              type="tel"
+              autoComplete="tel"
+              className="cb-input cb-q-input-enhanced w-full"
+              placeholder="Enter phone number"
+              value={value}
+              required={required}
+              onChange={(e) => onChange(e.target.value)}
+            />
+            {hintRow}
+          </div>
+        </div>
+      </div>
     );
   }
 
   if (q.kind === "address") {
     return (
-      <label className="cb-checkout-field" htmlFor={id}>
-        <span className="cb-checkout-field-label">
-          {q.label}
-          {required ? <span className="cb-q-req"> *</span> : null}
-        </span>
-        <textarea
-          id={id}
-          className="cb-input cb-input-textarea min-h-[5rem] w-full resize-y"
-          value={value}
-          required={required}
-          rows={3}
-          onChange={(e) => onChange(e.target.value)}
-        />
-      </label>
+      <div className="cb-checkout-field">
+        <div className="cb-q-field-row">
+          <span className="cb-q-field-icon" aria-hidden>
+            <IconPinField className="text-[var(--cb-primary)]" />
+          </span>
+          <div className="cb-q-field-main">
+            <label className="cb-checkout-field-label flex items-baseline gap-1" htmlFor={id}>
+              {q.label}
+              {required ? <span className="cb-q-req"> *</span> : null}
+            </label>
+            <input
+              id={id}
+              type="text"
+              autoComplete="street-address"
+              className="cb-input cb-q-input-enhanced w-full"
+              placeholder="Street, city, state, ZIP"
+              value={value}
+              required={required}
+              onChange={(e) => onChange(e.target.value)}
+            />
+            {hintRow}
+          </div>
+        </div>
+      </div>
     );
   }
 
   if (q.kind === "date") {
     return (
-      <label className="cb-checkout-field" htmlFor={id}>
-        <span className="cb-checkout-field-label">
-          {q.label}
-          {required ? <span className="cb-q-req"> *</span> : null}
-        </span>
-        <input
-          id={id}
-          type="date"
-          className="cb-input w-full"
-          value={value.slice(0, 10)}
-          required={required}
-          onChange={(e) => onChange(e.target.value)}
-        />
-      </label>
+      <div className="cb-checkout-field">
+        <div className="cb-q-field-row">
+          <span className="cb-q-field-icon" aria-hidden>
+            <IconCalendar className="text-[var(--cb-primary)]" />
+          </span>
+          <div className="cb-q-field-main">
+            <label className="cb-checkout-field-label flex items-baseline gap-1" htmlFor={id}>
+              {q.label}
+              {required ? <span className="cb-q-req"> *</span> : null}
+            </label>
+            <input
+              id={id}
+              type="date"
+              className="cb-input cb-q-input-enhanced w-full"
+              value={value.slice(0, 10)}
+              required={required}
+              onChange={(e) => onChange(e.target.value)}
+            />
+            {hintRow}
+          </div>
+        </div>
+      </div>
     );
   }
 

@@ -2020,6 +2020,39 @@ body {
   margin-left: calc(50% - 50vw);
 }
 
+.consumer-booking .cb-header-booking-for-trigger {
+  border: none;
+  background: none;
+  padding: 0.2rem 0.5rem;
+  cursor: pointer;
+  border-radius: 0.65rem;
+  transition: background 0.15s ease;
+}
+
+.consumer-booking .cb-header-booking-for-trigger:hover {
+  background: color-mix(in srgb, var(--cb-primary) 10%, transparent);
+}
+
+.consumer-booking .cb-header-booking-for-trigger:focus-visible {
+  outline: 2px solid var(--cb-primary);
+  outline-offset: 2px;
+}
+
+.consumer-booking .cb-header-user-avatar {
+  display: flex;
+  height: 2.35rem;
+  width: 2.35rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  border: 1px solid color-mix(in srgb, var(--cb-primary) 35%, var(--cb-border));
+  background: color-mix(in srgb, var(--cb-primary) 14%, var(--cb-bg-surface));
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: var(--cb-primary);
+}
+
 .consumer-booking .cb-appearance-cycle {
   display: flex;
   height: 2.25rem;
@@ -3374,6 +3407,131 @@ body {
   margin: 0 0 0.5rem;
   font-size: 0.95rem;
   font-weight: 700;
+}
+
+.consumer-booking .cb-checkout-forms-hero {
+  margin: 0 0 1.25rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.consumer-booking .cb-checkout-forms-hero-icon {
+  display: flex;
+  height: 3.25rem;
+  width: 3.25rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--cb-primary) 14%, var(--cb-bg-surface-muted));
+  color: var(--cb-primary);
+  margin-bottom: 0.65rem;
+}
+
+.consumer-booking .cb-checkout-forms-hero-title {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: var(--cb-text);
+  letter-spacing: -0.02em;
+}
+
+.consumer-booking .cb-checkout-forms-hero-sub {
+  margin: 0.35rem 0 0;
+  font-size: 0.85rem;
+  color: var(--cb-text-muted);
+  line-height: 1.4;
+  max-width: 22rem;
+}
+
+.consumer-booking .cb-checkout-form-block--flat {
+  margin-top: 0.25rem;
+}
+
+.consumer-booking .cb-q-field-row {
+  display: flex;
+  gap: 0.65rem;
+  align-items: flex-start;
+}
+
+.consumer-booking .cb-q-field-icon {
+  flex-shrink: 0;
+  padding-top: 1.85rem;
+  opacity: 0.95;
+}
+
+.consumer-booking .cb-q-field-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.consumer-booking .cb-q-input-enhanced {
+  margin-top: 0.35rem;
+}
+
+.consumer-booking .cb-q-field-hint {
+  margin: 0.35rem 0 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--cb-primary) 55%, var(--cb-text-muted));
+}
+
+.consumer-booking .cb-checkout-addons-review {
+  margin: 0 0 1rem;
+  padding: 0.85rem 0.9rem;
+  border-radius: 0.65rem;
+  border: 1px solid var(--cb-border);
+  background: var(--cb-bg-surface-muted);
+}
+
+.consumer-booking .cb-checkout-addon-review-group {
+  margin-bottom: 0.75rem;
+}
+
+.consumer-booking .cb-checkout-addon-review-group:last-child {
+  margin-bottom: 0;
+}
+
+.consumer-booking .cb-checkout-addon-review-label {
+  margin: 0 0 0.35rem;
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--cb-text-muted);
+}
+
+.consumer-booking .cb-checkout-addon-review-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.consumer-booking .cb-checkout-addon-review-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--cb-text);
+}
+
+.consumer-booking .cb-checkout-addon-review-price {
+  font-weight: 700;
+  color: var(--cb-primary);
+  white-space: nowrap;
+}
+
+.consumer-booking .cb-checkout-addon-review-slot {
+  margin-bottom: 0.65rem;
+}
+
+.consumer-booking .cb-checkout-addon-review-slots {
+  margin: 0.35rem 0 0;
+  padding-left: 1rem;
+  list-style: disc;
 }
 
 .consumer-booking .cb-checkout-field {

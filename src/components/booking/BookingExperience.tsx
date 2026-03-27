@@ -142,6 +142,15 @@ function slotLabel(slot: { startDate: string; startTime: string; endTime: string
   return `${slot.startTime.slice(0, 5)}–${slot.endTime.slice(0, 5)}`;
 }
 
+function bookingHeaderInitials(label: string, email?: string | null): string {
+  const t = label.trim();
+  const parts = t.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) return (parts[0]![0]! + parts[1]![0]!).toUpperCase();
+  if (parts.length === 1 && parts[0]!.length >= 2) return parts[0]!.slice(0, 2).toUpperCase();
+  if (email && email.includes("@")) return email.slice(0, 2).toUpperCase();
+  return "?";
+}
+
 function formatBookingDateShort(isoDate: string): string {
   const d = new Date(`${isoDate}T12:00:00`);
   if (Number.isNaN(d.getTime())) return isoDate;
@@ -970,10 +979,8 @@ export function BookingExperience() {
       className={`consumer-booking mx-auto min-h-screen w-full max-w-none flex-1 px-4 pb-32 sm:px-6 lg:px-12 xl:px-16 ${appearanceClass}`}
       style={themeStyle}
     >
-      <header className="cb-header-sticky cb-header-fullbleed flex h-16 shrink-0 items-center justify-center border-t-4 border-t-[var(--cb-primary)] bg-[var(--cb-bg-header)]">
-        <h1 className="text-lg font-semibold text-[var(--cb-primary)] sm:text-xl">Book Your Session</h1>
-        <p className="sr-only">{portal.name}</p>
-        <div className="absolute right-3 top-1/2 flex -translate-y-1/2 items-center gap-1 sm:right-4">
+      <header className="cb-header-sticky cb-header-fullbleed cb-header-booking grid h-16 shrink-0 grid-cols-[1fr_auto_1fr] items-center border-t-4 border-t-[var(--cb-primary)] bg-[var(--cb-bg-header)] px-2 sm:px-3">
+        <div className="flex items-center justify-self-start">
           <button
             type="button"
             className="cb-appearance-cycle"
@@ -983,45 +990,43 @@ export function BookingExperience() {
           >
             {appearanceMode === "light" ? "☀" : appearanceMode === "dark" ? "☾" : "A"}
           </button>
+        </div>
+        <div className="flex min-w-0 flex-col items-center justify-center px-1 text-center">
           {bondAuth.session.status === "authenticated" ? (
-            <div className="flex max-w-[min(100vw-6rem,20rem)] flex-col items-end gap-0.5 sm:flex-row sm:items-center sm:gap-2">
-              {partyMembers.length > 1 ? (
-                <label className="flex max-w-full items-center gap-1.5">
-                  <span className="hidden text-[0.65rem] text-[var(--cb-text-muted)] sm:inline">Booking for</span>
-                  <select
-                    className="cb-header-booking-for max-w-[140px] truncate rounded-md border border-[var(--cb-border)] bg-[var(--cb-bg-surface)] px-2 py-1 text-[0.7rem] text-[var(--cb-text)] sm:max-w-[180px]"
-                    aria-label="Who this booking is for"
-                    value={effectiveBookingUserId ?? ""}
-                    onChange={(e) => {
-                      const v = Number(e.target.value);
-                      if (Number.isFinite(v)) setBookingTargetUserId(v);
-                    }}
-                  >
-                    {partyMembers.map((o) => (
-                      <option key={o.id} value={o.id}>
-                        {o.label}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    className="shrink-0 text-[0.65rem] font-medium text-[var(--cb-primary)] underline-offset-2 hover:underline"
-                    onClick={() => setBookingForModalOpen(true)}
-                  >
-                    Change
-                  </button>
-                </label>
-              ) : null}
-              <span
-                className="hidden max-w-[120px] truncate text-[0.65rem] text-[var(--cb-text-muted)] sm:inline"
-                title={bondAuth.session.email}
-              >
-                {(typeof bondProfileQuery.data?.firstName === "string" && bondProfileQuery.data.firstName.length > 0
-                  ? bondProfileQuery.data.firstName
-                  : null) ??
-                  bondAuth.session.email ??
-                  "Signed in"}
+            <button
+              type="button"
+              className="cb-header-booking-for-trigger group max-w-[min(100vw-8rem,22rem)]"
+              onClick={() => setBookingForModalOpen(true)}
+              aria-haspopup="dialog"
+              aria-expanded={bookingForModalOpen}
+            >
+              <span className="block text-[0.65rem] font-semibold uppercase tracking-wide text-[var(--cb-text-muted)]">
+                Booking for
               </span>
+              <span className="mt-0.5 flex items-center justify-center gap-1">
+                <span className="truncate text-base font-bold text-[var(--cb-primary)] sm:text-lg">{bookingForLabel}</span>
+                <span className="shrink-0 text-[var(--cb-primary)]" aria-hidden>
+                  ▾
+                </span>
+              </span>
+            </button>
+          ) : (
+            <>
+              <h1 className="text-lg font-semibold text-[var(--cb-primary)] sm:text-xl">Book Your Session</h1>
+              <p className="sr-only">{portal.name}</p>
+            </>
+          )}
+        </div>
+        <div className="flex items-center justify-end gap-2 justify-self-end">
+          {bondAuth.session.status === "authenticated" ? (
+            <>
+              <div
+                className="cb-header-user-avatar"
+                title={bondAuth.session.email ?? bookingForLabel}
+                aria-hidden
+              >
+                {bookingHeaderInitials(bookingForLabel, bondAuth.session.email)}
+              </div>
               <button
                 type="button"
                 className="cb-header-signin"
@@ -1030,7 +1035,7 @@ export function BookingExperience() {
               >
                 <span className="px-1 text-xs font-semibold">Out</span>
               </button>
-            </div>
+            </>
           ) : (
             <button
               type="button"
@@ -1042,6 +1047,7 @@ export function BookingExperience() {
             </button>
           )}
         </div>
+        {bondAuth.session.status === "authenticated" ? <p className="sr-only">{portal.name}</p> : null}
       </header>
 
       <div className="cb-booking-nav-band -mx-4 px-4 sm:mx-0 sm:px-0">
@@ -1627,6 +1633,8 @@ export function BookingExperience() {
           bookingForLabel={bookingForLabel}
           bookingForBadge={bookingForBadge}
           appearanceClass={appearanceClass}
+          bondProfile={bondProfileQuery.data}
+          primaryAccountUserId={bondUserId ?? 0}
         />
       ) : null}
 
