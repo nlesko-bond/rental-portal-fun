@@ -14,7 +14,11 @@ function flattenAuthBody(body: unknown): Record<string, unknown> {
   if (!body || typeof body !== "object") return {};
   const o = body as Record<string, unknown>;
   const out: Record<string, unknown> = { ...o };
-  const nested = o.tokens ?? o.authenticationResult ?? o.AuthenticationResult;
+  const nested =
+    o.tokens ??
+    o.authenticationResult ??
+    o.AuthenticationResult ??
+    o.credentials;
   if (nested && typeof nested === "object") {
     Object.assign(out, nested as Record<string, unknown>);
   }
@@ -30,7 +34,8 @@ export type BondAuthTokens = {
 export function extractBondAuthTokens(body: unknown): BondAuthTokens | null {
   const o = flattenAuthBody(body);
   const accessToken = pickString(o, ["accessToken", "access_token", "AccessToken"]);
-  const idToken = pickString(o, ["idToken", "id_token", "IdToken"]);
+  /** Squad-c consumer login returns `userIdToken` under `credentials`. */
+  const idToken = pickString(o, ["idToken", "id_token", "IdToken", "userIdToken"]);
   const refreshToken = pickString(o, ["refreshToken", "refresh_token", "RefreshToken"]);
   if (!accessToken || !idToken || !refreshToken) return null;
   return { accessToken, idToken, refreshToken };
