@@ -15,6 +15,8 @@ type Props = {
   selectedDate: string | null;
   onSelect: (d: string) => void;
   onClose: () => void;
+  /** Hide footer “Sign in to see VIP early access” when already authenticated. */
+  signedIn?: boolean;
 };
 
 type Cell =
@@ -54,6 +56,7 @@ export function AvailableDateCalendarBody({
   selectedDate,
   onSelect,
   onClose,
+  signedIn = false,
 }: Props) {
   const available = useMemo(() => new Set(availableDates), [availableDates]);
   const vipEarly = useMemo(() => new Set(vipEarlyAccessDates), [vipEarlyAccessDates]);
@@ -155,9 +158,11 @@ export function AvailableDateCalendarBody({
           );
         })}
       </div>
-      <p className="cb-dp-early-access-hint" role="note">
-        Sign in to see VIP early access (if eligible)
-      </p>
+      {!signedIn ? (
+        <p className="cb-dp-early-access-hint" role="note">
+          Sign in to see VIP early access (if eligible)
+        </p>
+      ) : null}
     </div>
   );
 }

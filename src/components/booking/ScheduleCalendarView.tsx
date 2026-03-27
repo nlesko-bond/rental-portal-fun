@@ -139,6 +139,8 @@ type Props = {
   priceCurrency: string | null;
   selectedKeys: ReadonlySet<string>;
   onToggleSlot: (resourceId: number, resourceName: string, slot: ScheduleTimeSlotDto) => void;
+  /** Apply member entitlement discount to schedule unit price before pro-rating (display). */
+  adjustSlotUnitPrice?: (unitPrice: number) => number;
 };
 
 export function ScheduleCalendarView({
@@ -148,6 +150,7 @@ export function ScheduleCalendarView({
   priceCurrency,
   selectedKeys,
   onToggleSlot,
+  adjustSlotUnitPrice,
 }: Props) {
   const [userResourceTabId, setUserResourceTabId] = useState<number | null>(null);
 
@@ -194,7 +197,8 @@ export function ScheduleCalendarView({
         {list.map((s, i) => {
           const sk = slotControlKey(resourceId, s);
           const picked = selectedKeys.has(sk);
-          const total = slotDisplayTotalPrice(s.price, product, durationMinutes);
+          const unit = adjustSlotUnitPrice ? adjustSlotUnitPrice(s.price) : s.price;
+          const total = slotDisplayTotalPrice(unit, product, durationMinutes);
           const tier = variable ? slotPriceTier(s.price, refUnit) : "standard";
           return (
             <li key={`${s.startDate}-${s.startTime}-${i}`} className="cb-slot-grid-cell">

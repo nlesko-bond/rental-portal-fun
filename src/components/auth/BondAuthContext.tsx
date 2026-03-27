@@ -22,6 +22,8 @@ type Ctx = {
   logout: () => Promise<void>;
   loginOpen: boolean;
   setLoginOpen: (v: boolean) => void;
+  /** Increments on successful login — consumers can show welcome UI / open family picker. */
+  welcomeToastTick: number;
 };
 
 const BondAuthContext = createContext<Ctx | null>(null);
@@ -29,6 +31,7 @@ const BondAuthContext = createContext<Ctx | null>(null);
 export function BondAuthProvider({ children }: { children: ReactNode }) {
   const qc = useQueryClient();
   const [loginOpen, setLoginOpen] = useState(false);
+  const [welcomeToastTick, setWelcomeToastTick] = useState(0);
 
   const q = useQuery({
     queryKey: ["bond-auth-session"],
@@ -83,6 +86,7 @@ export function BondAuthProvider({ children }: { children: ReactNode }) {
         return { ok: false as const, message: msg };
       }
       await qc.invalidateQueries({ queryKey: ["bond-auth-session"] });
+      setWelcomeToastTick((t) => t + 1);
       return { ok: true as const };
     },
     [qc]
@@ -95,8 +99,16 @@ export function BondAuthProvider({ children }: { children: ReactNode }) {
   }, [qc]);
 
   const value = useMemo(
-    () => ({ session, refetchSession, login, logout, loginOpen, setLoginOpen }),
-    [session, refetchSession, login, logout, loginOpen]
+    () => ({
+      session,
+      refetchSession,
+      login,
+      logout,
+      loginOpen,
+      setLoginOpen,
+      welcomeToastTick,
+    }),
+    [session, refetchSession, login, logout, loginOpen, welcomeToastTick]
   );
 
   return <BondAuthContext.Provider value={value}>{children}</BondAuthContext.Provider>;

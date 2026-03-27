@@ -1,8 +1,8 @@
 "use client";
 
-import { useMutation, useQueries, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatBondUserMessage } from "@/lib/bond-errors";
 import {
   computeVipEarlyAccessDateKeys,
@@ -27,6 +27,7 @@ import {
   productMembershipGated,
   slotDisplayTotalPrice,
 } from "@/lib/booking-pricing";
+import { applyEntitlementDiscountsToUnitPrice } from "@/lib/entitlement-discount";
 import {
   filterStartTimesByMinimumNotice,
   snapPreferredStartToEligible,
@@ -39,13 +40,8 @@ import {
   fetchCategoryProducts,
   fetchPublicPortal,
 } from "@/lib/online-booking-api";
-import {
-  fetchCurrentBondUser,
-  fetchPublicQuestionnaireById,
-  fetchUserBookingInformation,
-  postOnlineBookingCreate,
-} from "@/lib/online-booking-user-api";
-import { buildOnlineBookingCreateBody } from "@/lib/online-booking-create-body";
+import { fetchCurrentBondUser, fetchUserBookingInformation } from "@/lib/online-booking-user-api";
+import { bookingPartyMembersFromProfile } from "@/lib/booking-party-options";
 import { BondBffError } from "@/lib/bond-json";
 import type { BookingScheduleDto, ExtendedProductDto, OnlineBookingView, ScheduleTimeSlotDto } from "@/types/online-booking";
 import type { PackageAddonLine } from "@/lib/product-package-addons";
@@ -86,7 +82,10 @@ import {
   type BookingUrlState,
 } from "./booking-url";
 import { useBondAuth } from "@/components/auth/BondAuthContext";
+import { BookingForDrawer } from "@/components/auth/BookingForDrawer";
 import { LoginModal } from "@/components/auth/LoginModal";
+import { BookingCheckoutDrawer } from "./BookingCheckoutDrawer";
+import { WelcomeToast } from "@/components/ui/WelcomeToast";
 
 const PRODUCTS_PAGE_SIZE = 30;
 
@@ -196,6 +195,7 @@ function ScheduleMatrix({
   membershipGated,
   selectedKeys,
   onToggleSlot,
+  adjustSlotUnitPrice,
 }: {
   schedule: BookingScheduleDto;
   product: ExtendedProductDto | undefined;
@@ -204,6 +204,7 @@ function ScheduleMatrix({
   membershipGated: boolean;
   selectedKeys: ReadonlySet<string>;
   onToggleSlot: (resourceId: number, resourceName: string, slot: ScheduleTimeSlotDto) => void;
+  adjustSlotUnitPrice?: (unitPrice: number) => number;
 }) {
   const timeKeys = useMemo(() => {
     const set = new Set<string>();
@@ -236,10 +237,14 @@ function ScheduleMatrix({
                 const slot = row.timeSlots.find((s) => `${s.startDate} ${s.startTime}` === k);
                 const sk = slot ? slotControlKey(row.resource.id, slot) : "";
                 const picked = sk && selectedKeys.has(sk);
-                const slotTotal =
+                const unit =
                   slot && slot.isAvailable
-                    ? slotDisplayTotalPrice(slot.price, product, durationMinutes)
+                    ? adjustSlotUnitPrice
+                      ? adjustSlotUnitPrice(slot.price)
+                      : slot.price
                     : NaN;
+                const slotTotal =
+                  slot && slot.isAvailable ? slotDisplayTotalPrice(unit, product, durationMinutes) : NaN;
                 return (
                   <td key={k} className="p-3">
                     {slot ? (
@@ -334,6 +339,61 @@ export function BookingExperience() {
     enabled: env.ok && bondUserId != null && bondAuth.session.status === "authenticated",
   });
 
+  const [bookingTargetUserId, setBookingTargetUserId] = useState<number | null>(null);
+  const [bookingForModalOpen, setBookingForModalOpen] = useState(false);
+
+  const partyMembers = useMemo(
+    () => bookingPartyMembersFromProfile(bondProfileQuery.data),
+    [bondProfileQuery.data]
+  );
+
+  const effectiveBookingUserId = bookingTargetUserId ?? bondUserId ?? undefined;
+
+  useEffect(() => {
+    if (bondUserId == null) {
+      setBookingTargetUserId(null);
+      return;
+    }
+    if (bookingTargetUserId === null) {
+      setBookingTargetUserId(bondUserId);
+    }
+  }, [bondUserId, bookingTargetUserId]);
+
+  const [welcomeToastOpen, setWelcomeToastOpen] = useState(false);
+  const [checkoutDrawerOpen, setCheckoutDrawerOpen] = useState(false);
+  const [checkoutBusy, setCheckoutBusy] = useState(false);
+  const welcomeTickPrev = useRef(0);
+  const [pendingWelcome, setPendingWelcome] = useState(false);
+
+  useEffect(() => {
+    if (bondAuth.welcomeToastTick > welcomeTickPrev.current) {
+      welcomeTickPrev.current = bondAuth.welcomeToastTick;
+      setPendingWelcome(true);
+    }
+  }, [bondAuth.welcomeToastTick]);
+
+  useEffect(() => {
+    if (!pendingWelcome) return;
+    if (!bondProfileQuery.isSuccess || bondUserId == null) return;
+    setPendingWelcome(false);
+    setWelcomeToastOpen(true);
+    const t = window.setTimeout(() => {
+      if (partyMembers.length > 1) setBookingForModalOpen(true);
+    }, 480);
+    return () => window.clearTimeout(t);
+  }, [pendingWelcome, bondProfileQuery.isSuccess, bondUserId, partyMembers.length]);
+
+  const welcomeToastTitle = useMemo(() => {
+    const first = typeof bondProfileQuery.data?.firstName === "string" ? bondProfileQuery.data.firstName : "";
+    const last = typeof bondProfileQuery.data?.lastName === "string" ? bondProfileQuery.data.lastName : "";
+    const name = [first, last].filter(Boolean).join(" ");
+    if (name.length > 0) return `Welcome back, ${name}!`;
+    if (bondAuth.session.status === "authenticated" && bondAuth.session.email) {
+      return `Welcome back, ${bondAuth.session.email.split("@")[0]}!`;
+    }
+    return "Welcome back!";
+  }, [bondProfileQuery.data, bondAuth.session]);
+
   const portal = portalQuery.data;
 
   const themeStyle = useMemo(
@@ -425,6 +485,18 @@ export function BookingExperience() {
     [categoryRules]
   );
 
+  const selectedProductForHooks = useMemo(
+    () => (state?.productId != null ? productsQuery.data?.data.find((p) => p.id === state.productId) : undefined),
+    [productsQuery.data, state?.productId]
+  );
+
+  const entitlementAdjust = useMemo(() => {
+    if (bondAuth.session.status !== "authenticated") return (u: number) => u;
+    const ent = selectedProductForHooks?.entitlementDiscounts;
+    if (!Array.isArray(ent) || ent.length === 0) return (u: number) => u;
+    return (u: number) => applyEntitlementDiscountsToUnitPrice(u, ent);
+  }, [bondAuth.session.status, selectedProductForHooks]);
+
   const toggleSlot = useCallback(
     (resourceId: number, resourceName: string, s: ScheduleTimeSlotDto) => {
       const key = slotControlKey(resourceId, s);
@@ -442,7 +514,7 @@ export function BookingExperience() {
           startDate: s.startDate,
           startTime: s.startTime,
           endTime: s.endTime,
-          price: s.price,
+          price: entitlementAdjust(s.price),
         };
         const next = new Map(prev);
         next.set(key, picked);
@@ -455,7 +527,7 @@ export function BookingExperience() {
         return next;
       });
     },
-    [slotRules]
+    [slotRules, entitlementAdjust]
   );
 
   const scheduleContext = useMemo(() => {
@@ -474,8 +546,8 @@ export function BookingExperience() {
       duration: state.duration ?? undefined,
       timeIncrements,
     };
-    return bondUserId != null ? { ...base, userId: bondUserId } : base;
-  }, [env.ok, state, portal, bondUserId]);
+    return effectiveBookingUserId != null ? { ...base, userId: effectiveBookingUserId } : base;
+  }, [env.ok, state, portal, effectiveBookingUserId]);
 
   /** Schedule settings for the product open in the info modal (may differ from selected booking product). */
   const detailModalScheduleContext = useMemo(() => {
@@ -494,8 +566,8 @@ export function BookingExperience() {
       duration: state.duration ?? undefined,
       timeIncrements,
     };
-    return bondUserId != null ? { ...base, userId: bondUserId } : base;
-  }, [env.ok, state, portal, productInfoId, bondUserId]);
+    return effectiveBookingUserId != null ? { ...base, userId: effectiveBookingUserId } : base;
+  }, [env.ok, state, portal, productInfoId, effectiveBookingUserId]);
 
   const detailModalScheduleSettingsQuery = useQuery({
     queryKey: [
@@ -543,17 +615,17 @@ export function BookingExperience() {
       "bond",
       "userBookingInformation",
       env.ok ? env.orgId : 0,
-      bondUserId ?? 0,
+      effectiveBookingUserId ?? 0,
       state?.facilityId,
       state?.categoryId,
       bookingInfoDateRange?.startDate,
       bookingInfoDateRange?.endDate,
     ],
     queryFn: () => {
-      if (!env.ok || bondUserId == null || !state || !bookingInfoDateRange) {
+      if (!env.ok || effectiveBookingUserId == null || !state || !bookingInfoDateRange) {
         throw new Error("Missing booking-information context");
       }
-      return fetchUserBookingInformation(env.orgId, bondUserId, {
+      return fetchUserBookingInformation(env.orgId, effectiveBookingUserId, {
         startDate: bookingInfoDateRange.startDate,
         endDate: bookingInfoDateRange.endDate,
         categoryId: state.categoryId,
@@ -562,11 +634,12 @@ export function BookingExperience() {
     },
     enabled:
       env.ok &&
-      bondUserId != null &&
+      effectiveBookingUserId != null &&
       state != null &&
       bookingInfoDateRange != null &&
       bondAuth.session.status === "authenticated",
   });
+  void bookingInfoQuery.data;
 
   const vipEarlyAccessDates = useMemo(() => {
     const rows = scheduleSettingsQuery.data?.dates ?? [];
@@ -642,51 +715,12 @@ export function BookingExperience() {
     return arr;
   }, [selectedSlots]);
 
-  const productFormsIds = useMemo(() => {
+  const [checkoutMessage, setCheckoutMessage] = useState<string | null>(null);
+
+  const productQuestionnaireIds = useMemo(() => {
     const p = productsQuery.data?.data.find((x) => x.id === state?.productId);
     return Array.isArray(p?.forms) ? p.forms.filter((n) => typeof n === "number" && Number.isFinite(n)) : [];
   }, [productsQuery.data, state?.productId]);
-
-  const questionnaireQueries = useQueries({
-    queries: productFormsIds.map((qid) => ({
-      queryKey: ["bond", "questionnaire", env.ok ? env.orgId : 0, qid],
-      queryFn: () => {
-        if (!env.ok) throw new Error("Missing org");
-        return fetchPublicQuestionnaireById(env.orgId, qid);
-      },
-      enabled: env.ok && productFormsIds.length > 0,
-    })),
-  });
-
-  const [checkoutMessage, setCheckoutMessage] = useState<string | null>(null);
-
-  const createCartMutation = useMutation({
-    mutationFn: async () => {
-      if (!env.ok || !state || bondUserId == null || state.productId == null) {
-        throw new Error("Missing booking context");
-      }
-      const body = buildOnlineBookingCreateBody({
-        userId: bondUserId,
-        portalId: env.portalId,
-        facilityId: state.facilityId,
-        categoryId: state.categoryId,
-        productId: state.productId,
-        slots: pickedSlotsOrdered,
-        addonProductIds: [...selectedAddonIds],
-      });
-      return postOnlineBookingCreate(env.orgId, body);
-    },
-    onSuccess: (cart) => {
-      setCheckoutMessage(`Reservation started. Cart #${cart.id}${cart.subtotal != null ? ` · Subtotal ${cart.subtotal}` : ""}.`);
-    },
-    onError: (e: unknown) => {
-      if (e instanceof BondBffError) {
-        setCheckoutMessage(formatBondUserMessage(e));
-        return;
-      }
-      setCheckoutMessage(e instanceof Error ? e.message : "Could not create reservation.");
-    },
-  });
 
   const onBookNow = useCallback(() => {
     setCheckoutMessage(null);
@@ -695,13 +729,8 @@ export function BookingExperience() {
       return;
     }
     if (pickedSlotsOrdered.length === 0) return;
-    createCartMutation.mutate();
-  }, [
-    bondAuth,
-    bondUserId,
-    pickedSlotsOrdered.length,
-    createCartMutation,
-  ]);
+    setCheckoutDrawerOpen(true);
+  }, [bondAuth, bondUserId, pickedSlotsOrdered.length]);
 
   /* Prune per-slot add-on targets when slot selection shrinks (no external subscription). */
   useEffect(() => {
@@ -931,7 +960,34 @@ export function BookingExperience() {
             {appearanceMode === "light" ? "☀" : appearanceMode === "dark" ? "☾" : "A"}
           </button>
           {bondAuth.session.status === "authenticated" ? (
-            <div className="flex flex-col items-end gap-0.5 sm:flex-row sm:items-center sm:gap-1">
+            <div className="flex max-w-[min(100vw-6rem,20rem)] flex-col items-end gap-0.5 sm:flex-row sm:items-center sm:gap-2">
+              {partyMembers.length > 1 ? (
+                <label className="flex max-w-full items-center gap-1.5">
+                  <span className="hidden text-[0.65rem] text-[var(--cb-text-muted)] sm:inline">Booking for</span>
+                  <select
+                    className="cb-header-booking-for max-w-[140px] truncate rounded-md border border-[var(--cb-border)] bg-[var(--cb-bg-surface)] px-2 py-1 text-[0.7rem] text-[var(--cb-text)] sm:max-w-[180px]"
+                    aria-label="Who this booking is for"
+                    value={effectiveBookingUserId ?? ""}
+                    onChange={(e) => {
+                      const v = Number(e.target.value);
+                      if (Number.isFinite(v)) setBookingTargetUserId(v);
+                    }}
+                  >
+                    {partyMembers.map((o) => (
+                      <option key={o.id} value={o.id}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    className="shrink-0 text-[0.65rem] font-medium text-[var(--cb-primary)] underline-offset-2 hover:underline"
+                    onClick={() => setBookingForModalOpen(true)}
+                  >
+                    Change
+                  </button>
+                </label>
+              ) : null}
               <span
                 className="hidden max-w-[120px] truncate text-[0.65rem] text-[var(--cb-text-muted)] sm:inline"
                 title={bondAuth.session.email}
@@ -1004,6 +1060,20 @@ export function BookingExperience() {
       <p className="sr-only">
         {facilityName}, {categoryName}, {state.activity}
       </p>
+
+      {bondAuth.session.status === "anonymous" ? (
+        <div className="cb-signin-hint mt-4" role="note">
+          <span className="cb-signin-hint-icon" aria-hidden>
+            <IconLogIn className="h-5 w-5 shrink-0 text-[var(--cb-primary)]" />
+          </span>
+          <p className="cb-signin-hint-text">
+            <button type="button" className="cb-signin-hint-cta" onClick={() => bondAuth.setLoginOpen(true)}>
+              Sign in now
+            </button>{" "}
+            to see availability, pricing, and eligibility based on your membership.
+          </p>
+        </div>
+      ) : null}
 
       <div className="mt-6 flex flex-col gap-12">
         <div className="flex flex-col gap-3">
@@ -1177,48 +1247,6 @@ export function BookingExperience() {
           )}
         </section>
 
-        {state.productId != null ? (
-          <Fragment>
-            <div className="cb-signin-hint" role="note">
-              <span className="cb-signin-hint-icon" aria-hidden>
-                <IconLogIn className="h-5 w-5 shrink-0 text-[var(--cb-primary)]" />
-              </span>
-              <p className="cb-signin-hint-text">
-                <button
-                  type="button"
-                  className="cb-signin-hint-cta"
-                  onClick={() => bondAuth.setLoginOpen(true)}
-                >
-                  Sign in now
-                </button>{" "}
-                to see membership benefits, updated pricing, early access and more!
-              </p>
-            </div>
-            {productFormsIds.length > 0 ? (
-              <div className="cb-muted mt-3 max-w-2xl text-left text-sm" role="note">
-                <p>
-                  Checkout questionnaires ({productFormsIds.join(", ")}).
-                  {questionnaireQueries.some((q) => q.isPending)
-                    ? " Loading titles…"
-                    : questionnaireQueries.length > 0
-                      ? ` ${questionnaireQueries
-                          .map((q) =>
-                            typeof q.data?.title === "string" && q.data.title.length > 0
-                              ? q.data.title
-                              : `Form ${String(q.data?.id ?? "")}`
-                          )
-                          .join(" · ")}`
-                      : null}
-                </p>
-                {bondUserId != null && bookingInfoQuery.isSuccess ? (
-                  <p className="mt-1 text-xs text-[var(--cb-text-muted)]">
-                    Booking profile loaded for this schedule window.
-                  </p>
-                ) : null}
-              </div>
-            ) : null}
-          </Fragment>
-        ) : null}
         </div>
 
         {state.productId != null && (
@@ -1389,6 +1417,7 @@ export function BookingExperience() {
                 membershipGated={membershipGated}
                 selectedKeys={selectedKeysSet}
                 onToggleSlot={toggleSlot}
+                adjustSlotUnitPrice={entitlementAdjust}
               />
             </div>
           )}
@@ -1402,6 +1431,7 @@ export function BookingExperience() {
                 priceCurrency={slotPriceCurrency}
                 selectedKeys={selectedKeysSet}
                 onToggleSlot={toggleSlot}
+                adjustSlotUnitPrice={entitlementAdjust}
               />
             </div>
           )}
@@ -1476,6 +1506,7 @@ export function BookingExperience() {
               selectedDate={state.date}
               onSelect={(v) => setDate(v)}
               onClose={() => setPicker(null)}
+              signedIn={bondAuth.session.status === "authenticated"}
             />
           </ModalShell>
           <ModalShell open={picker === "start"} title="Preferred start time" onClose={() => setPicker(null)}>
@@ -1510,13 +1541,54 @@ export function BookingExperience() {
           onClear={clearSlotSelection}
           themeStyle={themeStyle}
           onBook={onBookNow}
-          bookBusy={createCartMutation.isPending}
+          bookBusy={checkoutBusy}
           bookDisabled={pickedSlotsOrdered.length === 0}
           checkoutMessage={checkoutMessage}
         />
       ) : null}
 
       <LoginModal />
+
+      <WelcomeToast
+        open={welcomeToastOpen}
+        title={welcomeToastTitle}
+        subtitle="You are now signed in."
+        onDismiss={() => setWelcomeToastOpen(false)}
+      />
+
+      <BookingForDrawer
+        open={bookingForModalOpen}
+        onClose={() => setBookingForModalOpen(false)}
+        members={partyMembers}
+        value={bookingTargetUserId ?? bondUserId ?? null}
+        onConfirm={(userId) => setBookingTargetUserId(userId)}
+      />
+
+      {env.ok && state && effectiveBookingUserId != null && state.productId != null ? (
+        <BookingCheckoutDrawer
+          open={checkoutDrawerOpen}
+          onClose={() => {
+            setCheckoutDrawerOpen(false);
+            setCheckoutBusy(false);
+          }}
+          orgId={env.orgId}
+          portalId={env.portalId}
+          facilityId={state.facilityId}
+          categoryId={state.categoryId}
+          productId={state.productId}
+          productName={selectedProduct?.name ?? "Service"}
+          userId={effectiveBookingUserId}
+          pickedSlots={pickedSlotsOrdered}
+          selectedAddonIds={[...selectedAddonIds]}
+          questionnaireIds={productQuestionnaireIds}
+          onSubmittingChange={setCheckoutBusy}
+          onSuccess={(cart) => {
+            setCheckoutMessage(
+              `Reservation started. Cart #${cart.id}${cart.subtotal != null ? ` · Subtotal ${cart.subtotal}` : ""}.`
+            );
+          }}
+        />
+      ) : null}
 
       <ProductDetailModal
         open={productInfoId != null}
