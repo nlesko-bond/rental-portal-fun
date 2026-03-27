@@ -1,8 +1,8 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQueries, useQuery } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { formatBondUserMessage } from "@/lib/bond-errors";
 import {
   computeVipEarlyAccessDateKeys,
@@ -39,6 +39,13 @@ import {
   fetchCategoryProducts,
   fetchPublicPortal,
 } from "@/lib/online-booking-api";
+import {
+  fetchCurrentBondUser,
+  fetchPublicQuestionnaireById,
+  fetchUserBookingInformation,
+  postOnlineBookingCreate,
+} from "@/lib/online-booking-user-api";
+import { buildOnlineBookingCreateBody } from "@/lib/online-booking-create-body";
 import { BondBffError } from "@/lib/bond-json";
 import type { BookingScheduleDto, ExtendedProductDto, OnlineBookingView, ScheduleTimeSlotDto } from "@/types/online-booking";
 import type { PackageAddonLine } from "@/lib/product-package-addons";
@@ -275,6 +282,10 @@ export function BookingExperience() {
   const searchParams = useSearchParams();
   const env = useBondEnv(searchParams.toString());
   const bondAuth = useBondAuth();
+  const bondUserId =
+    bondAuth.session.status === "authenticated" && bondAuth.session.bondUserId != null
+      ? bondAuth.session.bondUserId
+      : undefined;
   const [preferredStartTime, setPreferredStartTime] = useState<string | null>(null);
   const [selectedSlots, setSelectedSlots] = useState<Map<string, PickedSlot>>(new Map());
   const [selectedAddonIds, setSelectedAddonIds] = useState<Set<number>>(new Set());
@@ -312,6 +323,15 @@ export function BookingExperience() {
       return fetchPublicPortal(env.orgId, env.portalId);
     },
     enabled: env.ok,
+  });
+
+  const bondProfileQuery = useQuery({
+    queryKey: ["bond", "userProfile", env.ok ? env.orgId : 0, bondUserId ?? 0],
+    queryFn: () => {
+      if (!env.ok || bondUserId == null) throw new Error("Missing profile context");
+      return fetchCurrentBondUser(env.orgId);
+    },
+    enabled: env.ok && bondUserId != null && bondAuth.session.status === "authenticated",
   });
 
   const portal = portalQuery.data;
@@ -448,13 +468,14 @@ export function BookingExperience() {
         if (filtered.length > 0) timeIncrements = filtered;
       }
     }
-    return {
+    const base = {
       facilityId: state.facilityId,
       productId: state.productId,
       duration: state.duration ?? undefined,
       timeIncrements,
     };
-  }, [env.ok, state, portal]);
+    return bondUserId != null ? { ...base, userId: bondUserId } : base;
+  }, [env.ok, state, portal, bondUserId]);
 
   /** Schedule settings for the product open in the info modal (may differ from selected booking product). */
   const detailModalScheduleContext = useMemo(() => {
@@ -467,13 +488,14 @@ export function BookingExperience() {
         if (filtered.length > 0) timeIncrements = filtered;
       }
     }
-    return {
+    const base = {
       facilityId: state.facilityId,
       productId: productInfoId,
       duration: state.duration ?? undefined,
       timeIncrements,
     };
-  }, [env.ok, state, portal, productInfoId]);
+    return bondUserId != null ? { ...base, userId: bondUserId } : base;
+  }, [env.ok, state, portal, productInfoId, bondUserId]);
 
   const detailModalScheduleSettingsQuery = useQuery({
     queryKey: [
@@ -509,6 +531,42 @@ export function BookingExperience() {
     const rows = scheduleSettingsQuery.data?.dates ?? [];
     return filterDatesByAdvanceWindow(rows, categoryRules?.advanceBookingWindowDays ?? null);
   }, [scheduleSettingsQuery.data, categoryRules?.advanceBookingWindowDays]);
+
+  const bookingInfoDateRange = useMemo(() => {
+    const dates = filteredScheduleDates.map((x) => x.date).sort();
+    if (dates.length === 0) return null;
+    return { startDate: dates[0]!, endDate: dates[dates.length - 1]! };
+  }, [filteredScheduleDates]);
+
+  const bookingInfoQuery = useQuery({
+    queryKey: [
+      "bond",
+      "userBookingInformation",
+      env.ok ? env.orgId : 0,
+      bondUserId ?? 0,
+      state?.facilityId,
+      state?.categoryId,
+      bookingInfoDateRange?.startDate,
+      bookingInfoDateRange?.endDate,
+    ],
+    queryFn: () => {
+      if (!env.ok || bondUserId == null || !state || !bookingInfoDateRange) {
+        throw new Error("Missing booking-information context");
+      }
+      return fetchUserBookingInformation(env.orgId, bondUserId, {
+        startDate: bookingInfoDateRange.startDate,
+        endDate: bookingInfoDateRange.endDate,
+        categoryId: state.categoryId,
+        facilityId: state.facilityId,
+      });
+    },
+    enabled:
+      env.ok &&
+      bondUserId != null &&
+      state != null &&
+      bookingInfoDateRange != null &&
+      bondAuth.session.status === "authenticated",
+  });
 
   const vipEarlyAccessDates = useMemo(() => {
     const rows = scheduleSettingsQuery.data?.dates ?? [];
@@ -583,6 +641,67 @@ export function BookingExperience() {
     });
     return arr;
   }, [selectedSlots]);
+
+  const productFormsIds = useMemo(() => {
+    const p = productsQuery.data?.data.find((x) => x.id === state?.productId);
+    return Array.isArray(p?.forms) ? p.forms.filter((n) => typeof n === "number" && Number.isFinite(n)) : [];
+  }, [productsQuery.data, state?.productId]);
+
+  const questionnaireQueries = useQueries({
+    queries: productFormsIds.map((qid) => ({
+      queryKey: ["bond", "questionnaire", env.ok ? env.orgId : 0, qid],
+      queryFn: () => {
+        if (!env.ok) throw new Error("Missing org");
+        return fetchPublicQuestionnaireById(env.orgId, qid);
+      },
+      enabled: env.ok && productFormsIds.length > 0,
+    })),
+  });
+
+  const [checkoutMessage, setCheckoutMessage] = useState<string | null>(null);
+
+  const createCartMutation = useMutation({
+    mutationFn: async () => {
+      if (!env.ok || !state || bondUserId == null || state.productId == null) {
+        throw new Error("Missing booking context");
+      }
+      const body = buildOnlineBookingCreateBody({
+        userId: bondUserId,
+        portalId: env.portalId,
+        facilityId: state.facilityId,
+        categoryId: state.categoryId,
+        productId: state.productId,
+        slots: pickedSlotsOrdered,
+        addonProductIds: [...selectedAddonIds],
+      });
+      return postOnlineBookingCreate(env.orgId, body);
+    },
+    onSuccess: (cart) => {
+      setCheckoutMessage(`Reservation started. Cart #${cart.id}${cart.subtotal != null ? ` · Subtotal ${cart.subtotal}` : ""}.`);
+    },
+    onError: (e: unknown) => {
+      if (e instanceof BondBffError) {
+        setCheckoutMessage(formatBondUserMessage(e));
+        return;
+      }
+      setCheckoutMessage(e instanceof Error ? e.message : "Could not create reservation.");
+    },
+  });
+
+  const onBookNow = useCallback(() => {
+    setCheckoutMessage(null);
+    if (bondAuth.session.status !== "authenticated" || bondUserId == null) {
+      bondAuth.setLoginOpen(true);
+      return;
+    }
+    if (pickedSlotsOrdered.length === 0) return;
+    createCartMutation.mutate();
+  }, [
+    bondAuth,
+    bondUserId,
+    pickedSlotsOrdered.length,
+    createCartMutation,
+  ]);
 
   /* Prune per-slot add-on targets when slot selection shrinks (no external subscription). */
   useEffect(() => {
@@ -817,7 +936,11 @@ export function BookingExperience() {
                 className="hidden max-w-[120px] truncate text-[0.65rem] text-[var(--cb-text-muted)] sm:inline"
                 title={bondAuth.session.email}
               >
-                {bondAuth.session.email ?? "Signed in"}
+                {(typeof bondProfileQuery.data?.firstName === "string" && bondProfileQuery.data.firstName.length > 0
+                  ? bondProfileQuery.data.firstName
+                  : null) ??
+                  bondAuth.session.email ??
+                  "Signed in"}
               </span>
               <button
                 type="button"
@@ -1055,21 +1178,46 @@ export function BookingExperience() {
         </section>
 
         {state.productId != null ? (
-          <div className="cb-signin-hint" role="note">
-            <span className="cb-signin-hint-icon" aria-hidden>
-              <IconLogIn className="h-5 w-5 shrink-0 text-[var(--cb-primary)]" />
-            </span>
-            <p className="cb-signin-hint-text">
-              <button
-                type="button"
-                className="cb-signin-hint-cta"
-                onClick={() => bondAuth.setLoginOpen(true)}
-              >
-                Sign in now
-              </button>{" "}
-              to see membership benefits, updated pricing, early access and more!
-            </p>
-          </div>
+          <Fragment>
+            <div className="cb-signin-hint" role="note">
+              <span className="cb-signin-hint-icon" aria-hidden>
+                <IconLogIn className="h-5 w-5 shrink-0 text-[var(--cb-primary)]" />
+              </span>
+              <p className="cb-signin-hint-text">
+                <button
+                  type="button"
+                  className="cb-signin-hint-cta"
+                  onClick={() => bondAuth.setLoginOpen(true)}
+                >
+                  Sign in now
+                </button>{" "}
+                to see membership benefits, updated pricing, early access and more!
+              </p>
+            </div>
+            {productFormsIds.length > 0 ? (
+              <div className="cb-muted mt-3 max-w-2xl text-left text-sm" role="note">
+                <p>
+                  Checkout questionnaires ({productFormsIds.join(", ")}).
+                  {questionnaireQueries.some((q) => q.isPending)
+                    ? " Loading titles…"
+                    : questionnaireQueries.length > 0
+                      ? ` ${questionnaireQueries
+                          .map((q) =>
+                            typeof q.data?.title === "string" && q.data.title.length > 0
+                              ? q.data.title
+                              : `Form ${String(q.data?.id ?? "")}`
+                          )
+                          .join(" · ")}`
+                      : null}
+                </p>
+                {bondUserId != null && bookingInfoQuery.isSuccess ? (
+                  <p className="mt-1 text-xs text-[var(--cb-text-muted)]">
+                    Booking profile loaded for this schedule window.
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+          </Fragment>
         ) : null}
         </div>
 
@@ -1361,6 +1509,10 @@ export function BookingExperience() {
           error={slotBarError}
           onClear={clearSlotSelection}
           themeStyle={themeStyle}
+          onBook={onBookNow}
+          bookBusy={createCartMutation.isPending}
+          bookDisabled={pickedSlotsOrdered.length === 0}
+          checkoutMessage={checkoutMessage}
         />
       ) : null}
 

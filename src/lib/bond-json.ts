@@ -18,11 +18,7 @@ function previewNonJsonBody(text: string, max = 180): string {
   return oneLine.length > max ? `${oneLine.slice(0, max)}…` : oneLine;
 }
 
-export async function bondBffGetJson<T>(
-  pathSegments: string[],
-  searchParams?: URLSearchParams
-): Promise<T> {
-  const res = await bondBffFetch(pathSegments, { searchParams });
+async function bondBffJsonFromResponse<T>(res: Response): Promise<T> {
   const raw = await res.text();
   const text = raw.replace(/^\uFEFF/, "").trim();
   const contentType = res.headers.get("content-type") ?? "";
@@ -54,4 +50,29 @@ export async function bondBffGetJson<T>(
     throw new BondBffError(res.status, msg, parsed);
   }
   return parsed as T;
+}
+
+export async function bondBffGetJson<T>(
+  pathSegments: string[],
+  searchParams?: URLSearchParams
+): Promise<T> {
+  const res = await bondBffFetch(pathSegments, { searchParams });
+  return bondBffJsonFromResponse<T>(res);
+}
+
+/**
+ * POST JSON to the BFF (e.g. `POST .../online-booking/create`). Uses cookies for JWT when set.
+ */
+export async function bondBffPostJson<T>(
+  pathSegments: string[],
+  body: unknown,
+  searchParams?: URLSearchParams
+): Promise<T> {
+  const res = await bondBffFetch(pathSegments, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify(body ?? {}),
+    searchParams,
+  });
+  return bondBffJsonFromResponse<T>(res);
 }

@@ -36,3 +36,13 @@ export function jwtEmailHint(token: string): string | undefined {
   if (typeof preferred === "string") return preferred;
   return undefined;
 }
+
+/** Bond `custom:userId` on the ID token (consumer / org user id for API paths). */
+export function bondNumericUserIdFromIdToken(idToken: string): number | null {
+  const p = decodeJwtPayload(idToken);
+  if (!p) return null;
+  const raw = p["custom:userId"];
+  if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+  if (typeof raw === "string" && /^\d+$/.test(raw)) return Number(raw);
+  return null;
+}

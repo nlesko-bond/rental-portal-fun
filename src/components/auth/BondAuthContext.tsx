@@ -13,7 +13,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 export type BondSession =
   | { status: "loading" }
   | { status: "anonymous" }
-  | { status: "authenticated"; email?: string };
+  | { status: "authenticated"; email?: string; bondUserId?: number };
 
 type Ctx = {
   session: BondSession;
@@ -40,6 +40,7 @@ export function BondAuthProvider({ children }: { children: ReactNode }) {
       return (await res.json()) as {
         authenticated: boolean;
         email?: string;
+        bondUserId?: number;
         reason?: string;
       };
     },
@@ -49,7 +50,9 @@ export function BondAuthProvider({ children }: { children: ReactNode }) {
   const session: BondSession = useMemo(() => {
     if (q.isPending) return { status: "loading" };
     const d = q.data;
-    if (d?.authenticated) return { status: "authenticated", email: d.email };
+    if (d?.authenticated) {
+      return { status: "authenticated", email: d.email, bondUserId: d.bondUserId };
+    }
     return { status: "anonymous" };
   }, [q.isPending, q.data]);
 

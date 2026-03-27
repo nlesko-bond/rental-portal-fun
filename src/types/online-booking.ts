@@ -79,6 +79,8 @@ export type ExtendedProductDto = {
   media?: Array<{ url?: string }>;
   /** Add-ons or linked products (e.g. bat rental) when returned by the API */
   requiredProducts?: RequiredProductRefDto[];
+  /** Checkout questionnaire ids from Bond (product `forms`). */
+  forms?: number[];
   /** Product packages (optional add-ons often nested here in Bond payloads) */
   packages?: unknown[];
   downPayment?: number;
@@ -145,3 +147,34 @@ export type BookingScheduleSettingsDto = {
   dates: DateAndTimesDto[];
   resources: PublicResourceDto[];
 };
+
+/** `GET .../online-booking/user/{userId}/booking-information` */
+export type UserBookingInformationDto = {
+  slots?: unknown;
+  members?: unknown;
+  settings?: unknown;
+} & Record<string, unknown>;
+
+export type PublicQuestionnaireQuestionDto = Record<string, unknown>;
+
+/** `GET .../questionnaires/{id}` */
+export type PublicQuestionnaireDto = {
+  id: number;
+  title?: string;
+  organizationId?: number;
+  createdAt?: string;
+  questions?: PublicQuestionnaireQuestionDto[];
+} & Record<string, unknown>;
+
+export type PublicCheckoutQuestionnaireDto = PublicQuestionnaireDto & Record<string, unknown>;
+
+/** `POST .../online-booking/create` → 201 */
+export type OrganizationCartDto = {
+  id: number;
+  organizationId: number;
+  price?: number;
+  status?: string;
+  currency?: string;
+  subtotal?: number;
+  cartItems?: unknown[];
+} & Record<string, unknown>;

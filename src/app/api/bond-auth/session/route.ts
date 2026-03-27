@@ -3,7 +3,7 @@ import { bondCookieDefaults, BOND_COOKIE_ACCESS, BOND_COOKIE_ID, BOND_COOKIE_REF
 import { clearBondAuthCookies } from "@/lib/bond-auth-clear";
 import { extractBondAuthTokens } from "@/lib/bond-auth-tokens";
 import { fetchBondRefresh } from "@/lib/bond-refresh-fetch";
-import { jwtEmailHint, jwtExpSeconds } from "@/lib/jwt-payload";
+import { bondNumericUserIdFromIdToken, jwtEmailHint, jwtExpSeconds } from "@/lib/jwt-payload";
 
 export async function GET(request: NextRequest) {
   const base = process.env.BOND_AUTH_BASE_URL?.replace(/\/$/, "");
@@ -25,6 +25,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({
         authenticated: true as const,
         email: jwtEmailHint(idt),
+        bondUserId: bondNumericUserIdFromIdToken(idt) ?? undefined,
       });
     }
   }
@@ -68,6 +69,7 @@ export async function GET(request: NextRequest) {
     const out = NextResponse.json({
       authenticated: true as const,
       email: jwtEmailHint(tokens.idToken),
+      bondUserId: bondNumericUserIdFromIdToken(tokens.idToken) ?? undefined,
     });
     out.cookies.set(BOND_COOKIE_ACCESS, tokens.accessToken, { ...opts, maxAge: 60 * 60 * 12 });
     out.cookies.set(BOND_COOKIE_ID, tokens.idToken, { ...opts, maxAge: 60 * 60 * 12 });

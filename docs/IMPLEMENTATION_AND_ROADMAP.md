@@ -10,7 +10,7 @@
 
 - Repo is **standalone** from Bond `squad-c`. Integration is **hosted HTTP APIs only**.
 - **`X-Api-Key` never** in browser code or `NEXT_PUBLIC_*`. All Bond calls go through **`/api/bond/...`** (BFF).
-- BFF already forwards optional **`X-BondUserAccessToken`** / **`X-BondUserIdToken`** from incoming request headers when present (`src/app/api/bond/[...path]/route.ts`) — wire these from auth when Phase 2 lands.
+- BFF forwards **`X-BondUserAccessToken`** / **`X-BondUserIdToken`** from request headers **or** httpOnly cookies (`src/app/api/bond/[...path]/route.ts`).
 
 ---
 
@@ -55,9 +55,9 @@ flowchart LR
   BFF --> Bond
 ```
 
-- **BFF:** `src/app/api/bond/[...path]/route.ts` — only allows paths under `v1/organization/...`; GET/POST; attaches `X-Api-Key`.
-- **Client HTTP:** `src/lib/bond-json.ts` (`bondBffGetJson`, `BondBffError`), `src/lib/bond-client.ts` (path builder).
-- **Domain API wrappers:** `src/lib/online-booking-api.ts` — portal, products, schedule settings, schedule (+ recovery variants for flaky instructor/lesson-style queries).
+- **BFF:** `src/app/api/bond/[...path]/route.ts` — only allows paths under `v1/organization/...`; GET/POST; attaches `X-Api-Key`; forwards user JWTs from httpOnly cookies set by `/api/bond-auth/login`.
+- **Client HTTP:** `src/lib/bond-json.ts` (`bondBffGetJson`, `bondBffPostJson`, `BondBffError`), `src/lib/bond-client.ts` (path builder).
+- **Domain API wrappers:** `src/lib/online-booking-api.ts` — portal, products, schedule settings, schedule (+ recovery). **`src/lib/online-booking-user-api.ts`** — `getUser`, booking-information, questionnaires, required products, `POST .../online-booking/create`.
 - **UI state:** `@tanstack/react-query` in `src/app/providers.tsx`.
 - **Main screen:** `src/components/booking/BookingExperience.tsx` (large; contains schedule matrix table, URL sync, queries).
 
@@ -111,7 +111,8 @@ flowchart LR
 
 ### Misc UX
 
-- Sign-in hint with prominent **“Sign in now”** button (no auth wired).
+- **Auth:** consumer login via `/api/bond-auth/*`; header user control + **“Sign in now”** opens login modal; **Book now** in the bottom bar calls `POST .../online-booking/create` (payload from `online-booking-create-body.ts` — align with Bond if 400).
+- **Logged-in:** `userId` on schedule queries; `getUser` + booking-information; product **`forms`** drive questionnaire title prefetch.
 - Bond error shaping for BFF responses (`bond-errors.ts`).
 - Optional **recovery** schedule requests when Bond returns certain errors (`online-booking-api.ts` — instructor / alternate resource experiments).
 
@@ -135,16 +136,12 @@ Use Swagger as source of truth when endpoints appear or change.
 
 ### 1. Auth
 
-- Login / register / token refresh per public API.
-- Store session (prefer **httpOnly cookies** or pattern Bond documents); pass tokens to BFF via headers already supported on the route.
-- Replace placeholder **Sign in now** with real navigation or modal.
+- **Done (baseline):** login + refresh + httpOnly cookies; `/api/bond-auth/session` exposes `bondUserId` from `custom:userId` on the ID token.
 
 ### 2. Authenticated user context
 
-- **getUser** (or equivalent) after login.
-- Thread **`userId`** (or documented param) into:
-  - `schedule` / `schedule/settings` if API supports member-specific windows.
-  - Product list if **member-only** or **customer-gated** filtering is server-driven.
+- **Done (baseline):** `getUser` + **`userId`** on schedule/settings + modal schedule; **booking-information** for the visible date range; **questionnaires** from `product.forms`; `POST` create from the bottom bar.
+- **Next:** family picker + `checkout-questionnaires` with **`cartId`** after create; answer submission; payment / pay endpoints when available.
 
 ### 3. Member / VIP / entitlements (product requirements)
 

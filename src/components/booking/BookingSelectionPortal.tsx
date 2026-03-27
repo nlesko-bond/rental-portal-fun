@@ -10,6 +10,10 @@ type Props = {
   onClear: () => void;
   /** `--cb-*` variables from `resolveBookingThemeStyle` so tokens apply on `body` portal. */
   themeStyle: CSSProperties;
+  onBook?: () => void;
+  bookBusy?: boolean;
+  bookDisabled?: boolean;
+  checkoutMessage?: string | null;
 };
 
 function useIsClient(): boolean {
@@ -23,7 +27,16 @@ function useIsClient(): boolean {
 /**
  * Fixed bottom booking summary (viewport) — single primary CTA row + cart affordance per mocks.
  */
-export function BookingSelectionPortal({ slotCount, error, onClear, themeStyle }: Props) {
+export function BookingSelectionPortal({
+  slotCount,
+  error,
+  onClear,
+  themeStyle,
+  onBook,
+  bookBusy,
+  bookDisabled,
+  checkoutMessage,
+}: Props) {
   const isClient = useIsClient();
 
   if (!isClient || typeof document === "undefined") return null;
@@ -46,11 +59,23 @@ export function BookingSelectionPortal({ slotCount, error, onClear, themeStyle }
               <button type="button" className="cb-selection-clearlink" onClick={onClear}>
                 Clear
               </button>
-              <button type="button" className="cb-selection-book cb-selection-book--unified">
-                {slotCount} slot{slotCount === 1 ? "" : "s"} selected — Book now →
+              <button
+                type="button"
+                className="cb-selection-book cb-selection-book--unified"
+                disabled={bookDisabled || bookBusy || slotCount === 0}
+                onClick={onBook}
+              >
+                {bookBusy
+                  ? "Booking…"
+                  : `${slotCount} slot${slotCount === 1 ? "" : "s"} selected — Book now →`}
               </button>
             </div>
           </div>
+          {checkoutMessage ? (
+            <p className="cb-selection-ok-below mt-2 max-w-lg text-center text-sm text-[var(--cb-text-muted)]">
+              {checkoutMessage}
+            </p>
+          ) : null}
           {error ? <p className="cb-selection-err-below">{error}</p> : null}
         </div>
       ) : null}

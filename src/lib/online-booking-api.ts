@@ -50,6 +50,8 @@ export type ScheduleQuery = {
   duration?: number;
   timeIncrements?: number[];
   resourcesIds?: number[];
+  /** When set, Bond applies membership / user-specific schedule rules (JWT required). */
+  userId?: number;
 };
 
 function scheduleSearchParams(q: ScheduleQuery): URLSearchParams {
@@ -58,6 +60,7 @@ function scheduleSearchParams(q: ScheduleQuery): URLSearchParams {
   sp.set("productId", String(q.productId));
   if (q.date) sp.set("date", q.date);
   if (q.duration != null) sp.set("duration", String(q.duration));
+  if (q.userId != null) sp.set("userId", String(q.userId));
   for (const n of q.timeIncrements ?? []) {
     if (Number.isFinite(n) && n > 0) sp.append("timeIncrements", String(n));
   }
@@ -88,6 +91,7 @@ function scheduleQuerySignature(v: ScheduleQuery): string {
     v.duration ?? "x",
     (v.timeIncrements ?? []).join(":"),
     (v.resourcesIds ?? []).join(":"),
+    v.userId ?? "",
   ].join("|");
 }
 
