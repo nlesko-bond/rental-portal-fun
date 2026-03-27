@@ -10,6 +10,10 @@ type Props = {
   onClear: () => void;
   /** `--cb-*` variables from `resolveBookingThemeStyle` so tokens apply on `body` portal. */
   themeStyle: CSSProperties;
+  /** Same classes as main `.consumer-booking` (e.g. `consumer-booking--light`) so tokens match forced theme */
+  appearanceClass?: string;
+  /** Hide bar while checkout drawer is open — user is already in the booking flow */
+  suppressed?: boolean;
   onBook?: () => void;
   bookBusy?: boolean;
   bookDisabled?: boolean;
@@ -32,6 +36,8 @@ export function BookingSelectionPortal({
   error,
   onClear,
   themeStyle,
+  appearanceClass = "",
+  suppressed = false,
   onBook,
   bookBusy,
   bookDisabled,
@@ -41,11 +47,15 @@ export function BookingSelectionPortal({
 
   if (!isClient || typeof document === "undefined") return null;
 
+  if (suppressed) return null;
+
   const show = slotCount > 0 || (error != null && error.length > 0);
   if (!show) return null;
 
+  const wrapCls = `consumer-booking ${appearanceClass} cb-selection-portal`.trim();
+
   return createPortal(
-    <div className="cb-selection-portal" style={themeStyle}>
+    <div className={wrapCls} style={themeStyle}>
       {error && slotCount === 0 ? <p className="cb-selection-err">{error}</p> : null}
       {slotCount > 0 ? (
         <div className="cb-selection-cluster">

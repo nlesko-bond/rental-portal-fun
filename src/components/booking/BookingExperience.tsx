@@ -45,6 +45,7 @@ import { bookingPartyMembersFromProfile } from "@/lib/booking-party-options";
 import { BondBffError } from "@/lib/bond-json";
 import type { BookingScheduleDto, ExtendedProductDto, OnlineBookingView, ScheduleTimeSlotDto } from "@/types/online-booking";
 import type { PackageAddonLine } from "@/lib/product-package-addons";
+import { CB_BOOKING_APPEARANCE_EVENT, CB_BOOKING_APPEARANCE_KEY } from "@/lib/booking-appearance";
 import { bookingAppearanceClass, resolveBookingThemeStyle, type BookingThemeUrlOverrides } from "@/lib/booking-theme";
 import { clientScheduleViews, viewUiLabel } from "@/lib/booking-views";
 import { resolveProductCardImageAtStep, type ProductCardImageFallbackStep } from "@/lib/product-card-image";
@@ -88,8 +89,6 @@ import { BookingCheckoutDrawer } from "./BookingCheckoutDrawer";
 import { WelcomeToast } from "@/components/ui/WelcomeToast";
 
 const PRODUCTS_PAGE_SIZE = 30;
-
-const CB_APPEARANCE_STORAGE = "cb-booking-appearance";
 
 function IconUserCircle() {
   return (
@@ -303,7 +302,7 @@ export function BookingExperience() {
   const [appearanceMode, setAppearanceMode] = useState<"system" | "light" | "dark">(() => {
     if (typeof window === "undefined") return "system";
     try {
-      const v = localStorage.getItem(CB_APPEARANCE_STORAGE);
+      const v = localStorage.getItem(CB_BOOKING_APPEARANCE_KEY);
       if (v === "light" || v === "dark" || v === "system") return v;
     } catch {
       /* ignore */
@@ -426,7 +425,12 @@ export function BookingExperience() {
       const i = order.indexOf(prev);
       const next = order[(i + 1) % order.length]!;
       try {
-        localStorage.setItem(CB_APPEARANCE_STORAGE, next);
+        localStorage.setItem(CB_BOOKING_APPEARANCE_KEY, next);
+      } catch {
+        /* ignore */
+      }
+      try {
+        window.dispatchEvent(new CustomEvent(CB_BOOKING_APPEARANCE_EVENT));
       } catch {
         /* ignore */
       }
@@ -1560,6 +1564,8 @@ export function BookingExperience() {
           error={slotBarError}
           onClear={clearSlotSelection}
           themeStyle={themeStyle}
+          appearanceClass={appearanceClass}
+          suppressed={checkoutDrawerOpen}
           onBook={onBookNow}
           bookBusy={checkoutBusy}
           bookDisabled={pickedSlotsOrdered.length === 0}
@@ -1620,6 +1626,7 @@ export function BookingExperience() {
           formatPrice={formatPrice}
           bookingForLabel={bookingForLabel}
           bookingForBadge={bookingForBadge}
+          appearanceClass={appearanceClass}
         />
       ) : null}
 

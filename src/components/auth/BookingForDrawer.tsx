@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useBookingAppearanceClass } from "@/hooks/useBookingAppearanceClass";
 import { RightDrawer } from "@/components/ui/RightDrawer";
 import type { BookingPartyMember } from "@/lib/booking-party-options";
 
@@ -35,6 +36,7 @@ export function BookingForDrawer({
   onConfirm,
   profileLoading = false,
 }: Props) {
+  const appearanceClass = useBookingAppearanceClass();
   const [sel, setSel] = useState<number | null>(value);
   useEffect(() => {
     if (open) setSel(value);
@@ -48,7 +50,7 @@ export function BookingForDrawer({
       onClose={onClose}
       hideTitle
       ariaLabel="Who is this booking for?"
-      panelClassName="consumer-booking cb-booking-for-drawer"
+      panelClassName={`consumer-booking ${appearanceClass} cb-booking-for-drawer`.trim()}
     >
       <div className="cb-booking-for-head">
         <div className="cb-booking-for-icon" aria-hidden>

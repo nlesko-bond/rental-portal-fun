@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useBookingAppearanceClass } from "@/hooks/useBookingAppearanceClass";
 import { RightDrawer } from "@/components/ui/RightDrawer";
 import { useBondAuth } from "./BondAuthContext";
 
@@ -49,6 +50,7 @@ function IconUserBadge() {
 }
 
 export function LoginModal() {
+  const appearanceClass = useBookingAppearanceClass();
   const { loginOpen, setLoginOpen, login } = useBondAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -78,7 +80,7 @@ export function LoginModal() {
       onClose={() => setLoginOpen(false)}
       hideTitle
       ariaLabel="Sign in or create account"
-      panelClassName="consumer-booking cb-login-drawer"
+      panelClassName={`consumer-booking ${appearanceClass} cb-login-drawer`.trim()}
     >
       <div className="cb-login-drawer-inner">
         <div className="flex flex-col items-center gap-1">

@@ -1,6 +1,19 @@
-/** Normalize Bond / public questionnaire question payloads (shapes vary by version). */
+/** Normalize Bond questionnaire question payloads (public + checkout APIs). */
 
-export type QuestionFieldKind = "text" | "date" | "number" | "boolean" | "select" | "multiselect";
+export type QuestionFieldKind =
+  | "text"
+  | "textarea"
+  | "email"
+  | "tel"
+  | "address"
+  | "date"
+  | "number"
+  | "boolean"
+  | "yesno"
+  | "select"
+  | "multiselect"
+  | "waiver"
+  | "file";
 
 export type NormalizedQuestionOption = { value: string; label: string };
 
@@ -10,6 +23,12 @@ export type NormalizedQuestion = {
   mandatory: boolean;
   kind: QuestionFieldKind;
   options: NormalizedQuestionOption[];
+  ordinal: number;
+  /** Rich HTML for waiver / customWaiver (sanitize before render) */
+  htmlContent?: string;
+  maxLength?: number;
+  numericMin?: number;
+  numericMax?: number;
 };
 
 function numId(v: unknown): number | null {
@@ -18,7 +37,33 @@ function numId(v: unknown): number | null {
   return null;
 }
 
-function parseOptions(raw: unknown): NormalizedQuestionOption[] {
+function numOpt(v: unknown): number | undefined {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  return undefined;
+}
+
+function readMetadata(q: Record<string, unknown>): Record<string, unknown> {
+  const m = q.metadata;
+  if (m && typeof m === "object") return m as Record<string, unknown>;
+  return {};
+}
+
+function parseSelectOptionsFromMetadata(meta: Record<string, unknown>): NormalizedQuestionOption[] {
+  const raw = meta.selectOptions;
+  if (!Array.isArray(raw)) return [];
+  const out: NormalizedQuestionOption[] = [];
+  for (const o of raw) {
+    if (o && typeof o === "object") {
+      const t = (o as Record<string, unknown>).text;
+      if (typeof t === "string" && t.length > 0) {
+        out.push({ value: t, label: t });
+      }
+    }
+  }
+  return out;
+}
+
+function parseOptionsLegacy(raw: unknown): NormalizedQuestionOption[] {
   if (!Array.isArray(raw)) return [];
   const out: NormalizedQuestionOption[] = [];
   for (const o of raw) {
@@ -55,36 +100,103 @@ export function normalizeQuestion(raw: unknown): NormalizedQuestion | null {
   const q = raw as Record<string, unknown>;
   const id = numId(q.id);
   if (id == null) return null;
+
   const label =
+    (typeof q.question === "string" && q.question.trim().length > 0 && q.question) ||
     (typeof q.text === "string" && q.text) ||
     (typeof q.label === "string" && q.label) ||
     (typeof q.title === "string" && q.title) ||
     (typeof q.name === "string" && q.name) ||
     `Question ${id}`;
+
   const mandatory = Boolean(
     q.isMandatory === true || q.mandatory === true || q.required === true || q.isRequired === true
   );
-  const rawType = String(
-    q.questionType ?? q.type ?? q.inputType ?? q.fieldType ?? q.answerType ?? ""
-  ).toLowerCase();
-  const options = parseOptions(q.options ?? q.answerOptions ?? q.choices ?? q.values);
+
+  const ordinal = typeof q.ordinal === "number" && Number.isFinite(q.ordinal) ? q.ordinal : 0;
+  const meta = readMetadata(q);
+  const customType = typeof meta.customType === "string" ? meta.customType.toLowerCase() : "";
+
+  const qtRaw = String(q.questionType ?? q.type ?? q.inputType ?? q.fieldType ?? q.answerType ?? "").trim();
+  const qt = qtRaw.toLowerCase();
 
   let kind: QuestionFieldKind = "text";
-  if (rawType.includes("multi") && (rawType.includes("select") || rawType.includes("choice"))) {
-    kind = "multiselect";
-  } else if (rawType.includes("select") || rawType.includes("dropdown") || rawType.includes("choice")) {
-    kind = "select";
-  } else if (rawType.includes("date") || rawType.includes("calendar")) {
+  let options: NormalizedQuestionOption[] = [];
+  let htmlContent: string | undefined;
+  let maxLength: number | undefined;
+  let numericMin: number | undefined;
+  let numericMax: number | undefined;
+
+  if (qt === "emailaddress" || qt === "email") {
+    kind = "email";
+  } else if (qt === "phonenumber" || qt === "phone" || qt === "tel") {
+    kind = "tel";
+  } else if (qt === "address") {
+    kind = "address";
+  } else if (qt === "birthdate" || qt === "date") {
     kind = "date";
-  } else if (rawType.includes("bool") || (rawType.includes("checkbox") && !rawType.includes("multi"))) {
+  } else if (qt === "customwaiver") {
+    kind = "waiver";
+    const html = meta.text;
+    htmlContent = typeof html === "string" ? html : undefined;
+  } else if (qt === "waiver") {
+    kind = "waiver";
+  } else if (qt === "other") {
+    if (customType === "yesno") {
+      kind = "yesno";
+    } else if (customType === "multiplechoices") {
+      kind = "multiselect";
+      options = parseSelectOptionsFromMetadata(meta);
+    } else if (customType === "singlechoice") {
+      kind = "select";
+      options = parseSelectOptionsFromMetadata(meta);
+    } else if (customType === "fileupload" || customType === "file") {
+      kind = "file";
+    } else if (customType === "numeric") {
+      kind = "number";
+      numericMin = numOpt(meta.numericFrom);
+      numericMax = numOpt(meta.numericTo);
+    } else if (customType === "text") {
+      kind = "text";
+      const ml = meta.maxLength;
+      if (typeof ml === "number" && Number.isFinite(ml)) maxLength = ml;
+    } else {
+      kind = "text";
+    }
+  } else if (qt.includes("multi") && (qt.includes("select") || qt.includes("choice"))) {
+    kind = "multiselect";
+    options = parseOptionsLegacy(q.options ?? q.answerOptions ?? meta.selectOptions);
+  } else if (qt.includes("select") || qt.includes("dropdown") || qt.includes("choice")) {
+    kind = "select";
+    options = parseOptionsLegacy(q.options ?? q.answerOptions ?? meta.selectOptions);
+  } else if (qt.includes("date") || qt.includes("calendar") || qt.includes("birth")) {
+    kind = "date";
+  } else if (qt.includes("bool") || (qt.includes("checkbox") && !qt.includes("multi"))) {
     kind = "boolean";
-  } else if (rawType.includes("number") || rawType.includes("numeric") || rawType.includes("int")) {
+  } else if (qt.includes("number") || qt.includes("numeric") || qt.includes("int")) {
     kind = "number";
-  } else if (options.length > 0 && kind === "text") {
+  }
+
+  if (options.length === 0) {
+    options = parseOptionsLegacy(q.options ?? q.answerOptions ?? q.choices ?? q.values);
+  }
+
+  if (kind === "text" && options.length > 0) {
     kind = "select";
   }
 
-  return { id, label, mandatory, kind, options };
+  return {
+    id,
+    label,
+    mandatory,
+    kind,
+    options,
+    ordinal,
+    htmlContent,
+    maxLength,
+    numericMin,
+    numericMax,
+  };
 }
 
 export function mergeQuestionnaireQuestions(
@@ -108,7 +220,22 @@ export function mergeQuestionnaireQuestions(
     const id = numId(r.id);
     if (id == null) continue;
     const prev = byId.get(id);
-    byId.set(id, prev ? { ...prev, ...r } : { ...r });
+    if (!prev) {
+      byId.set(id, { ...r });
+      continue;
+    }
+    const merged = { ...prev, ...r } as Record<string, unknown>;
+    if (typeof merged.question !== "string" && typeof prev.question === "string") {
+      merged.question = prev.question;
+    }
+    const pm = prev.metadata;
+    const rm = r.metadata;
+    if (pm && typeof pm === "object" && rm && typeof rm === "object") {
+      merged.metadata = { ...pm, ...rm };
+    } else if (merged.metadata == null && pm != null) {
+      merged.metadata = pm;
+    }
+    byId.set(id, merged);
   }
   const ids = [...byId.keys()].sort((a, b) => a - b);
   const out: NormalizedQuestion[] = [];
@@ -116,6 +243,7 @@ export function mergeQuestionnaireQuestions(
     const n = normalizeQuestion(byId.get(id));
     if (n) out.push(n);
   }
+  out.sort((a, b) => a.ordinal - b.ordinal || a.id - b.id);
   void questionnaireId;
   return out;
 }

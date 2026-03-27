@@ -3188,6 +3188,109 @@ body {
   padding-bottom: 1rem;
 }
 
+.consumer-booking .cb-checkout-addon-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.65rem;
+}
+
+.consumer-booking .cb-checkout-textlink {
+  border: none;
+  background: none;
+  padding: 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--cb-primary);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.consumer-booking .cb-checkout-chip-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.consumer-booking .cb-checkout-chip {
+  border-radius: 999px;
+  border: 1px solid var(--cb-border);
+  background: var(--cb-bg-surface-muted);
+  padding: 0.25rem 0.65rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--cb-text);
+}
+
+.consumer-booking .cb-q-req {
+  color: #dc2626;
+}
+
+.consumer-booking.consumer-booking--dark .cb-q-req {
+  color: #f87171;
+}
+
+@media (prefers-color-scheme: dark) {
+  .consumer-booking:not(.consumer-booking--light) .cb-q-req {
+    color: #f87171;
+  }
+}
+
+.consumer-booking .cb-input-textarea {
+  min-height: 5rem;
+  resize: vertical;
+  line-height: 1.45;
+}
+
+.consumer-booking .cb-q-waiver-scroll-wrap {
+  margin-top: 0.5rem;
+}
+
+.consumer-booking .cb-q-waiver-scroll {
+  max-height: 12rem;
+  overflow-y: auto;
+  border-radius: 0.5rem;
+  border: 1px solid var(--cb-border);
+  background: var(--cb-bg-field);
+  padding: 0.75rem 0.85rem;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--cb-text);
+}
+
+.consumer-booking .cb-prose-muted a {
+  color: var(--cb-primary);
+  text-decoration: underline;
+}
+
+.consumer-booking .cb-q-waiver-hint {
+  margin: 0.35rem 0 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--cb-accent);
+}
+
+.consumer-booking .cb-q-file-drop:focus-within {
+  border-color: var(--cb-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--cb-primary) 25%, transparent);
+}
+
+.consumer-booking .cb-q-radio-row {
+  border-radius: 0.45rem;
+  border: 1px solid var(--cb-border);
+  padding: 0.45rem 0.6rem;
+  background: var(--cb-bg-field);
+}
+
+.consumer-booking .cb-q-radio-list {
+  gap: 0.5rem;
+}
+
 .consumer-booking .cb-checkout-product {
   margin: 0 0 1rem;
   display: flex;
