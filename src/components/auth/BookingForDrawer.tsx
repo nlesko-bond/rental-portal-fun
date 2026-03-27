@@ -10,6 +10,8 @@ type Props = {
   members: BookingPartyMember[];
   value: number | null;
   onConfirm: (userId: number) => void;
+  /** True while `GET .../user?expand=family` is in flight after login */
+  profileLoading?: boolean;
 };
 
 function MemberBadge({ label }: { label: string }) {
@@ -25,13 +27,20 @@ function MemberBadge({ label }: { label: string }) {
   return <span className={`cb-member-badge ${tier}`}>{label}</span>;
 }
 
-export function BookingForDrawer({ open, onClose, members, value, onConfirm }: Props) {
+export function BookingForDrawer({
+  open,
+  onClose,
+  members,
+  value,
+  onConfirm,
+  profileLoading = false,
+}: Props) {
   const [sel, setSel] = useState<number | null>(value);
   useEffect(() => {
     if (open) setSel(value);
   }, [open, value]);
 
-  const canSubmit = sel != null && members.some((m) => m.id === sel);
+  const canSubmit = !profileLoading && sel != null && members.some((m) => m.id === sel);
 
   return (
     <RightDrawer
@@ -68,6 +77,11 @@ export function BookingForDrawer({ open, onClose, members, value, onConfirm }: P
         }}
       >
         <div className="cb-booking-for-list" role="radiogroup" aria-label="Booking for">
+          {profileLoading && members.length === 0 ? (
+            <p className="cb-muted py-4 text-center text-sm" role="status">
+              Loading your family…
+            </p>
+          ) : null}
           {members.map((m) => {
             const active = sel === m.id;
             return (

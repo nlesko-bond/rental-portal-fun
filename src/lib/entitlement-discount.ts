@@ -39,3 +39,46 @@ export function applyEntitlementDiscountsToUnitPrice(unitPrice: number, entitlem
   }
   return price;
 }
+
+/**
+ * Approximate pre-discount unit price for display (strikethrough) by undoing
+ * `applyEntitlementDiscountsToUnitPrice` in reverse entitlement order.
+ */
+export function reverseEntitlementDiscountsToUnitPrice(
+  discountedPrice: number,
+  entitlements: unknown[] | undefined
+): number {
+  if (!Number.isFinite(discountedPrice) || !entitlements?.length) return discountedPrice;
+  let price = discountedPrice;
+  for (let i = entitlements.length - 1; i >= 0; i--) {
+    const raw = entitlements[i];
+    if (!raw || typeof raw !== "object") continue;
+    const e = raw as Record<string, unknown>;
+    const pct =
+      typeof e.percentage === "number"
+        ? e.percentage
+        : typeof e.percent === "number"
+          ? e.percent
+          : typeof e.discountPercent === "number"
+            ? e.discountPercent
+            : typeof e.value === "number" && String(e.discountType ?? e.type ?? "").toLowerCase() === "percent"
+              ? e.value
+              : null;
+    if (pct != null && Number.isFinite(pct) && pct > 0 && pct < 100) {
+      price = price / (1 - Math.min(100, pct) / 100);
+      continue;
+    }
+    const fixed =
+      typeof e.amount === "number"
+        ? e.amount
+        : typeof e.discountAmount === "number"
+          ? e.discountAmount
+          : typeof e.value === "number" && String(e.discountType ?? e.type ?? "").toLowerCase() === "fixed"
+            ? e.value
+            : null;
+    if (fixed != null && Number.isFinite(fixed) && fixed > 0) {
+      price = price + fixed;
+    }
+  }
+  return price;
+}

@@ -349,6 +349,14 @@ export function BookingExperience() {
 
   const effectiveBookingUserId = bookingTargetUserId ?? bondUserId ?? undefined;
 
+  const bookingForMember = useMemo(
+    () =>
+      effectiveBookingUserId != null ? partyMembers.find((m) => m.id === effectiveBookingUserId) : undefined,
+    [partyMembers, effectiveBookingUserId]
+  );
+  const bookingForLabel = bookingForMember?.label ?? "You";
+  const bookingForBadge = bookingForMember?.badgeLabel;
+
   useEffect(() => {
     if (bondUserId == null) {
       setBookingTargetUserId(null);
@@ -372,15 +380,20 @@ export function BookingExperience() {
     }
   }, [bondAuth.welcomeToastTick]);
 
+  /** Open family drawer as soon as we have a logged-in user after login (before profile finishes). */
+  useEffect(() => {
+    if (!pendingWelcome || bondUserId == null) return;
+    setBookingForModalOpen(true);
+  }, [pendingWelcome, bondUserId]);
+
   useEffect(() => {
     if (!pendingWelcome) return;
     if (!bondProfileQuery.isSuccess || bondUserId == null) return;
     setPendingWelcome(false);
     setWelcomeToastOpen(true);
-    const t = window.setTimeout(() => {
-      if (partyMembers.length > 1) setBookingForModalOpen(true);
-    }, 480);
-    return () => window.clearTimeout(t);
+    if (partyMembers.length <= 1) {
+      setBookingForModalOpen(false);
+    }
   }, [pendingWelcome, bondProfileQuery.isSuccess, bondUserId, partyMembers.length]);
 
   const welcomeToastTitle = useMemo(() => {
@@ -507,14 +520,21 @@ export function BookingExperience() {
           next.delete(key);
           return next;
         }
+        const spaceId =
+          Array.isArray(s.spacesIds) && s.spacesIds.length > 0 && typeof s.spacesIds[0] === "number"
+            ? s.spacesIds[0]!
+            : resourceId;
         const picked: PickedSlot = {
           key,
           resourceId,
           resourceName,
           startDate: s.startDate,
+          endDate: s.endDate,
           startTime: s.startTime,
           endTime: s.endTime,
           price: entitlementAdjust(s.price),
+          spaceId,
+          timezone: typeof s.timezone === "string" && s.timezone.length > 0 ? s.timezone : "UTC",
         };
         const next = new Map(prev);
         next.set(key, picked);
@@ -1061,20 +1081,6 @@ export function BookingExperience() {
         {facilityName}, {categoryName}, {state.activity}
       </p>
 
-      {bondAuth.session.status === "anonymous" ? (
-        <div className="cb-signin-hint mt-4" role="note">
-          <span className="cb-signin-hint-icon" aria-hidden>
-            <IconLogIn className="h-5 w-5 shrink-0 text-[var(--cb-primary)]" />
-          </span>
-          <p className="cb-signin-hint-text">
-            <button type="button" className="cb-signin-hint-cta" onClick={() => bondAuth.setLoginOpen(true)}>
-              Sign in now
-            </button>{" "}
-            to see availability, pricing, and eligibility based on your membership.
-          </p>
-        </div>
-      ) : null}
-
       <div className="mt-6 flex flex-col gap-12">
         <div className="flex flex-col gap-3">
         <section aria-labelledby="products-heading" className="text-left">
@@ -1246,6 +1252,20 @@ export function BookingExperience() {
             </div>
           )}
         </section>
+
+        {bondAuth.session.status === "anonymous" ? (
+          <div className="cb-signin-hint mt-2" role="note">
+            <span className="cb-signin-hint-icon" aria-hidden>
+              <IconLogIn className="h-5 w-5 shrink-0 text-[var(--cb-primary)]" />
+            </span>
+            <p className="cb-signin-hint-text">
+              <button type="button" className="cb-signin-hint-cta" onClick={() => bondAuth.setLoginOpen(true)}>
+                Sign in now
+              </button>{" "}
+              to see availability, pricing, and eligibility based on your membership.
+            </p>
+          </div>
+        ) : null}
 
         </div>
 
@@ -1562,6 +1582,7 @@ export function BookingExperience() {
         members={partyMembers}
         value={bookingTargetUserId ?? bondUserId ?? null}
         onConfirm={(userId) => setBookingTargetUserId(userId)}
+        profileLoading={bondAuth.session.status === "authenticated" && bondProfileQuery.isPending}
       />
 
       {env.ok && state && effectiveBookingUserId != null && state.productId != null ? (
@@ -1577,9 +1598,11 @@ export function BookingExperience() {
           categoryId={state.categoryId}
           productId={state.productId}
           productName={selectedProduct?.name ?? "Service"}
+          activity={state.activity}
+          product={selectedProduct}
           userId={effectiveBookingUserId}
           pickedSlots={pickedSlotsOrdered}
-          selectedAddonIds={[...selectedAddonIds]}
+          selectedAddonIds={selectedAddonIds}
           questionnaireIds={productQuestionnaireIds}
           onSubmittingChange={setCheckoutBusy}
           onSuccess={(cart) => {
@@ -1587,6 +1610,16 @@ export function BookingExperience() {
               `Reservation started. Cart #${cart.id}${cart.subtotal != null ? ` · Subtotal ${cart.subtotal}` : ""}.`
             );
           }}
+          packageAddons={packageAddons}
+          addonsExpanded={addonsExpanded}
+          onToggleExpandAddons={() => setAddonsExpanded((x) => !x)}
+          addonSlotTargeting={addonSlotTargeting}
+          onToggleAddon={handleAddonToggle}
+          onAddonSelectAllSlots={onAddonSelectAllSlots}
+          onToggleAddonSlot={onToggleAddonSlot}
+          formatPrice={formatPrice}
+          bookingForLabel={bookingForLabel}
+          bookingForBadge={bookingForBadge}
         />
       ) : null}
 

@@ -5,9 +5,14 @@ export type PickedSlot = {
   resourceId: number;
   resourceName: string;
   startDate: string;
+  /** Same as startDate for single-day bookings; from schedule slot DTO */
+  endDate: string;
   startTime: string;
   endTime: string;
   price: number;
+  /** Bond `POST .../online-booking/create` segment `spaceId` — prefer `spacesIds[0]` from schedule */
+  spaceId: number;
+  timezone: string;
 };
 
 export function slotControlKey(resourceId: number, s: ScheduleTimeSlotDto): string {

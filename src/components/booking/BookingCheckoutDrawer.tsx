@@ -6,16 +6,25 @@ import { RightDrawer } from "@/components/ui/RightDrawer";
 import { formatBondUserMessage } from "@/lib/bond-errors";
 import { BondBffError } from "@/lib/bond-json";
 import {
+  fetchCheckoutQuestionnaires,
   fetchPublicQuestionnaireById,
   fetchUserRequiredProducts,
   postOnlineBookingCreate,
 } from "@/lib/online-booking-user-api";
 import { buildOnlineBookingCreateBody } from "@/lib/online-booking-create-body";
+import { mergeQuestionnaireQuestions, type NormalizedQuestion } from "@/lib/questionnaire-parse";
 import { parseRequiredProductsResponse, type RequiredProductRow } from "@/lib/required-products-parse";
-import type { OrganizationCartDto } from "@/types/online-booking";
+import { formatPickedSlotTimeRange } from "./booking-slot-labels";
+import { BookingAddonPanel, type AddonSlotTargeting } from "./BookingAddonPanel";
+import { CheckoutQuestionField } from "./CheckoutQuestionField";
+import type { ExtendedProductDto, OrganizationCartDto } from "@/types/online-booking";
+import type { PackageAddonLine } from "@/lib/product-package-addons";
 import type { PickedSlot } from "@/lib/slot-selection";
+import { reverseEntitlementDiscountsToUnitPrice } from "@/lib/entitlement-discount";
 
 export type CheckoutStep = "addons" | "forms" | "confirm" | "payment";
+
+const ADDONS_PAGE = 10;
 
 type Props = {
   open: boolean;
@@ -26,28 +35,33 @@ type Props = {
   categoryId: number;
   productId: number;
   productName: string;
+  /** Portal activity string for create segments (Bond enum) */
+  activity: string;
+  product: ExtendedProductDto | undefined;
   userId: number;
   pickedSlots: PickedSlot[];
-  selectedAddonIds: number[];
+  selectedAddonIds: ReadonlySet<number>;
   questionnaireIds: number[];
   onSuccess: (cart: OrganizationCartDto) => void;
   onSubmittingChange?: (pending: boolean) => void;
+  /** Optional add-ons from product.packages */
+  packageAddons: PackageAddonLine[];
+  addonsExpanded: boolean;
+  onToggleExpandAddons: () => void;
+  addonSlotTargeting: AddonSlotTargeting;
+  onToggleAddon: (addon: PackageAddonLine) => void;
+  onAddonSelectAllSlots: (addonId: number, checked: boolean, keys: string[]) => void;
+  onToggleAddonSlot: (addonId: number, slotKey: string, allKeys: string[]) => void;
+  formatPrice: (amount: number, currency: string) => string;
+  bookingForLabel: string;
+  bookingForBadge?: string;
 };
 
-function questionLabel(q: Record<string, unknown>): string {
-  const t =
-    (typeof q.text === "string" && q.text) ||
-    (typeof q.label === "string" && q.label) ||
-    (typeof q.title === "string" && q.title) ||
-    (typeof q.name === "string" && q.name);
-  if (t) return t;
-  const id = q.id;
-  return typeof id === "number" || typeof id === "string" ? `Question ${id}` : "Question";
-}
-
-function questionId(q: Record<string, unknown>): string {
-  const id = q.id;
-  return typeof id === "number" || typeof id === "string" ? String(id) : String(Math.random());
+function stepIndex(s: CheckoutStep): number {
+  if (s === "addons") return 0;
+  if (s === "forms") return 1;
+  if (s === "confirm") return 2;
+  return 2;
 }
 
 export function BookingCheckoutDrawer({
@@ -59,16 +73,30 @@ export function BookingCheckoutDrawer({
   categoryId,
   productId,
   productName,
+  activity,
+  product,
   userId,
   pickedSlots,
   selectedAddonIds,
   questionnaireIds,
   onSuccess,
   onSubmittingChange,
+  packageAddons,
+  addonsExpanded,
+  onToggleExpandAddons,
+  addonSlotTargeting,
+  onToggleAddon,
+  onAddonSelectAllSlots,
+  onToggleAddonSlot,
+  formatPrice,
+  bookingForLabel,
+  bookingForBadge,
 }: Props) {
   const [step, setStep] = useState<CheckoutStep>("addons");
   const [requiredSelected, setRequiredSelected] = useState<Set<number>>(new Set());
   const [answers, setAnswers] = useState<Record<string, string>>({});
+
+  const currency = product?.prices[0]?.currency ?? "USD";
 
   useEffect(() => {
     if (!open) return;
@@ -88,7 +116,7 @@ export function BookingCheckoutDrawer({
     [requiredQuery.data]
   );
 
-  const questionnaireQueries = useQueries({
+  const publicQuestionnaireQueries = useQueries({
     queries: questionnaireIds.map((qid) => ({
       queryKey: ["bond", "questionnaire", orgId, qid],
       queryFn: () => fetchPublicQuestionnaireById(orgId, qid),
@@ -96,27 +124,81 @@ export function BookingCheckoutDrawer({
     })),
   });
 
+  const checkoutQuestionnairesQuery = useQuery({
+    queryKey: ["bond", "checkoutQuestionnaires", orgId, userId, questionnaireIds],
+    queryFn: () => fetchCheckoutQuestionnaires(orgId, userId, questionnaireIds),
+    enabled: open && questionnaireIds.length > 0 && (step === "forms" || step === "confirm"),
+  });
+
+  const mergedForms = useMemo(() => {
+    const checkoutData = checkoutQuestionnairesQuery.data?.data;
+    return questionnaireIds.map((qid, idx) => {
+      const pub = publicQuestionnaireQueries[idx]?.data as Record<string, unknown> | undefined;
+      const chk = Array.isArray(checkoutData)
+        ? (checkoutData.find((x) => x && typeof x === "object" && (x as { id?: number }).id === qid) as
+            | Record<string, unknown>
+            | undefined)
+        : undefined;
+      const title =
+        (chk && typeof chk.title === "string" && chk.title) ||
+        (pub && typeof pub.title === "string" && pub.title) ||
+        `Form ${qid}`;
+      const questions = mergeQuestionnaireQuestions(qid, chk, pub);
+      return { qid, title, questions };
+    });
+  }, [questionnaireIds, publicQuestionnaireQueries, checkoutQuestionnairesQuery.data]);
+
+  const formsValid = useMemo(() => {
+    for (const form of mergedForms) {
+      for (const q of form.questions) {
+        if (!q.mandatory) continue;
+        const key = `${form.qid}:${q.id}`;
+        const v = answers[key] ?? "";
+        if (q.kind === "multiselect") {
+          try {
+            const arr = JSON.parse(v || "[]");
+            if (!Array.isArray(arr) || arr.length === 0) return false;
+          } catch {
+            if (!v.trim()) return false;
+          }
+        } else if (q.kind === "boolean") {
+          if (v !== "true" && v !== "false") return false;
+        } else if (!String(v).trim()) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }, [mergedForms, answers]);
+
   const createMutation = useMutation({
     mutationFn: async () => {
-      const answerPayload: Array<{ questionnaireId: number; questionId: number; value: string }> = [];
+      const questionnaireAnswers: Array<Record<string, unknown>> = [];
       for (const key of Object.keys(answers)) {
         const parts = key.split(":");
         if (parts.length < 2) continue;
         const questionnaireId = Number(parts[0]);
         const questionId = Number(parts[1]);
         if (!Number.isFinite(questionnaireId) || !Number.isFinite(questionId)) continue;
-        answerPayload.push({ questionnaireId, questionId, value: answers[key] ?? "" });
+        questionnaireAnswers.push({
+          questionnaireId,
+          questionId,
+          value: answers[key] ?? "",
+        });
       }
+
+      const addonProductIds = [...new Set([...selectedAddonIds, ...requiredSelected])];
 
       const body = buildOnlineBookingCreateBody({
         userId,
         portalId,
-        facilityId,
         categoryId,
+        activity,
+        facilityId,
         productId,
         slots: pickedSlots,
-        addonProductIds: [...new Set([...selectedAddonIds, ...requiredSelected])],
-        questionnaireAnswers: answerPayload.length > 0 ? answerPayload : undefined,
+        addonProductIds: addonProductIds.length > 0 ? addonProductIds : undefined,
+        questionnaireAnswers: questionnaireAnswers.length > 0 ? questionnaireAnswers : undefined,
       });
       return postOnlineBookingCreate(orgId, body);
     },
@@ -135,6 +217,8 @@ export function BookingCheckoutDrawer({
     return requiredRows.every((r) => requiredSelected.has(r.id));
   }, [requiredRows, requiredSelected]);
 
+  const packageAddonsVisible = addonsExpanded ? packageAddons : packageAddons.slice(0, ADDONS_PAGE);
+
   const goNextFromAddons = useCallback(() => {
     if (!canProceedAddons) return;
     if (questionnaireIds.length > 0) setStep("forms");
@@ -142,8 +226,9 @@ export function BookingCheckoutDrawer({
   }, [canProceedAddons, questionnaireIds.length]);
 
   const goNextFromForms = useCallback(() => {
+    if (!formsValid) return;
     setStep("confirm");
-  }, []);
+  }, [formsValid]);
 
   const title = useMemo(() => {
     if (step === "addons") return "Add-ons";
@@ -152,15 +237,48 @@ export function BookingCheckoutDrawer({
     return "Payment";
   }, [step]);
 
+  const progressStep = step === "payment" ? 3 : stepIndex(step) + 1;
+
+  const subtotal = useMemo(
+    () => pickedSlots.reduce((s, p) => s + p.price, 0),
+    [pickedSlots]
+  );
+
+  const entitlements = product?.entitlementDiscounts;
+
+  const estimatedOriginalSubtotal = useMemo(() => {
+    if (!Array.isArray(entitlements) || entitlements.length === 0) return null;
+    return pickedSlots.reduce((s, p) => s + reverseEntitlementDiscountsToUnitPrice(p.price, entitlements), 0);
+  }, [pickedSlots, entitlements]);
+
+  const showMemberPricing = useMemo(() => {
+    if (!Array.isArray(entitlements) || entitlements.length === 0) return false;
+    if (estimatedOriginalSubtotal == null) return false;
+    return estimatedOriginalSubtotal > subtotal + 0.01;
+  }, [entitlements, estimatedOriginalSubtotal, subtotal]);
+
   return (
     <RightDrawer
       open={open}
       onClose={onClose}
       ariaLabel={title}
       title={title}
-      panelClassName="consumer-booking cb-checkout-drawer"
+      panelClassName="consumer-booking cb-checkout-drawer cb-checkout-drawer--wide"
     >
       <div className="cb-checkout-inner">
+        <div className="cb-checkout-progress">
+          <p className="cb-checkout-booking-for">
+            Booking for <strong>{bookingForLabel}</strong>
+            {bookingForBadge ? <span className="cb-member-badge cb-member-badge--gold ml-2">{bookingForBadge}</span> : null}
+          </p>
+          <p className="cb-checkout-step-pill">Step {Math.min(progressStep, 3)} of 3</p>
+          <div className="cb-checkout-progress-bar" aria-hidden>
+            <span className={stepIndex(step) >= 0 ? "cb-checkout-progress-fill" : ""} />
+            <span className={stepIndex(step) >= 1 ? "cb-checkout-progress-fill" : ""} />
+            <span className={stepIndex(step) >= 2 ? "cb-checkout-progress-fill" : ""} />
+          </div>
+        </div>
+
         <p className="cb-checkout-product">
           <span className="cb-checkout-product-label">Service</span>
           <span className="cb-checkout-product-name">{productName}</span>
@@ -169,38 +287,62 @@ export function BookingCheckoutDrawer({
         {step === "addons" ? (
           <div className="cb-checkout-step">
             <p className="cb-checkout-hint">
-              Confirm required add-ons for this booking. Optional add-ons from the schedule may already be selected.
+              Optional add-ons for this service. Required items from Bond are listed first—confirm each before continuing.
             </p>
             {requiredQuery.isPending ? (
               <p className="cb-muted text-sm">Loading required products…</p>
-            ) : requiredRows.length === 0 ? (
-              <p className="cb-muted text-sm">No additional required products for this selection.</p>
-            ) : (
-              <ul className="cb-checkout-list">
-                {requiredRows.map((r) => (
-                  <li key={r.id}>
-                    <label className="cb-checkout-check">
-                      <input
-                        type="checkbox"
-                        checked={requiredSelected.has(r.id)}
-                        onChange={(e) => {
-                          setRequiredSelected((prev) => {
-                            const n = new Set(prev);
-                            if (e.target.checked) n.add(r.id);
-                            else n.delete(r.id);
-                            return n;
-                          });
-                        }}
-                      />
-                      <span>{r.name ?? `Product ${r.id}`}</span>
-                    </label>
-                  </li>
-                ))}
-              </ul>
-            )}
+            ) : requiredRows.length > 0 ? (
+              <div className="cb-checkout-required-block">
+                <h3 className="cb-checkout-section-title">Required</h3>
+                <ul className="cb-checkout-list">
+                  {requiredRows.map((r) => (
+                    <li key={r.id}>
+                      <label className="cb-checkout-check">
+                        <input
+                          type="checkbox"
+                          checked={requiredSelected.has(r.id)}
+                          onChange={(e) => {
+                            setRequiredSelected((prev) => {
+                              const n = new Set(prev);
+                              if (e.target.checked) n.add(r.id);
+                              else n.delete(r.id);
+                              return n;
+                            });
+                          }}
+                        />
+                        <span>{r.name ?? `Product ${r.id}`}</span>
+                      </label>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
             {requiredQuery.isError ? (
               <p className="text-sm text-[var(--cb-error-text)]">Could not load required products.</p>
             ) : null}
+
+            {packageAddons.length > 0 && pickedSlots.length > 0 ? (
+              <div className="cb-checkout-addon-panel mt-4">
+                <h3 className="cb-checkout-section-title">Extras</h3>
+                <BookingAddonPanel
+                  visibleAddons={packageAddonsVisible}
+                  hasMoreAddons={packageAddons.length > ADDONS_PAGE}
+                  addonsExpanded={addonsExpanded}
+                  onToggleExpand={onToggleExpandAddons}
+                  moreCount={packageAddons.length - ADDONS_PAGE}
+                  selectedAddonIds={selectedAddonIds}
+                  onToggleAddon={onToggleAddon}
+                  addonSlotTargeting={addonSlotTargeting}
+                  onAddonSelectAllSlots={onAddonSelectAllSlots}
+                  onToggleAddonSlot={onToggleAddonSlot}
+                  pickedSlots={pickedSlots}
+                  formatPrice={formatPrice}
+                />
+              </div>
+            ) : packageAddons.length > 0 && pickedSlots.length === 0 ? (
+              <p className="cb-muted mt-2 text-sm">Select time slots first to add per-slot extras.</p>
+            ) : null}
+
             <div className="cb-checkout-actions">
               <button type="button" className="cb-btn-primary" disabled={!canProceedAddons} onClick={goNextFromAddons}>
                 Continue
@@ -212,45 +354,32 @@ export function BookingCheckoutDrawer({
         {step === "forms" ? (
           <div className="cb-checkout-step">
             <p className="cb-checkout-hint">Answer the following before we add your reservation to the cart.</p>
-            {questionnaireQueries.some((q) => q.isPending) ? (
+            {publicQuestionnaireQueries.some((q) => q.isPending) || checkoutQuestionnairesQuery.isPending ? (
               <p className="cb-muted text-sm">Loading forms…</p>
             ) : (
-              questionnaireIds.map((qid, idx) => {
-                const q = questionnaireQueries[idx];
-                const qs = Array.isArray(q?.data?.questions) ? q!.data!.questions! : [];
-                const formTitle = typeof q?.data?.title === "string" ? q.data.title : `Form ${qid}`;
-                return (
-                  <div key={qid} className="cb-checkout-form-block">
-                    <h3 className="cb-checkout-form-title">{formTitle}</h3>
-                    {qs.map((raw) => {
-                      if (!raw || typeof raw !== "object") return null;
-                      const rec = raw as Record<string, unknown>;
-                      const id = rec.id;
-                      const key =
-                        typeof id === "number" || typeof id === "string"
-                          ? `${qid}:${id}`
-                          : `${qid}:${questionLabel(rec)}`;
-                      return (
-                        <label key={questionId(rec)} className="cb-checkout-field">
-                          <span className="cb-checkout-field-label">{questionLabel(rec)}</span>
-                          <input
-                            type="text"
-                            className="cb-input w-full"
-                            value={answers[key] ?? ""}
-                            onChange={(e) => setAnswers((a) => ({ ...a, [key]: e.target.value }))}
-                          />
-                        </label>
-                      );
-                    })}
-                  </div>
-                );
-              })
+              mergedForms.map((form) => (
+                <div key={form.qid} className="cb-checkout-form-block">
+                  <h3 className="cb-checkout-form-title">{form.title}</h3>
+                  {form.questions.map((q: NormalizedQuestion) => {
+                    const key = `${form.qid}:${q.id}`;
+                    return (
+                      <CheckoutQuestionField
+                        key={key}
+                        q={q}
+                        namePrefix={`q-${form.qid}`}
+                        value={answers[key] ?? ""}
+                        onChange={(v) => setAnswers((a) => ({ ...a, [key]: v }))}
+                      />
+                    );
+                  })}
+                </div>
+              ))
             )}
             <div className="cb-checkout-actions">
               <button type="button" className="cb-btn-ghost" onClick={() => setStep("addons")}>
                 Back
               </button>
-              <button type="button" className="cb-btn-primary" onClick={goNextFromForms}>
+              <button type="button" className="cb-btn-primary" disabled={!formsValid} onClick={goNextFromForms}>
                 Continue
               </button>
             </div>
@@ -259,19 +388,68 @@ export function BookingCheckoutDrawer({
 
         {step === "confirm" ? (
           <div className="cb-checkout-step">
-            <ul className="cb-checkout-summary">
-              <li>
-                {pickedSlots.length} time slot{pickedSlots.length === 1 ? "" : "s"} selected
-              </li>
-              <li>
-                Add-ons: {selectedAddonIds.length + requiredSelected.size} product
-                {selectedAddonIds.length + requiredSelected.size === 1 ? "" : "s"}
-              </li>
-            </ul>
-            <p className="cb-muted text-sm">
-              This creates your reservation in Bond and opens payment. You can complete payment in the next step when
-              your gateway is connected.
+            <div className="cb-checkout-summary-cards">
+              {pickedSlots.map((p) => {
+                const orig =
+                  Array.isArray(entitlements) && entitlements.length > 0
+                    ? reverseEntitlementDiscountsToUnitPrice(p.price, entitlements)
+                    : null;
+                return (
+                  <div key={p.key} className="cb-checkout-line-card">
+                    <div className="cb-checkout-line-title">{productName}</div>
+                    <div className="cb-checkout-line-meta">{p.resourceName}</div>
+                    <div className="cb-checkout-line-time">{formatPickedSlotTimeRange(p)}</div>
+                    <div className="cb-checkout-line-price">
+                      {orig != null && orig > p.price + 0.01 ? (
+                        <>
+                          <span className="cb-checkout-price-strike">{formatPrice(orig, currency)}</span>{" "}
+                          <strong>{formatPrice(p.price, currency)}</strong>
+                        </>
+                      ) : (
+                        <strong>{formatPrice(p.price, currency)}</strong>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="cb-checkout-summary-who">
+              <span className="cb-checkout-summary-who-label">Booking for</span>
+              <span className="cb-checkout-summary-who-name">{bookingForLabel}</span>
+              {bookingForBadge ? <span className="cb-member-badge cb-member-badge--gold">{bookingForBadge}</span> : null}
+            </div>
+
+            <div className="cb-checkout-totals">
+              {showMemberPricing && estimatedOriginalSubtotal != null ? (
+                <div className="cb-checkout-total-row">
+                  <span>Subtotal</span>
+                  <span>{formatPrice(estimatedOriginalSubtotal, currency)}</span>
+                </div>
+              ) : (
+                <div className="cb-checkout-total-row">
+                  <span>Subtotal</span>
+                  <span>{formatPrice(subtotal, currency)}</span>
+                </div>
+              )}
+              {showMemberPricing ? (
+                <div className="cb-checkout-total-row cb-checkout-total-row--discount">
+                  <span>Member savings</span>
+                  <span>
+                    −{formatPrice(Math.max(0, (estimatedOriginalSubtotal ?? subtotal) - subtotal), currency)}
+                  </span>
+                </div>
+              ) : null}
+              <div className="cb-checkout-total-row cb-checkout-total-row--grand">
+                <span>Total</span>
+                <strong>{formatPrice(subtotal, currency)}</strong>
+              </div>
+            </div>
+
+            <p className="cb-muted text-xs leading-relaxed">
+              Tax and payment processing will appear here once your payment gateway is connected.
             </p>
+
             {createMutation.isError ? (
               <p className="mt-2 text-sm text-[var(--cb-error-text)]" role="alert">
                 {createMutation.error instanceof BondBffError

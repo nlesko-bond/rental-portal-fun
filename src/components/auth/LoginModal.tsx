@@ -103,7 +103,7 @@ export function LoginModal() {
                 id="cb-login-email"
                 type="email"
                 autoComplete="username"
-                className="cb-input w-full pl-10"
+                className="cb-input cb-login-input-with-icon w-full"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
@@ -123,7 +123,7 @@ export function LoginModal() {
                 id="cb-login-password"
                 type="password"
                 autoComplete="current-password"
-                className="cb-input w-full pl-10"
+                className="cb-input cb-login-input-with-icon w-full"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
@@ -143,9 +143,6 @@ export function LoginModal() {
           >
             {busy ? "Signing in…" : "Sign In"}
           </button>
-          <p className="text-center text-xs text-[var(--cb-text-muted)]">
-            Demo: demo@bondsports.co / 123456
-          </p>
         </form>
       </div>
     </RightDrawer>
