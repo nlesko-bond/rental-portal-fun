@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { BOND_COOKIE_ACCESS, BOND_COOKIE_ID } from "@/lib/bond-auth-cookies";
 
 function isAllowedBondPath(segments: string[]): boolean {
   if (segments.length < 3) return false;
@@ -9,8 +10,9 @@ function isAllowedBondPath(segments: string[]): boolean {
 
 function userHeadersFrom(request: NextRequest): Record<string, string> {
   const out: Record<string, string> = {};
-  const access = request.headers.get("x-bonduseraccesstoken");
-  const id = request.headers.get("x-bonduseridtoken");
+  const access =
+    request.headers.get("x-bonduseraccesstoken") ?? request.cookies.get(BOND_COOKIE_ACCESS)?.value;
+  const id = request.headers.get("x-bonduseridtoken") ?? request.cookies.get(BOND_COOKIE_ID)?.value;
   if (access) out["X-BondUserAccessToken"] = access;
   if (id) out["X-BondUserIdToken"] = id;
   return out;

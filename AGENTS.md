@@ -19,8 +19,9 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 ## Implementation pointers
 
-- **BFF:** `src/app/api/bond/[...path]/route.ts` — forwards `v1/organization/*` with server env `BOND_API_KEY`.
-- **Client fetch helper:** `src/lib/bond-client.ts`.
+- **BFF:** `src/app/api/bond/[...path]/route.ts` — forwards `v1/organization/*` with server env `BOND_API_KEY`; reads user JWTs from httpOnly cookies set by `/api/bond-auth/login`.
+- **Auth proxy:** `src/app/api/bond-auth/*` — login/session/logout; env `BOND_AUTH_BASE_URL`.
+- **Client fetch helper:** `src/lib/bond-client.ts` (uses `credentials: "include"` for cookies).
 - **Server state:** `@tanstack/react-query` via `src/app/providers.tsx`.
 
 ## Optional

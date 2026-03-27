@@ -78,6 +78,8 @@ import {
   writeBookingUrl,
   type BookingUrlState,
 } from "./booking-url";
+import { useBondAuth } from "@/components/auth/BondAuthContext";
+import { LoginModal } from "@/components/auth/LoginModal";
 
 const PRODUCTS_PAGE_SIZE = 30;
 
@@ -272,6 +274,7 @@ export function BookingExperience() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const env = useBondEnv(searchParams.toString());
+  const bondAuth = useBondAuth();
   const [preferredStartTime, setPreferredStartTime] = useState<string | null>(null);
   const [selectedSlots, setSelectedSlots] = useState<Map<string, PickedSlot>>(new Map());
   const [selectedAddonIds, setSelectedAddonIds] = useState<Set<number>>(new Set());
@@ -808,13 +811,33 @@ export function BookingExperience() {
           >
             {appearanceMode === "light" ? "☀" : appearanceMode === "dark" ? "☾" : "A"}
           </button>
-          <button
-            type="button"
-            className="cb-header-signin"
-            aria-label="Sign in"
-          >
-            <IconUserCircle />
-          </button>
+          {bondAuth.session.status === "authenticated" ? (
+            <div className="flex flex-col items-end gap-0.5 sm:flex-row sm:items-center sm:gap-1">
+              <span
+                className="hidden max-w-[120px] truncate text-[0.65rem] text-[var(--cb-text-muted)] sm:inline"
+                title={bondAuth.session.email}
+              >
+                {bondAuth.session.email ?? "Signed in"}
+              </span>
+              <button
+                type="button"
+                className="cb-header-signin"
+                onClick={() => void bondAuth.logout()}
+                aria-label="Sign out"
+              >
+                <span className="px-1 text-xs font-semibold">Out</span>
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="cb-header-signin"
+              onClick={() => bondAuth.setLoginOpen(true)}
+              aria-label="Sign in"
+            >
+              <IconUserCircle />
+            </button>
+          )}
         </div>
       </header>
 
@@ -1037,7 +1060,11 @@ export function BookingExperience() {
               <IconLogIn className="h-5 w-5 shrink-0 text-[var(--cb-primary)]" />
             </span>
             <p className="cb-signin-hint-text">
-              <button type="button" className="cb-signin-hint-cta">
+              <button
+                type="button"
+                className="cb-signin-hint-cta"
+                onClick={() => bondAuth.setLoginOpen(true)}
+              >
                 Sign in now
               </button>{" "}
               to see membership benefits, updated pricing, early access and more!
@@ -1336,6 +1363,8 @@ export function BookingExperience() {
           themeStyle={themeStyle}
         />
       ) : null}
+
+      <LoginModal />
 
       <ProductDetailModal
         open={productInfoId != null}

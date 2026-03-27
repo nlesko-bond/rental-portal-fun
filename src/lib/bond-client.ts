@@ -13,5 +13,9 @@ export async function bondBffFetch(
 ): Promise<Response> {
   const { searchParams, ...rest } = init ?? {};
   const url = bondBffUrl(pathSegments, searchParams);
-  return fetch(url, rest);
+  return fetch(url, {
+    credentials: "include",
+    cache: "no-store",
+    ...rest,
+  });
 }

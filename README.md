@@ -28,6 +28,7 @@ Custom **online rental / booking** UI that talks to Bond’s **hosted public HTT
 
    - `BOND_API_BASE_URL` — e.g. `https://public.api.squad-c.bondsports.co`
    - `BOND_API_KEY` — organization public API key (**server only**, never `NEXT_PUBLIC_*`)
+   - `BOND_AUTH_BASE_URL` — Bond auth host for consumer login/refresh, e.g. `https://api.squad-c.bondsports.co` (used only by `/api/bond-auth/*` Route Handlers)
    - `NEXT_PUBLIC_BOND_ORG_ID` / `NEXT_PUBLIC_BOND_PORTAL_ID` — for the booking experience config
 
 3. Run the dev server:
@@ -42,7 +43,13 @@ Open [http://localhost:3000](http://localhost:3000).
 
 - **GET/POST** `/api/bond/v1/organization/...` forwards to `{BOND_API_BASE_URL}/v1/organization/...` with `X-Api-Key`.
 - Only paths under `v1/organization/` are allowed (admin and other prefixes are blocked).
-- Optional JWT headers from the browser are forwarded as `X-BondUserAccessToken` / `X-BondUserIdToken` for logged-in routes.
+- User JWTs: the browser sends **httpOnly cookies** set by `/api/bond-auth/login`; the BFF reads them and forwards `X-BondUserAccessToken` / `X-BondUserIdToken`. You can still pass those headers explicitly if needed.
+
+## Auth (consumer login)
+
+- **POST** `/api/bond-auth/login` — body `{ "email", "password" }`; proxies to `{BOND_AUTH_BASE_URL}/auth/login` with `platform: "consumer"`.
+- **GET** `/api/bond-auth/session` — returns whether the user is authenticated; refreshes tokens when the access token is near expiry.
+- **POST** `/api/bond-auth/logout` — clears session cookies.
 
 Use `src/lib/bond-client.ts` from client code to build URLs to this BFF.
 
