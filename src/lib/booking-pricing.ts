@@ -6,6 +6,7 @@ const EPS = 0.005;
 export function productMembershipGated(product: ExtendedProductDto | undefined): boolean {
   if (!product) return false;
   if (product.memberOnly) return true;
+  if (product.isGated === true) return true;
   return (product.requiredProducts ?? []).some(
     (r) => String(r.productType ?? "").toLowerCase() === "membership"
   );

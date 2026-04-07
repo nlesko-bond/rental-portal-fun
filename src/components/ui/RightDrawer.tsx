@@ -10,6 +10,8 @@ type Props = {
   /** Optional visible title row (use hideTitle for custom header inside children) */
   title?: string;
   hideTitle?: boolean;
+  /** When set, shows a leading Back control (checkout / multi-step flows). */
+  onBack?: () => void;
   children: ReactNode;
   panelClassName?: string;
 };
@@ -17,7 +19,16 @@ type Props = {
 /**
  * Right-edge drawer with backdrop (matches consumer booking mocks: ~40% width on desktop).
  */
-export function RightDrawer({ open, onClose, ariaLabel, title, hideTitle, children, panelClassName }: Props) {
+export function RightDrawer({
+  open,
+  onClose,
+  ariaLabel,
+  title,
+  hideTitle,
+  onBack,
+  children,
+  panelClassName,
+}: Props) {
   useEffect(() => {
     if (!open) return;
     const prev = document.body.style.overflow;
@@ -45,8 +56,19 @@ export function RightDrawer({ open, onClose, ariaLabel, title, hideTitle, childr
         aria-labelledby={hideTitle ? undefined : "cb-drawer-title"}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="cb-drawer-toolbar">
-          {hideTitle ? null : (
+        <div className={`cb-drawer-toolbar${onBack ? " cb-drawer-toolbar--with-back" : ""}`.trim()}>
+          {onBack ? (
+            <button type="button" className="cb-drawer-back" onClick={onBack} aria-label="Back">
+              <span className="cb-drawer-back-icon" aria-hidden>
+                ‹
+              </span>
+            </button>
+          ) : (
+            <span className="cb-drawer-toolbar-lead" aria-hidden />
+          )}
+          {hideTitle ? (
+            <span className="cb-drawer-toolbar-center" />
+          ) : (
             <h2 id="cb-drawer-title" className="cb-drawer-title">
               {title}
             </h2>

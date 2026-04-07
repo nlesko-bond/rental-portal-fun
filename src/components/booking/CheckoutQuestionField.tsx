@@ -4,7 +4,7 @@ import DOMPurify from "dompurify";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { NormalizedQuestion } from "@/lib/questionnaire-parse";
 
-const PREFILL_HINT = "Pre-filled from your profile";
+const PREFILL_HINT = "From your profile";
 
 type Props = {
   q: NormalizedQuestion;
@@ -13,6 +13,8 @@ type Props = {
   namePrefix: string;
   /** Shown under email/phone/date/address when value matches profile prefill */
   prefilledHint?: boolean;
+  /** When set, Bond customer has `waiverSignedDate` — allow acknowledge without forcing scroll-through. */
+  profileWaiverSignedDate?: string;
 };
 
 function IconEmail({ className }: { className?: string }) {
@@ -72,6 +74,7 @@ function WaiverBlock({
   htmlContent,
   value,
   onChange,
+  profileWaiverSignedDate,
 }: {
   id: string;
   label: string;
@@ -79,9 +82,10 @@ function WaiverBlock({
   htmlContent: string | undefined;
   value: string;
   onChange: (v: string) => void;
+  profileWaiverSignedDate?: string;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [canAck, setCanAck] = useState(false);
+  const [canAck, setCanAck] = useState(Boolean(profileWaiverSignedDate));
 
   const safeHtml = htmlContent ? DOMPurify.sanitize(htmlContent) : "";
 
@@ -102,8 +106,17 @@ function WaiverBlock({
     return () => ro.disconnect();
   }, [checkScroll, safeHtml]);
 
+  useEffect(() => {
+    if (profileWaiverSignedDate) setCanAck(true);
+  }, [profileWaiverSignedDate]);
+
   return (
     <div className="cb-q-waiver">
+      {profileWaiverSignedDate ? (
+        <p className="cb-q-waiver-profile-note" role="status">
+          Waiver on file from {profileWaiverSignedDate}. Check the box below to confirm it applies to this booking.
+        </p>
+      ) : null}
       <span className="cb-checkout-field-label">
         {label}
         {mandatory ? <span className="cb-q-req"> *</span> : null}
@@ -122,14 +135,14 @@ function WaiverBlock({
           ) : null}
         </div>
       ) : (
-        <p className="cb-q-waiver-fallback cb-muted text-sm">Please confirm the waiver for this booking.</p>
+        <p className="cb-q-waiver-fallback cb-muted text-sm">Review the terms above, then confirm below.</p>
       )}
       <label className="cb-q-waiver-ack mt-3 flex cursor-pointer items-start gap-2">
         <input
           type="checkbox"
           id={id}
           className="mt-1"
-          disabled={Boolean(safeHtml) && !canAck}
+          disabled={Boolean(safeHtml) && !canAck && !profileWaiverSignedDate}
           checked={value === "true"}
           onChange={(e) => onChange(e.target.checked ? "true" : "false")}
         />
@@ -142,7 +155,14 @@ function WaiverBlock({
   );
 }
 
-export function CheckoutQuestionField({ q, value, onChange, namePrefix, prefilledHint }: Props) {
+export function CheckoutQuestionField({
+  q,
+  value,
+  onChange,
+  namePrefix,
+  prefilledHint,
+  profileWaiverSignedDate,
+}: Props) {
   const id = `${namePrefix}-${q.id}`;
   const required = q.mandatory;
 
@@ -152,7 +172,7 @@ export function CheckoutQuestionField({ q, value, onChange, namePrefix, prefille
     </p>
   ) : null;
 
-  if (q.kind === "waiver") {
+  if (q.kind === "waiver" || q.kind === "terms") {
     return (
       <div className="cb-checkout-field cb-checkout-field--waiver">
         <WaiverBlock
@@ -162,6 +182,7 @@ export function CheckoutQuestionField({ q, value, onChange, namePrefix, prefille
           htmlContent={q.htmlContent}
           value={value}
           onChange={onChange}
+          profileWaiverSignedDate={q.kind === "waiver" ? profileWaiverSignedDate : undefined}
         />
       </div>
     );
@@ -313,20 +334,30 @@ export function CheckoutQuestionField({ q, value, onChange, namePrefix, prefille
   }
 
   if (q.kind === "number") {
+    const min = q.numericMin;
+    const max = q.numericMax;
+    const step =
+      min != null && max != null && Number.isInteger(min) && Number.isInteger(max) ? 1 : "any";
     return (
       <label className="cb-checkout-field" htmlFor={id}>
         <span className="cb-checkout-field-label">
           {q.label}
           {required ? <span className="cb-q-req"> *</span> : null}
         </span>
+        {min != null && max != null ? (
+          <p className="cb-q-helper mb-1 text-xs text-[var(--cb-text-muted)]">
+            Enter a number between {min} and {max} (inclusive).
+          </p>
+        ) : null}
         <input
           id={id}
           type="number"
           className="cb-input w-full"
           value={value}
           required={required}
-          min={q.numericMin}
-          max={q.numericMax}
+          min={min}
+          max={max}
+          step={step}
           onChange={(e) => onChange(e.target.value)}
         />
       </label>
@@ -334,6 +365,34 @@ export function CheckoutQuestionField({ q, value, onChange, namePrefix, prefille
   }
 
   if (q.kind === "select" && q.options.length > 0) {
+    const useDropdown =
+      q.options.length > 8 || (q.numericMin != null && q.numericMax != null && q.options.length > 0);
+
+    if (useDropdown) {
+      return (
+        <div className="cb-checkout-field">
+          <label className="cb-checkout-field-label" htmlFor={id}>
+            {q.label}
+            {required ? <span className="cb-q-req"> *</span> : null}
+          </label>
+          <select
+            id={id}
+            className="cb-input cb-q-select-dropdown mt-1 w-full"
+            value={value}
+            required={required}
+            onChange={(e) => onChange(e.target.value)}
+          >
+            <option value="">{required ? "Choose…" : "Optional"}</option>
+            {q.options.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      );
+    }
+
     return (
       <fieldset className="cb-checkout-field">
         <legend className="cb-checkout-field-label">

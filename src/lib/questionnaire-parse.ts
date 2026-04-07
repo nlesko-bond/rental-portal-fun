@@ -13,6 +13,8 @@ export type QuestionFieldKind =
   | "select"
   | "multiselect"
   | "waiver"
+  /** Terms & conditions — same UI as waiver but no profile waiver date / pre-check */
+  | "terms"
   | "file";
 
 export type NormalizedQuestionOption = { value: string; label: string };
@@ -40,6 +42,39 @@ function numId(v: unknown): number | null {
 function numOpt(v: unknown): number | undefined {
   if (typeof v === "number" && Number.isFinite(v)) return v;
   return undefined;
+}
+
+/** Parse numericFrom / numericTo from questionnaire metadata. */
+export function parseMetaNumber(v: unknown): number | null {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "string" && v.trim().length > 0) {
+    const n = Number(v.trim());
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+}
+
+export function buildIntegerOptionsInclusive(min: number, max: number): NormalizedQuestionOption[] {
+  const lo = Math.ceil(Math.min(min, max));
+  const hi = Math.floor(Math.max(min, max));
+  const out: NormalizedQuestionOption[] = [];
+  for (let i = lo; i <= hi; i++) {
+    const s = String(i);
+    out.push({ value: s, label: s });
+  }
+  return out;
+}
+
+function isTermsQuestionType(qt: string): boolean {
+  return (
+    qt === "termsandconditions" ||
+    qt === "terms_and_conditions" ||
+    qt === "termsandcondition" ||
+    qt === "t&cs" ||
+    qt === "termsconditions" ||
+    qt === "termsofuse" ||
+    (qt.includes("terms") && qt.includes("condition"))
+  );
 }
 
 function readMetadata(q: Record<string, unknown>): Record<string, unknown> {
@@ -135,12 +170,18 @@ export function normalizeQuestion(raw: unknown): NormalizedQuestion | null {
     kind = "address";
   } else if (qt === "birthdate" || qt === "date") {
     kind = "date";
+  } else if (isTermsQuestionType(qt)) {
+    kind = "terms";
+    const html = meta.text;
+    htmlContent = typeof html === "string" ? html : undefined;
   } else if (qt === "customwaiver") {
     kind = "waiver";
     const html = meta.text;
     htmlContent = typeof html === "string" ? html : undefined;
   } else if (qt === "waiver") {
     kind = "waiver";
+    const html = meta.text;
+    htmlContent = typeof html === "string" ? html : undefined;
   } else if (qt === "other") {
     if (customType === "yesno") {
       kind = "yesno";
@@ -153,9 +194,26 @@ export function normalizeQuestion(raw: unknown): NormalizedQuestion | null {
     } else if (customType === "fileupload" || customType === "file") {
       kind = "file";
     } else if (customType === "numeric") {
-      kind = "number";
-      numericMin = numOpt(meta.numericFrom);
-      numericMax = numOpt(meta.numericTo);
+      const nf = parseMetaNumber(meta.numericFrom);
+      const nt = parseMetaNumber(meta.numericTo);
+      if (nf != null && nt != null) {
+        numericMin = Math.min(nf, nt);
+        numericMax = Math.max(nf, nt);
+        const lo = Math.ceil(Math.min(nf, nt));
+        const hi = Math.floor(Math.max(nf, nt));
+        const span = hi - lo;
+        const integersOnly = Number.isInteger(nf) && Number.isInteger(nt);
+        if (integersOnly && span >= 0 && span <= 400) {
+          kind = "select";
+          options = buildIntegerOptionsInclusive(lo, hi);
+        } else {
+          kind = "number";
+        }
+      } else {
+        kind = "number";
+        numericMin = numOpt(meta.numericFrom);
+        numericMax = numOpt(meta.numericTo);
+      }
     } else if (customType === "text") {
       kind = "text";
       const ml = meta.maxLength;
@@ -246,4 +304,68 @@ export function mergeQuestionnaireQuestions(
   out.sort((a, b) => a.ordinal - b.ordinal || a.id - b.id);
   void questionnaireId;
   return out;
+}
+
+/** Whether `value` satisfies validation for one question (used by checkout UI + accordion completion). */
+export function isAnswerSatisfiedForQuestion(q: NormalizedQuestion, value: string): boolean {
+  const v = value ?? "";
+  if (q.kind === "multiselect") {
+    try {
+      const arr = JSON.parse(v || "[]");
+      if (!Array.isArray(arr) || arr.length === 0) return !q.mandatory;
+      return true;
+    } catch {
+      if (!v.trim()) return !q.mandatory;
+      return true;
+    }
+  }
+  if (q.kind === "boolean" || q.kind === "yesno") {
+    if (v !== "true" && v !== "false") return !q.mandatory;
+    return true;
+  }
+  if (q.kind === "waiver" || q.kind === "terms") {
+    if (!q.mandatory) return true;
+    return v === "true";
+  }
+  if (q.kind === "number") {
+    if (!q.mandatory && !String(v).trim()) return true;
+    if (!String(v).trim()) return !q.mandatory;
+    const n = Number(v);
+    if (!Number.isFinite(n)) return !q.mandatory;
+    if (q.numericMin != null && n < q.numericMin) return false;
+    if (q.numericMax != null && n > q.numericMax) return false;
+    return true;
+  }
+  if (q.kind === "file") {
+    if (!String(v).trim()) return !q.mandatory;
+    return true;
+  }
+  if (q.kind === "select" && q.numericMin != null && q.numericMax != null) {
+    if (!q.mandatory && !String(v).trim()) return true;
+    if (!String(v).trim()) return !q.mandatory;
+    const n = Number(v);
+    if (!Number.isFinite(n)) return false;
+    if (n < q.numericMin || n > q.numericMax) return false;
+    return true;
+  }
+  if (!String(v).trim()) return !q.mandatory;
+  return true;
+}
+
+/** Every question in the form is optional (show “Optional” instead of “Complete”). */
+export function formHasOnlyOptionalQuestions(questions: NormalizedQuestion[]): boolean {
+  return questions.length > 0 && questions.every((q) => !q.mandatory);
+}
+
+export function isFormQuestionsSatisfied(
+  questions: NormalizedQuestion[],
+  answers: Record<string, string>,
+  formQid: number
+): boolean {
+  for (const q of questions) {
+    if (!q.mandatory) continue;
+    const key = `${formQid}:${q.id}`;
+    if (!isAnswerSatisfiedForQuestion(q, answers[key] ?? "")) return false;
+  }
+  return true;
 }

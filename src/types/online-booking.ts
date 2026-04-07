@@ -79,8 +79,14 @@ export type ExtendedProductDto = {
   media?: Array<{ url?: string }>;
   /** Add-ons or linked products (e.g. bat rental) when returned by the API */
   requiredProducts?: RequiredProductRefDto[];
-  /** Checkout questionnaire ids from Bond (product `forms`). */
+  /** Checkout questionnaire ids from Bond (legacy / alternate key). */
   forms?: number[];
+  /** Bond public API: `questionnaireIds` on category products (see ExtendedProductDto in OpenAPI). */
+  questionnaireIds?: number[];
+  /** OpenAPI spelling on `ExtendedProductDto`: `questionnairesIds`. */
+  questionnairesIds?: number[];
+  /** Membership / gate flag from API (`isGated` on ExtendedProductDto). */
+  isGated?: boolean;
   /** Product packages (optional add-ons often nested here in Bond payloads) */
   packages?: unknown[];
   downPayment?: number;

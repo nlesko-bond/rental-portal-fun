@@ -16,7 +16,7 @@ function orgBase(orgId: number): string[] {
  */
 export async function fetchCurrentBondUser(
   orgId: number,
-  expand: string[] = ["family"]
+  expand: string[] = ["family", "address"]
 ): Promise<BondUserDto> {
   const path = [...orgBase(orgId), "user"];
   const q = new URLSearchParams();

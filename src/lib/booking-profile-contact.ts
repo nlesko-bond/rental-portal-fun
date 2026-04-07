@@ -4,7 +4,7 @@ function str(v: unknown): string | undefined {
   return typeof v === "string" && v.trim().length > 0 ? v.trim() : undefined;
 }
 
-/** Resolve a family member (or self) by Bond user id from `GET .../user?expand=family`. */
+/** Resolve a family member (or self) by Bond user id from `GET .../user?expand=family` (and `expand=address`). */
 export function findProfilePersonById(
   profile: BondUserDto | undefined,
   userId: number
@@ -59,20 +59,56 @@ function readBirthDate(u: Record<string, unknown> | null): string {
   return "";
 }
 
-function readAddress(u: Record<string, unknown> | null): string {
-  if (!u) return "";
+/** One-line address from flat fields (user root or nested `address` object from `expand=address`). */
+function readAddressFromFlatRecord(rec: Record<string, unknown>): string {
   const oneLine =
-    str(u.formattedAddress) ??
-    str(u.addressFormatted) ??
-    str(u.fullAddress);
+    str(rec.formattedAddress) ??
+    str(rec.addressFormatted) ??
+    str(rec.fullAddress) ??
+    str(rec.formatted) ??
+    str(rec.oneLine);
   if (oneLine) return oneLine;
-  const line1 = str(u.addressLine1) ?? str(u.streetAddress) ?? str(u.address1) ?? str(u.line1);
-  const line2 = str(u.addressLine2) ?? str(u.address2);
-  const city = str(u.city) ?? str(u.town);
-  const region = str(u.state) ?? str(u.region) ?? str(u.province);
-  const zip = str(u.zip) ?? str(u.postalCode) ?? str(u.zipCode);
+  const line1 =
+    str(rec.addressLine1) ??
+    str(rec.streetAddress) ??
+    str(rec.address1) ??
+    str(rec.line1) ??
+    str(rec.street1);
+  const line2 = str(rec.addressLine2) ?? str(rec.address2) ?? str(rec.street2);
+  const city = str(rec.city) ?? str(rec.town);
+  const region = str(rec.state) ?? str(rec.region) ?? str(rec.province);
+  const zip = str(rec.zip) ?? str(rec.postalCode) ?? str(rec.zipCode) ?? str(rec.postal);
   const parts = [line1, line2, city, region, zip].filter(Boolean);
   return parts.join(", ");
+}
+
+function readAddress(u: Record<string, unknown> | null): string {
+  if (!u) return "";
+  const direct = readAddressFromFlatRecord(u);
+  if (direct) return direct;
+  const addr = u.address;
+  if (addr && typeof addr === "object") {
+    return readAddressFromFlatRecord(addr as Record<string, unknown>);
+  }
+  return "";
+}
+
+function readGender(u: Record<string, unknown> | null): string {
+  if (!u) return "";
+  const g = str(u.gender) ?? str(u.genderName);
+  if (!g) return "";
+  return g.trim().toLowerCase();
+}
+
+/** `customer.waiverSignedDate` from Bond `ExtendedUserDto` / `BasicCustomerDto` (YYYY-MM-DD). */
+function readWaiverSignedDate(u: Record<string, unknown> | null): string {
+  if (!u) return "";
+  const cust = u.customer;
+  if (cust && typeof cust === "object") {
+    const d = str((cust as Record<string, unknown>).waiverSignedDate);
+    if (d) return /^\d{4}-\d{2}-\d{2}/.test(d) ? d.slice(0, 10) : d;
+  }
+  return "";
 }
 
 export type BookingContactSnapshot = {
@@ -80,6 +116,10 @@ export type BookingContactSnapshot = {
   phone: string;
   birthDate: string;
   address: string;
+  /** Lowercase Bond gender string (e.g. `male`, `female`, `other`) for matching select options. */
+  gender: string;
+  /** ISO date `YYYY-MM-DD` when the customer has a waiver on file, else "". */
+  waiverSignedDate: string;
 };
 
 /**
@@ -100,5 +140,7 @@ export function bookingContactSnapshot(
     phone: pick(readPhone(target), readPhone(primary)),
     birthDate: pick(readBirthDate(target), readBirthDate(primary)),
     address: pick(readAddress(target), readAddress(primary)),
+    gender: pick(readGender(target), readGender(primary)),
+    waiverSignedDate: pick(readWaiverSignedDate(target), readWaiverSignedDate(primary)),
   };
 }
