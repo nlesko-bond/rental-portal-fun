@@ -32,7 +32,15 @@ function Chevron({ open }: { open: boolean }) {
       className={`cb-q-panel-chevron${open ? " cb-q-panel-chevron--open" : ""}`}
       aria-hidden
     >
-      ▾
+      <svg className="cb-q-panel-chevron-svg" width="18" height="18" viewBox="0 0 24 24" fill="none">
+        <path
+          d="M6 9l6 6 6-6"
+          stroke="currentColor"
+          strokeWidth="2.25"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
     </span>
   );
 }
@@ -129,7 +137,9 @@ export function CheckoutQuestionnairePanels({
         {mergedForms.map((form) => {
           const complete = isFormQuestionsSatisfied(form.questions, answers, form.qid);
           const open = expandedQid === form.qid;
-          const hasWaiverOnlyQ = form.questions.some((q) => q.kind === "waiver");
+          const hasWaiverOnlyQ = form.questions.some(
+            (q) => q.kind === "waiver" && q.profileWaiverEligible === true
+          );
           const allOptional = formHasOnlyOptionalQuestions(form.questions);
           const showDocIcon =
             form.isWaiverForm || form.questions.some((q) => q.kind === "waiver" || q.kind === "terms");
@@ -198,7 +208,9 @@ export function CheckoutQuestionnairePanels({
                         value={val}
                         prefilledHint={showPrefillHint(q, val)}
                         profileWaiverSignedDate={
-                          q.kind === "waiver" && profileWaiverDisplay ? profileWaiverDisplay : undefined
+                          q.kind === "waiver" && q.profileWaiverEligible === true && profileWaiverDisplay
+                            ? profileWaiverDisplay
+                            : undefined
                         }
                         onChange={(v) => onAnswerChange(key, v)}
                       />

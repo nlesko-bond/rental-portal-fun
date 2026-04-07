@@ -28,6 +28,11 @@ export type NormalizedQuestion = {
   ordinal: number;
   /** Rich HTML for waiver / customWaiver (sanitize before render) */
   htmlContent?: string;
+  /**
+   * Bond `questionType === "waiver"` only — customer `waiverSignedDate` may prefill/shortcut.
+   * `customWaiver` is false (org-specific HTML; do not treat as org waiver on file).
+   */
+  profileWaiverEligible?: boolean;
   maxLength?: number;
   numericMin?: number;
   numericMax?: number;
@@ -161,6 +166,7 @@ export function normalizeQuestion(raw: unknown): NormalizedQuestion | null {
   let maxLength: number | undefined;
   let numericMin: number | undefined;
   let numericMax: number | undefined;
+  let profileWaiverEligible: boolean | undefined;
 
   if (qt === "emailaddress" || qt === "email") {
     kind = "email";
@@ -176,10 +182,12 @@ export function normalizeQuestion(raw: unknown): NormalizedQuestion | null {
     htmlContent = typeof html === "string" ? html : undefined;
   } else if (qt === "customwaiver") {
     kind = "waiver";
+    profileWaiverEligible = false;
     const html = meta.text;
     htmlContent = typeof html === "string" ? html : undefined;
   } else if (qt === "waiver") {
     kind = "waiver";
+    profileWaiverEligible = true;
     const html = meta.text;
     htmlContent = typeof html === "string" ? html : undefined;
   } else if (qt === "other") {
@@ -251,6 +259,7 @@ export function normalizeQuestion(raw: unknown): NormalizedQuestion | null {
     options,
     ordinal,
     htmlContent,
+    profileWaiverEligible,
     maxLength,
     numericMin,
     numericMax,

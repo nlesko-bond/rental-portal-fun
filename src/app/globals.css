@@ -2686,6 +2686,12 @@ body {
   filter: brightness(1.06);
 }
 
+/* Primary slot-summary CTA — style via `.consumer-booking` / `--cb-*`; avoid ad-hoc Tailwind on the portal. */
+.consumer-booking .cb-selection-slot-cta {
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
 .cb-selection-err-below {
   margin: 0;
   max-width: 100%;
@@ -3275,6 +3281,43 @@ body {
   font-size: 1rem;
 }
 
+.consumer-booking .cb-checkout-total-row--muted {
+  color: var(--cb-text-muted);
+}
+
+.consumer-booking .cb-checkout-payment-lines {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--cb-border);
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+
+.consumer-booking .cb-checkout-payment-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--cb-border);
+  align-items: flex-start;
+}
+
+.consumer-booking .cb-checkout-payment-line:last-child {
+  border-bottom: none;
+}
+
+.consumer-booking .cb-checkout-payment-line-title {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.consumer-booking .cb-checkout-payment-line-price {
+  font-weight: 600;
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
 .consumer-booking .cb-checkout-inner {
   padding-bottom: 1rem;
 }
@@ -3428,6 +3471,52 @@ body {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
+}
+
+.consumer-booking .cb-checkout-actions--stack {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.consumer-booking .cb-modal-panel--checkout-deposit {
+  max-width: min(22rem, calc(100vw - 2rem));
+}
+
+.consumer-booking .cb-checkout-deposit-modal {
+  padding-bottom: 0.25rem;
+}
+
+.consumer-booking .cb-checkout-callout {
+  max-width: 100%;
+}
+
+.consumer-booking .cb-checkout-payment-methods {
+  border: 1px solid var(--cb-border);
+  border-radius: 0.5rem;
+  padding: 0.75rem 1rem;
+  background: var(--cb-bg-surface);
+}
+
+.consumer-booking .cb-checkout-payment-methods-placeholder {
+  margin: 0;
+}
+
+.consumer-booking .cb-checkout-payment-method-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.consumer-booking .cb-checkout-payment-method-option {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.consumer-booking .cb-checkout-payment-method-option input {
+  accent-color: var(--cb-primary);
 }
 
 .consumer-booking .cb-btn-primary {
@@ -3688,14 +3777,31 @@ body {
 
 .consumer-booking .cb-q-select-dropdown {
   cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  padding-top: 0.55rem;
+  padding-bottom: 0.55rem;
+  padding-left: 0.75rem;
+  padding-right: 2.75rem;
+  background-color: var(--cb-bg-field);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none'%3E%3Cpath d='M6 9l6 6 6-6' stroke='%23606e7f' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.7rem center;
+  background-size: 1.2rem 1.2rem;
 }
 
 .consumer-booking .cb-q-panel-chevron {
+  display: inline-flex;
   flex-shrink: 0;
-  font-size: 1rem;
+  align-items: center;
+  justify-content: center;
   color: var(--cb-text-muted);
   transition: transform 0.15s ease;
-  margin-top: 0.15rem;
+  margin-top: 0.1rem;
+}
+
+.consumer-booking .cb-q-panel-chevron-svg {
+  display: block;
 }
 
 .consumer-booking .cb-q-panel-chevron--open {

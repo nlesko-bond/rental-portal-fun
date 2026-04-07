@@ -1,9 +1,10 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatBondUserMessage } from "@/lib/bond-errors";
+import { categoryRequiresApproval } from "@/lib/category-approval";
 import {
   computeVipEarlyAccessDateKeys,
   filterDatesByAdvanceWindow,
@@ -297,6 +298,7 @@ function ScheduleMatrix({
 }
 
 export function BookingExperience() {
+  const queryClient = useQueryClient();
   const hydrated = useHydrated();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -759,7 +761,6 @@ export function BookingExperience() {
     return arr;
   }, [selectedSlots]);
 
-  const [checkoutMessage, setCheckoutMessage] = useState<string | null>(null);
   /** After "Book now" while logged out, open checkout drawer once login succeeds. */
   const [resumeCheckoutAfterAuth, setResumeCheckoutAfterAuth] = useState(false);
 
@@ -772,8 +773,15 @@ export function BookingExperience() {
     saveSessionCartSnapshots(sessionCartRows);
   }, [sessionCartRows]);
 
+  /** After Bond confirms checkout (submit-for-approval create, or pay when wired): clear cart, slots, refetch schedule. */
+  const completeCheckoutOnBondSuccess = useCallback(() => {
+    setSessionCartRows([]);
+    saveSessionCartSnapshots([]);
+    clearSlotSelection();
+    void queryClient.invalidateQueries({ queryKey: ["bond", "schedule"] });
+  }, [clearSlotSelection, queryClient]);
+
   const onBookNow = useCallback(() => {
-    setCheckoutMessage(null);
     if (bondAuth.session.status !== "authenticated" || bondUserId == null) {
       setResumeCheckoutAfterAuth(true);
       bondAuth.setLoginOpen(true);
@@ -955,6 +963,7 @@ export function BookingExperience() {
   if (!portal || !state) return null;
 
   const category = portal.options.categories.find((c) => c.id === state.categoryId) ?? portal.options.defaultCategory;
+  const categoryApprovalRequired = categoryRequiresApproval(category);
   const durations =
     categoryRules?.durationOptionsMinutes?.length && categoryRules.durationOptionsMinutes.length > 0
       ? categoryRules.durationOptionsMinutes
@@ -1625,7 +1634,6 @@ export function BookingExperience() {
           onBook={onBookNow}
           bookBusy={checkoutBusy}
           bookDisabled={pickedSlotsOrdered.length === 0}
-          checkoutMessage={checkoutMessage}
         />
       ) : null}
 
@@ -1678,15 +1686,12 @@ export function BookingExperience() {
           }}
           onAddAnotherBooking={() => {
             clearSlotSelection();
-            setCheckoutMessage(null);
           }}
           onSuccess={(cart) => {
             const name = selectedProduct?.name ?? "Service";
             setSessionCartRows((prev) => [...prev, { cart, productName: name }]);
-            setCheckoutMessage(
-              `Reservation started. Cart #${cart.id}${cart.subtotal != null ? ` · Subtotal ${cart.subtotal}` : ""}.`
-            );
           }}
+          onCheckoutComplete={completeCheckoutOnBondSuccess}
           packageAddons={packageAddons}
           addonsExpanded={addonsExpanded}
           onToggleExpandAddons={() => setAddonsExpanded((x) => !x)}
@@ -1700,6 +1705,7 @@ export function BookingExperience() {
           appearanceClass={appearanceClass}
           bondProfile={bondProfileQuery.data}
           primaryAccountUserId={bondUserId ?? 0}
+          approvalRequired={categoryApprovalRequired}
         />
       ) : null}
 

@@ -103,7 +103,9 @@ export async function fetchUserRequiredProducts(
 }
 
 /**
- * `POST .../online-booking/create` — JWT. Body shape is not in OpenAPI; align with Bond if 400.
+ * `POST .../online-booking/create` — JWT. Creates **reservation + cart** (`cartReservation` in Swagger).
+ * In the rental portal, **instant book** calls this from “Add to cart”. **Approval** categories defer
+ * this call until checkout “Submit request” so the reservation is created when the member submits.
  */
 export async function postOnlineBookingCreate(
   orgId: number,

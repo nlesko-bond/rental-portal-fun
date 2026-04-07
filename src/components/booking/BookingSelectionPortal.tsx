@@ -25,7 +25,6 @@ type Props = {
   onBook?: () => void;
   bookBusy?: boolean;
   bookDisabled?: boolean;
-  checkoutMessage?: string | null;
 };
 
 function useIsClient(): boolean {
@@ -51,7 +50,6 @@ export function BookingSelectionPortal({
   onBook,
   bookBusy,
   bookDisabled,
-  checkoutMessage,
 }: Props) {
   const isClient = useIsClient();
 
@@ -63,6 +61,8 @@ export function BookingSelectionPortal({
 
   const fabBadge = slotCount > 0 ? slotCount : cartBookingCount;
   const showSlotBar = slotCount > 0;
+  const primaryActionLabel =
+    slotCount === 1 ? "1 slot selected →" : `${slotCount} slots selected →`;
 
   const wrapCls = `consumer-booking ${appearanceClass} cb-selection-portal`.trim();
 
@@ -105,19 +105,14 @@ export function BookingSelectionPortal({
                 </button>
                 <button
                   type="button"
-                  className="cb-selection-book cb-selection-book--unified"
+                  className="cb-selection-book cb-selection-book--unified cb-selection-slot-cta"
                   disabled={bookDisabled || bookBusy}
                   onClick={onBook}
                 >
-                  {bookBusy ? "Booking…" : "Book now →"}
+                  {bookBusy ? "Booking…" : primaryActionLabel}
                 </button>
               </div>
             </div>
-          ) : null}
-          {checkoutMessage ? (
-            <p className="cb-selection-ok-below mt-2 max-w-lg text-center text-sm text-[var(--cb-text-muted)]">
-              {checkoutMessage}
-            </p>
           ) : null}
           {error ? <p className="cb-selection-err-below">{error}</p> : null}
         </div>

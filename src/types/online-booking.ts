@@ -3,6 +3,8 @@ export type OnlineBookingView = "list" | "calendar" | "matrix";
 
 export type CategorySettings = {
   bookingDurations?: number[];
+  /** When true, bookings are requests pending approval (vs pay-now / instant book). */
+  approvalRequired?: boolean;
 } & Record<string, unknown>;
 
 export type ReservationProductCategoryDto = {
@@ -182,5 +184,10 @@ export type OrganizationCartDto = {
   status?: string;
   currency?: string;
   subtotal?: number;
+  /** When Bond returns tax breakdown (names vary; see `checkout-bag-totals`). */
+  tax?: number;
+  taxAmount?: number;
+  total?: number;
+  discountAmount?: number;
   cartItems?: unknown[];
 } & Record<string, unknown>;
