@@ -107,7 +107,17 @@ export function BookingForDrawer({
                   </svg>
                 </span>
                 <span className="cb-booking-for-card-main">
-                  <span className="cb-booking-for-name">{m.label}</span>
+                  <span className="cb-booking-for-name-row">
+                    <span className="cb-booking-for-name">{m.label}</span>
+                    {m.needsMembershipHint ? (
+                      <span
+                        className="cb-booking-for-tag cb-booking-for-tag--membership"
+                        title="This person still needs a qualifying membership for this product. You can add it at checkout."
+                      >
+                        Membership
+                      </span>
+                    ) : null}
+                  </span>
                   {m.relationship ? <span className="cb-booking-for-rel">{m.relationship}</span> : null}
                 </span>
                 {m.badgeLabel ? <MemberBadge label={m.badgeLabel} /> : null}

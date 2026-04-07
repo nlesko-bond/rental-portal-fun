@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatBondUserMessage } from "@/lib/bond-errors";
@@ -41,7 +41,12 @@ import {
   fetchCategoryProducts,
   fetchPublicPortal,
 } from "@/lib/online-booking-api";
-import { fetchCurrentBondUser, fetchUserBookingInformation } from "@/lib/online-booking-user-api";
+import {
+  fetchCurrentBondUser,
+  fetchUserBookingInformation,
+  fetchUserRequiredProducts,
+} from "@/lib/online-booking-user-api";
+import { userNeedsMembershipFromRequiredResponse } from "@/lib/required-products-eligibility";
 import { bookingPartyMembersFromProfile } from "@/lib/booking-party-options";
 import { BondBffError } from "@/lib/bond-json";
 import type {
@@ -528,6 +533,32 @@ export function BookingExperience() {
     () => (state?.productId != null ? productsQuery.data?.data.find((p) => p.id === state.productId) : undefined),
     [productsQuery.data, state?.productId]
   );
+
+  const memberRequiredProductQueries = useQueries({
+    queries: partyMembers.map((m) => ({
+      queryKey: ["bond", "memberRequiredProducts", env.ok ? env.orgId : 0, state?.productId ?? 0, m.id],
+      queryFn: () => {
+        if (!env.ok || state?.productId == null) throw new Error("Missing org or product");
+        return fetchUserRequiredProducts(env.orgId, state.productId, m.id);
+      },
+      enabled:
+        env.ok &&
+        state?.productId != null &&
+        bondAuth.session.status === "authenticated" &&
+        partyMembers.length > 0,
+      staleTime: 60_000,
+    })),
+  });
+
+  const partyMembersForBookingFor = useMemo(() => {
+    if (partyMembers.length === 0) return partyMembers;
+    return partyMembers.map((m, i) => {
+      const q = memberRequiredProductQueries[i];
+      const needs =
+        q?.isSuccess && q.data !== undefined ? userNeedsMembershipFromRequiredResponse(q.data) : false;
+      return { ...m, needsMembershipHint: needs };
+    });
+  }, [partyMembers, memberRequiredProductQueries]);
 
   const entitlementAdjust = useMemo(() => {
     if (bondAuth.session.status !== "authenticated") return (u: number) => u;
@@ -1619,7 +1650,7 @@ export function BookingExperience() {
         </>
       )}
 
-      {state.productId != null ? (
+      {state?.productId != null || sessionCartRows.length > 0 ? (
         <BookingSelectionPortal
           slotCount={selectedSlots.size}
           cartBookingCount={sessionCartRows.length}
@@ -1627,9 +1658,7 @@ export function BookingExperience() {
           onClear={clearSlotSelection}
           themeStyle={themeStyle}
           appearanceClass={appearanceClass}
-          overlayOpen={
-            checkoutDrawerOpen || bookingForModalOpen || bondAuth.loginOpen || picker != null
-          }
+          overlayOpen={bondAuth.loginOpen || picker != null}
           onOpenCart={sessionCartRows.length > 0 ? onOpenCartBag : undefined}
           onBook={onBookNow}
           bookBusy={checkoutBusy}
@@ -1643,16 +1672,8 @@ export function BookingExperience() {
         open={welcomeToastOpen}
         title={welcomeToastTitle}
         subtitle="You are now signed in."
+        duration={3000}
         onDismiss={() => setWelcomeToastOpen(false)}
-      />
-
-      <BookingForDrawer
-        open={bookingForModalOpen}
-        onClose={() => setBookingForModalOpen(false)}
-        members={partyMembers}
-        value={bookingTargetUserId ?? bondUserId ?? null}
-        onConfirm={(userId) => setBookingTargetUserId(userId)}
-        profileLoading={bondAuth.session.status === "authenticated" && bondProfileQuery.isPending}
       />
 
       {env.ok &&
@@ -1706,8 +1727,19 @@ export function BookingExperience() {
           bondProfile={bondProfileQuery.data}
           primaryAccountUserId={bondUserId ?? 0}
           approvalRequired={categoryApprovalRequired}
+          orgDisplayName={portal?.name}
+          onBookingForClick={() => setBookingForModalOpen(true)}
         />
       ) : null}
+
+      <BookingForDrawer
+        open={bookingForModalOpen}
+        onClose={() => setBookingForModalOpen(false)}
+        members={partyMembersForBookingFor}
+        value={bookingTargetUserId ?? bondUserId ?? null}
+        onConfirm={(userId) => setBookingTargetUserId(userId)}
+        profileLoading={bondAuth.session.status === "authenticated" && bondProfileQuery.isPending}
+      />
 
       <ProductDetailModal
         open={productInfoId != null}

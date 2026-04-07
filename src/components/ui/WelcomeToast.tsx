@@ -11,7 +11,7 @@ type Props = {
   duration?: number;
 };
 
-export function WelcomeToast({ open, title, subtitle, onDismiss, duration = 4500 }: Props) {
+export function WelcomeToast({ open, title, subtitle, onDismiss, duration = 3000 }: Props) {
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {

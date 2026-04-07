@@ -114,6 +114,18 @@ export function CheckoutQuestionnairePanels({
     setExpandedQid(firstIncomplete?.qid ?? mergedForms[0]!.qid);
   }, [loading, mergedForms, answers]);
 
+  /** When the open panel becomes fully satisfied, collapse it so remaining incomplete forms stay visible. */
+  useEffect(() => {
+    if (loading || mergedForms.length === 0 || expandedQid == null) return;
+    const form = mergedForms.find((f) => f.qid === expandedQid);
+    if (!form) return;
+    if (!isFormQuestionsSatisfied(form.questions, answers, form.qid)) return;
+    const nextIncomplete = mergedForms.find(
+      (f) => !isFormQuestionsSatisfied(f.questions, answers, f.qid)
+    );
+    setExpandedQid(nextIncomplete?.qid ?? null);
+  }, [loading, mergedForms, answers, expandedQid]);
+
   const toggle = useCallback((qid: number) => {
     setExpandedQid((prev) => (prev === qid ? null : qid));
   }, []);

@@ -3092,6 +3092,30 @@ body {
   color: var(--cb-text);
 }
 
+.consumer-booking .cb-booking-for-name-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.5rem;
+  min-width: 0;
+}
+
+.consumer-booking .cb-booking-for-tag {
+  flex-shrink: 0;
+  border-radius: 9999px;
+  padding: 0.12rem 0.45rem;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.consumer-booking .cb-booking-for-tag--membership {
+  border: 1px solid color-mix(in srgb, var(--cb-primary) 45%, var(--cb-border));
+  background: color-mix(in srgb, var(--cb-primary) 12%, var(--cb-bg-surface));
+  color: var(--cb-primary);
+}
+
 .consumer-booking .cb-booking-for-rel {
   font-size: 0.75rem;
   color: var(--cb-text-muted);
@@ -3141,6 +3165,59 @@ body {
 }
 
 .consumer-booking .cb-checkout-booking-for strong {
+  color: var(--cb-text);
+}
+
+.consumer-booking .cb-checkout-booking-for--trigger {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.35rem;
+  margin: 0 0 0.35rem;
+  max-width: 100%;
+  border: none;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  font-size: 0.8rem;
+  color: var(--cb-text-muted);
+  text-align: left;
+  cursor: pointer;
+  border-radius: 0.35rem;
+}
+
+.consumer-booking .cb-checkout-booking-for--trigger:hover {
+  color: var(--cb-text);
+}
+
+.consumer-booking .cb-checkout-booking-for--trigger:focus-visible {
+  outline: 2px solid var(--cb-primary);
+  outline-offset: 2px;
+}
+
+.consumer-booking .cb-checkout-booking-for-chev {
+  font-size: 0.7rem;
+  color: var(--cb-primary);
+}
+
+.consumer-booking .cb-checkout-booking-for-inline-trigger {
+  border: none;
+  background: transparent;
+  padding: 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--cb-primary);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.consumer-booking .cb-membership-modal-booking-for {
+  margin: 0 0 0.75rem;
+  font-size: 0.9rem;
+  color: var(--cb-text-muted);
+}
+
+.consumer-booking .cb-membership-modal-booking-for strong {
   color: var(--cb-text);
 }
 
@@ -3480,6 +3557,297 @@ body {
 
 .consumer-booking .cb-modal-panel--checkout-deposit {
   max-width: min(22rem, calc(100vw - 2rem));
+}
+
+.consumer-booking .cb-modal-panel--membership-required {
+  max-width: min(28rem, calc(100vw - 2rem));
+}
+
+.consumer-booking .cb-modal-panel--membership-required .cb-modal-body {
+  text-align: left;
+}
+
+/* MembershipRequiredModal — card markup uses cb-membership-card* (not cb-membership-option*). */
+.consumer-booking .cb-membership-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  text-align: left;
+}
+
+.consumer-booking .cb-membership-modal-lead {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--cb-text-muted);
+  line-height: 1.45;
+}
+
+.consumer-booking .cb-membership-modal-options {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.consumer-booking .cb-membership-card {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--cb-border);
+  border-radius: 0.75rem;
+  background: var(--cb-bg-surface);
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.consumer-booking .cb-membership-card:hover {
+  border-color: color-mix(in srgb, var(--cb-primary) 45%, var(--cb-border));
+}
+
+.consumer-booking .cb-membership-card--selected {
+  border-color: var(--cb-primary);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--cb-primary) 35%, transparent);
+  background: color-mix(in srgb, var(--cb-primary) 6%, var(--cb-bg-surface));
+}
+
+.consumer-booking .cb-membership-card-head {
+  display: flex;
+  width: 100%;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.consumer-booking .cb-membership-card-title {
+  flex: 1;
+  min-width: 0;
+  font-weight: 700;
+  font-size: 1rem;
+  color: var(--cb-text);
+  line-height: 1.35;
+}
+
+.consumer-booking .cb-membership-card-price {
+  flex-shrink: 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--cb-text-muted);
+  white-space: nowrap;
+}
+
+.consumer-booking .cb-membership-card-freq {
+  font-weight: 500;
+  margin-left: 0.25rem;
+}
+
+.consumer-booking .cb-membership-card-requires {
+  margin-top: 0.65rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 0.5rem;
+  background: color-mix(in srgb, var(--cb-primary) 8%, var(--cb-bg-surface));
+  border: 1px solid color-mix(in srgb, var(--cb-primary) 22%, var(--cb-border));
+}
+
+.consumer-booking .cb-membership-card-requires-label {
+  margin: 0 0 0.4rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--cb-primary);
+}
+
+.consumer-booking .cb-membership-card-requires-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.consumer-booking .cb-membership-card-requires-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 0.85rem;
+  color: var(--cb-text);
+}
+
+.consumer-booking .cb-membership-card-requires-row span:first-child {
+  min-width: 0;
+  font-weight: 600;
+}
+
+.consumer-booking .cb-membership-card-requires-amt {
+  flex-shrink: 0;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.consumer-booking .cb-membership-card-total {
+  margin-top: 0.65rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--cb-border);
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 0.9rem;
+}
+
+.consumer-booking .cb-membership-card-total strong {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--cb-text);
+}
+
+.consumer-booking .cb-membership-modal-actions {
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.consumer-booking .cb-membership-modal-meta {
+  margin: 0;
+  text-align: center;
+}
+
+.consumer-booking .cb-drawer-root:has(.cb-booking-for-drawer) {
+  z-index: 90;
+}
+
+.consumer-booking .cb-membership-required-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.consumer-booking .cb-membership-required-lead {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--cb-text-muted);
+  line-height: 1.45;
+}
+
+.consumer-booking .cb-membership-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.consumer-booking .cb-membership-option {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 0.75rem;
+}
+
+.consumer-booking .cb-membership-option-inner {
+  border: 1px solid var(--cb-border);
+  border-radius: 0.75rem;
+  padding: 0.9rem 1rem;
+  background: var(--cb-bg-surface);
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.consumer-booking .cb-membership-option:hover .cb-membership-option-inner {
+  border-color: color-mix(in srgb, var(--cb-primary) 45%, var(--cb-border));
+}
+
+.consumer-booking .cb-membership-option--selected .cb-membership-option-inner {
+  border-color: var(--cb-primary);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--cb-primary) 35%, transparent);
+  background: color-mix(in srgb, var(--cb-primary) 6%, var(--cb-bg-surface));
+}
+
+.consumer-booking .cb-membership-option-title {
+  font-weight: 700;
+  font-size: 1rem;
+  color: var(--cb-text);
+  margin-bottom: 0.35rem;
+}
+
+.consumer-booking .cb-membership-option-price {
+  font-size: 0.9rem;
+  color: var(--cb-text-muted);
+}
+
+.consumer-booking .cb-membership-nested {
+  margin-top: 0.65rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 0.5rem;
+  background: color-mix(in srgb, var(--cb-primary) 8%, var(--cb-bg-surface));
+  border: 1px solid color-mix(in srgb, var(--cb-primary) 22%, var(--cb-border));
+}
+
+.consumer-booking .cb-membership-nested-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--cb-primary);
+  margin-bottom: 0.35rem;
+}
+
+.consumer-booking .cb-membership-nested-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 0.85rem;
+}
+
+.consumer-booking .cb-membership-nested-name {
+  font-weight: 600;
+  color: var(--cb-text);
+}
+
+.consumer-booking .cb-membership-nested-meta {
+  font-size: 0.75rem;
+  color: var(--cb-text-muted);
+  margin-top: 0.2rem;
+}
+
+.consumer-booking .cb-membership-option-total {
+  margin-top: 0.65rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--cb-border);
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 0.9rem;
+}
+
+.consumer-booking .cb-membership-option-total-label {
+  font-weight: 600;
+  color: var(--cb-text);
+}
+
+.consumer-booking .cb-membership-option-total-value {
+  font-weight: 700;
+  font-size: 1rem;
+  color: var(--cb-text);
+}
+
+.consumer-booking .cb-membership-required-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
 }
 
 .consumer-booking .cb-checkout-deposit-modal {
@@ -3897,6 +4265,13 @@ body {
   font-weight: 700;
   color: var(--cb-primary);
   white-space: nowrap;
+  text-align: right;
+}
+
+.consumer-booking .cb-checkout-addon-review-freq {
+  font-weight: 500;
+  font-size: 0.75rem;
+  color: var(--cb-text-muted);
 }
 
 .consumer-booking .cb-checkout-addon-review-slot {

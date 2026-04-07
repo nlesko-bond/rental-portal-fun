@@ -120,6 +120,105 @@ flowchart LR
 
 - `src/types/online-booking.ts` — portal, products, schedule DTOs; category `settings` intentionally loose.
 
+### Checkout (implemented — extensions in Roadmap)
+
+- **BFF** to Bond only; `POST .../online-booking/create` via `online-booking-user-api.ts` (`buildOnlineBookingCreateBody` — `segments` + flat `addonProductIds` + optional `questionnaireAnswers`).
+- **Instant book:** create on **Add to cart** when category does not require approval.
+- **Approval:** create deferred until checkout **Submit request**; then clear session cart + slot selection + invalidate schedule query.
+- **Payment / Pay now / saved cards:** UI placeholders only until Phase 4 (see **Pinned** below).
+
+#### Checkout UX & gating (recent)
+
+- **Bond auth:** `/api/bond-auth/*`; login modal; session; **“Who is this booking for?”** drawer (`BookingForDrawer`) — family picker; **stacking** above checkout drawer (z-index) so it is usable after login.
+- **Required products** (`GET .../products/{productId}/user/{userId}/required`): extended `ExtendedRequiredProductDto` parsing (`required-products-extended.ts`); **membership OR** vs **other required**; **membership step** in checkout (drawer) when Bond still lists membership options; **no separate modal** in the default flow.
+- **Membership panel** shows **“Booking for [name]”**; header **Booking for** is clickable to switch family member — switching clears membership/required selections and refetches required products.
+- **Booking summary (confirm):** line prices for required add-ons when Bond sends `prices[]`; **totals** sum rental + required + optional add-ons (see **Open questions** below for server vs client truth).
+- **Approval checkout payment step:** synthetic **Purchases** lines for deferred create — rental + each required + optional add-ons (so totals are not rental-only).
+- **Errors:** `ONLINE_BOOKING.INVALID_PRODUCT` with reservation/eligibility wording mapped to friendly copy (customer + org name) in `bond-errors.ts`.
+- **Selection bar / cart FAB:** visible when session cart exists even without a product in URL; cart FAB **clickable** when bag + slots coexist; overlay rules adjusted so FAB is not hidden unnecessarily.
+- **Family member hints:** “Membership” pill when required-products API still lists a membership for that person (`required-products-eligibility.ts` — informational, not blocking).
+- **Questionnaires:** collapsed panels auto-advance when a form is fully satisfied (`CheckoutQuestionnairePanels`).
+- **Welcome toast:** ~3s default.
+
+---
+
+### Open questions (product / API — align with Bond)
+
+| Topic | Notes |
+|--------|--------|
+| **Cart vs reservation** | Today **`POST .../online-booking/create`** builds reservation + cart together. **Client-side price/total math** is best-effort for UX until Bond exposes authoritative line items or a **cart-first** flow. Discuss with Bond whether to create **cart first**, then **reservation** separately, or return priced line items on an existing cart endpoint. |
+| **Booking limits & windows** | `GET .../online-booking/user/{userId}/booking-information` + category `settings` — **max bookings per day / consecutive / advance window / active membership** checks: **not** fully wired at slot selection + checkout (see Phase 3 backlog). |
+
+---
+
+## Roadmap backlog
+
+**Contract:** [Squad C Swagger](https://public.api.squad-c.bondsports.co/public-api/). Extend `src/lib/online-booking-*.ts` with thin BFF-backed wrappers; never add `X-Api-Key` client-side.
+
+### Pinned — not in active build
+
+| Topic | Status | Notes |
+|--------|--------|--------|
+| **SSO / enterprise identity** | **Pinned** | Current path: Bond consumer login via `/api/bond-auth/*` + httpOnly cookies. Revisit when org SSO requirements and Bond/OIDC contract are defined. |
+| **Payment methods (list + add)** | **Pinned** | Checkout shows placeholders. Implement list/add + processor when Bond exposes consumer payment APIs and gateway choice is fixed. |
+| **Instant pay (charge at checkout)** | **Blocked on ↑** | Depends on saved instruments + pay endpoints. |
+
+Everything below assumes **hosted Bond public APIs** and existing BFF patterns.
+
+---
+
+### Phase 3 — Entitlements, gating, and booking rules (priority)
+
+| # | Track | Status | Work |
+|---|--------|--------|------|
+| 3.1 | **Required products** | **Partial** | Membership + nested required products in create payload; dedicated **membership step**; summary + approval **purchases** lines. **Remaining:** optional stricter blocking rules; Swagger alignment if payloads change. |
+| 3.2 | **Entitlements — forms** | **Not done** | Map questionnaire answers to entitlement / unlock rules when API documents linkage; test with Bond payloads. |
+| 3.3 | **Entitlements — memberships** | **Partial** | `applyEntitlementDiscountsToUnitPrice` on slots; member pricing on summary. **Remaining:** server-truth totals when Bond exposes them; avoid relying on client-only sums long-term. |
+| 3.4 | **Advance booking windows** | **Partial** | `filterDatesByAdvanceWindow` + VIP early access dates. **Remaining:** merge with **booking-information** per user. |
+| 3.5 | **Customer-gated products** | **Partial** | Product card gating; friendly **`INVALID_PRODUCT`** copy when eligibility fails. **Remaining:** per-member eligibility beyond required-products API if needed. |
+| 3.6 | **Booking restrictions** | **Partial** | Client-side slot validation (max hours/day, sequential). **Remaining:** enforce **booking-information** + category limits at slot selection, after login, and checkout. |
+| 3.7 | **Online product schedules** | **Partial** | In use. **Remaining:** regression tests; document `date` vs `dateTstart` behavior. |
+| 3.8 | **Conflicts** | **Not done** | Double-booking / overlap: rely on Bond errors + refetch; document error codes; optional client pre-check if API supports it. |
+
+---
+
+### Phase 4 — Questionnaires, cart, and payment (after pins lift)
+
+| # | Track | Status | Work |
+|---|--------|--------|------|
+| 4.1 | **Questionnaires** | **Partial** | `checkout-questionnaires` + form prefill; panel UX. **Remaining:** **`cartId`** on questionnaires when spec requires; separate submit if Bond adds it. |
+| 4.2 | **Cart** | **Open** | Session cart snapshots in **tabStorage**; **authoritative priced lines** TBD — see **Open questions** (cart-first vs combined create). |
+| 4.3 | **Payment** | **Pinned** | **Unpins** payment methods + pay flows; 3DS if applicable; success/failure UI. |
+
+---
+
+### Phase 5 — UX and clients
+
+| # | Track | Work |
+|---|--------|------|
+| 5.1 | **Checkout UX** | Totals, errors, loading, approval vs instant copy; mobile-friendly drawers. |
+| 5.2 | **Add-ons UX** | Clarity of reservation vs slot/hour; optional estimated totals in cart; polish `BookingAddonPanel`. |
+| 5.3 | **Mobile** | Touch targets, selection bar, matrix/calendar breakpoints; smoke on real devices. |
+| 5.4 | **Theming** | Multiple color schemes via URL/env/portal branding (`booking-theme.ts`, `--cb-*`); document token map for white-label. |
+
+---
+
+### Phase 6 — Engineering quality
+
+- Split **`BookingExperience.tsx`** into route-level sections (schedule vs chrome vs checkout) + hooks.
+- **DRY:** shared booking state hooks; colocate React Query keys with fetchers.
+- **Tests:** `category-booking-settings`, `product-package-addons`, questionnaire validation, critical URL/state reducers.
+- **BFF hardening:** allowlists, logging, rate limits (see Known issues).
+- **OpenAPI client (optional):** generated types when churn stabilizes.
+
+---
+
+### Phase 7 — QA and documentation
+
+- **QA / test plans:** matrix of org × portal × product × auth state; manual + automation backlog (e.g. Playwright against preview).
+- **Feature / flow docs:** keep this file + short “flows” appendix (auth → slot → checkout → approval vs instant).
+- **Lessons / instructor-as-resource:** no deeper work until API behavior confirmed (same as Known issues).
+
 ---
 
 ## Known issues / deferred
@@ -127,52 +226,7 @@ flowchart LR
 - **Lessons / instructor-as-resource:** Same bad responses observed in **Swagger** and the app; **no further lesson-specific fixes** until API behavior is confirmed. `fetchBookingScheduleRecovering` already tries query variants; `resourcesIds` / duration / date combos may need API-side clarity.
 - **BFF hardening:** Plan item — stricter allowlists, logging, rate limits — not fully done.
 - **OpenAPI-generated client:** Not adopted; hand-maintained types + fetch.
-
----
-
-## Outstanding work (for next APIs / agents)
-
-Use Swagger as source of truth when endpoints appear or change.
-
-### 1. Auth
-
-- **Done (baseline):** login + refresh + httpOnly cookies; `/api/bond-auth/session` exposes `bondUserId` from `custom:userId` on the ID token.
-
-### 2. Authenticated user context
-
-- **Done (baseline):** `getUser` + **`userId`** on schedule/settings + modal schedule; **booking-information** for the visible date range; **questionnaires** from `product.forms`; `POST` create from the bottom bar.
-- **Next:** family picker + `checkout-questionnaires` with **`cartId`** after create; answer submission; payment / pay endpoints when available.
-
-### 3. Member / VIP / entitlements (product requirements)
-
-- **advancedWindows** (or similar): merge with `filterDatesByAdvanceWindow` so calendar extends for eligible members.
-- **Members-only** & **customer-gated** products: filter or unlock in UI per API rules.
-- **Entitlements / discounts:** reflect in slot price display, product cards, add-ons where API provides adjusted pricing.
-- **Family members:** load list, switch “booking for” context, pass ids to relevant calls per spec.
-
-### 4. Questionnaires
-
-- Fetch required questionnaires; block or gate checkout until complete; submit answers before create.
-
-### 5. Cart
-
-- Server cart APIs per OpenAPI; line items: base product, selected slots (resource + time keys), add-ons with **level** + slot targeting map.
-- Persist cart id; sync with UI selection bar.
-
-### 6. Payment & create reservation
-
-- `POST` create / pay flows per **`docs/bond/PUBLIC_APIS_FOR_AGENTS.md`** and Swagger (e.g. online-booking create, cart).
-- Handle errors, 3DS if applicable, success / failure UI.
-
-### 7. Product / checkout integration for add-ons
-
-- Map `selectedAddonIds` + `addonSlotTargeting` + `PickedSlot[]` into whatever DTO Bond expects.
-- Use **`addonEstimatedChargeForSlot`** (and reservation flat) for previews; trust server for final totals.
-
-### 8. Low priority — dev / admin
-
-- Small UI or extended URL params for **portal picker** (already partially via query).
-- **Code cleanup:** split `BookingExperience.tsx`, tighten ESLint exceptions (`set-state-in-effect` for addon pruning), tests for `category-booking-settings` / `product-package-addons`.
+- **Pinned items:** SSO auth; payment methods / add payment methods — see **Roadmap backlog** above.
 
 ---
 
@@ -189,6 +243,7 @@ Use Swagger as source of truth when endpoints appear or change.
 | Slot validation | `src/lib/slot-selection.ts` |
 | Add-ons | `src/lib/product-package-addons.ts`, `BookingAddonPanel.tsx` |
 | Main UI | `BookingExperience.tsx`, `ScheduleCalendarView.tsx`, `BookingSelectionPortal.tsx`, `ProductDetailModal.tsx` |
+| Checkout | `BookingCheckoutDrawer.tsx`, `BookingForDrawer.tsx`, `MembershipRequiredModal.tsx` (panel + optional modal), `src/lib/required-products-*.ts`, `bond-errors.ts` |
 | Styles | `src/app/globals.css` (`.consumer-booking` block) |
 | Entry | `src/app/page.tsx`, `layout.tsx`, `providers.tsx` |
 
@@ -205,4 +260,4 @@ Use Swagger as source of truth when endpoints appear or change.
 
 ---
 
-*Last updated to reflect the state of the repo at handoff; keep this file in sync when major features land.*
+*Last updated: 2026-03-27 — checkout gating, membership step, cart/payment line display, docs sync; see Open questions for cart/reservation and server totals.*

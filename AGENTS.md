@@ -9,7 +9,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 ## Plan (do this work here)
 
 1. **`docs/RENTAL_PORTAL_PLAN.md`** — Phase 1 (portal, products, schedule) and Phase 2 (auth, checkout). **Treat as the source of truth** for this repo.
-2. **`docs/IMPLEMENTATION_AND_ROADMAP.md`** — **What’s built, URL/env overrides, file map, and outstanding API work** — start here for handoffs.
+2. **`docs/IMPLEMENTATION_AND_ROADMAP.md`** — **What’s built, URL/env overrides, file map, Roadmap backlog (Phases 3–7), pinned SSO + payment methods** — start here for handoffs.
 3. **`docs/MIGRATION_AND_CURSOR.md`** — How to open this folder in Cursor and attach the plan in new chats.
 
 ## Bond APIs
@@ -22,7 +22,8 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - **BFF:** `src/app/api/bond/[...path]/route.ts` — forwards `v1/organization/*` with server env `BOND_API_KEY`; reads user JWTs from httpOnly cookies set by `/api/bond-auth/login`.
 - **Auth proxy:** `src/app/api/bond-auth/*` — login/session/logout; env `BOND_AUTH_BASE_URL`.
 - **Client fetch helper:** `src/lib/bond-client.ts` (uses `credentials: "include"` for cookies).
-- **User / checkout APIs:** `src/lib/online-booking-user-api.ts` (`getUser`, booking-information, questionnaires, `POST` create); `src/lib/online-booking-create-body.ts` (best-effort create payload).
+- **User / checkout APIs:** `src/lib/online-booking-user-api.ts` (`getUser`, booking-information, questionnaires, required products, `POST` create); `src/lib/online-booking-create-body.ts` (create payload — `addonProductIds` are product IDs; server prices the cart).
+- **Roadmap / gaps:** `docs/IMPLEMENTATION_AND_ROADMAP.md` — booking-information enforcement, server cart/totals vs client estimates, payment pins.
 - **Server state:** `@tanstack/react-query` via `src/app/providers.tsx`.
 
 ## Optional

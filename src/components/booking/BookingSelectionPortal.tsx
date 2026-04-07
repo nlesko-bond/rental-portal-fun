@@ -63,6 +63,10 @@ export function BookingSelectionPortal({
   const showSlotBar = slotCount > 0;
   const primaryActionLabel =
     slotCount === 1 ? "1 slot selected →" : `${slotCount} slots selected →`;
+  const cartFabLabel =
+    slotCount > 0 && cartBookingCount > 0
+      ? `View cart (${cartBookingCount} saved). ${slotCount} slot${slotCount === 1 ? "" : "s"} in current booking.`
+      : `View cart, ${cartBookingCount} saved ${cartBookingCount === 1 ? "booking" : "bookings"}`;
 
   const wrapCls = `consumer-booking ${appearanceClass} cb-selection-portal`.trim();
 
@@ -77,7 +81,7 @@ export function BookingSelectionPortal({
                 type="button"
                 className="cb-selection-fab cb-selection-fab--clickable"
                 onClick={onOpenCart}
-                aria-label={`View cart, ${cartBookingCount} saved ${cartBookingCount === 1 ? "booking" : "bookings"}`}
+                aria-label={cartFabLabel}
               >
                 <IconCartShopping className="text-[var(--cb-primary)]" aria-hidden />
                 <span className="cb-selection-fab-badge" aria-hidden>

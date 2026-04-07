@@ -24,11 +24,36 @@ export function formatBondUserMessage(err: BondBffError): string {
   return base;
 }
 
-/** Short, non-technical copy for checkout / booking flows (hides internal codes). */
-export function formatConsumerBookingError(err: BondBffError): string {
+export type ConsumerBookingErrorContext = {
+  /** Person the booking is for (e.g. first name or "You"). */
+  customerLabel?: string;
+  /** Organization / venue display name from the portal. */
+  orgName?: string;
+};
+
+/**
+ * Short, non-technical copy for checkout / booking flows (hides internal codes).
+ * Pass `context` when the message should name the customer or venue (e.g. eligibility errors).
+ */
+export function formatConsumerBookingError(
+  err: BondBffError,
+  context?: ConsumerBookingErrorContext
+): string {
   const body = asBondApiErrorBody(err.body);
   const code = body?.code;
+  const rawMsg = typeof body?.message === "string" ? body.message : "";
+
   if (code === "ONLINE_BOOKING.INVALID_PRODUCT") {
+    const reservedEligibility =
+      /reserved|everyone|specific memberships|specific clients/i.test(rawMsg) ||
+      /must be reserved/i.test(rawMsg);
+    if (reservedEligibility) {
+      const who = context?.customerLabel?.trim() || "This account";
+      const org =
+        context?.orgName?.trim() ||
+        "the venue";
+      return `${who} isn’t eligible for this product. Try a different service or contact ${org} if you believe this is a mistake.`;
+    }
     return "We couldn’t complete this booking with the selected options. Try different times or remove some add-ons, or contact the venue if this keeps happening.";
   }
   if (code === "SCHEDULE.MINIMUM_NOTICE_VIOLATION") {

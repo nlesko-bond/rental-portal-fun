@@ -16,6 +16,7 @@ Chats, Composer, and **@** file references are scoped to the **currently open wo
 | What | Where |
 |------|--------|
 | **Source of truth (this repo)** | [`docs/RENTAL_PORTAL_PLAN.md`](RENTAL_PORTAL_PLAN.md) |
+| **Implementation status & backlog** | [`docs/IMPLEMENTATION_AND_ROADMAP.md`](IMPLEMENTATION_AND_ROADMAP.md) |
 | **Old Cursor plan file (optional)** | `~/.cursor/plans/rental_portal_phase_1–2_577e2690.plan.md` — can delete or ignore once you trust `docs/` |
 
 In a **new chat**, attach the plan so the model follows it:

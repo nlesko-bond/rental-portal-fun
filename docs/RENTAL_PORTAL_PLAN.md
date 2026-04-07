@@ -3,16 +3,16 @@
 **Epic:** [BOND-9840 — Online Rentals 2.0](https://bond-sports.atlassian.net/browse/BOND-9840)  
 **UX reference:** [Lovable prototype](https://rentals3.lovable.app/onlinebooking?preset=socceroof)  
 **API contract:** [Squad C Swagger](https://public.api.squad-c.bondsports.co/public-api/) · [bond-public-api.json](https://public.api.squad-c.bondsports.co/public-api/bond-public-api.json)  
-**Implementation status & handoff:** [`docs/IMPLEMENTATION_AND_ROADMAP.md`](./IMPLEMENTATION_AND_ROADMAP.md)
+**Implementation status & handoff:** [`docs/IMPLEMENTATION_AND_ROADMAP.md`](./IMPLEMENTATION_AND_ROADMAP.md) — includes **Roadmap backlog** (Phases 3–7), with **SSO** and **payment methods** explicitly pinned.
 
 **Implementation checklist (track in issues or PRs):**
 
 - [ ] BFF proxy hardened (errors, allowed paths) — *baseline exists at `/api/bond/...`*
 - [ ] Generated client / types from OpenAPI + extended category `settings`
-- [ ] Portal UI: Facility → Category → Activity + URL sync
-- [ ] Products list + default-first selection
-- [ ] Duration + schedule/settings + schedule grid + views (list/calendar/matrix)
-- [ ] Phase 2: auth, `getUser`, `userId` on schedule, required products, questionnaires, `POST` create, cart UI
+- [x] Portal UI: Facility → Category → Activity + URL sync
+- [x] Products list + default-first selection
+- [x] Duration + schedule/settings + schedule grid + views (list/calendar/matrix)
+- [x] Phase 2 (baseline): auth (`/api/bond-auth/*`), `getUser`, `userId` on schedule, required products + membership checkout step, questionnaires, `POST` create, session cart + checkout drawer — *see [`IMPLEMENTATION_AND_ROADMAP.md`](./IMPLEMENTATION_AND_ROADMAP.md) for what’s left (booking-information limits, server-priced cart, payment).*
 
 ---
 

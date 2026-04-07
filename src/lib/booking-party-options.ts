@@ -8,6 +8,11 @@ export type BookingPartyMember = {
   relationship?: string;
   /** Short label for badge chip (Gold, Pass, …) */
   badgeLabel?: string;
+  /**
+   * When true, required-products API still lists a membership for the current rental product
+   * (informational — selection is not blocked).
+   */
+  needsMembershipHint?: boolean;
 };
 
 function personLabel(u: Record<string, unknown>): string {
