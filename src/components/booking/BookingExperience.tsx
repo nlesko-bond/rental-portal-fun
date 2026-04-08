@@ -62,6 +62,7 @@ import { clientScheduleViews, viewUiLabel } from "@/lib/booking-views";
 import { resolveProductCardImageAtStep, type ProductCardImageFallbackStep } from "@/lib/product-card-image";
 import { bookingOptionalAddons } from "@/lib/product-package-addons";
 import { parseProductFormIds } from "@/lib/product-form-ids";
+import { countSessionCartLineItems } from "@/lib/cart-purchase-lines";
 import { loadSessionCartSnapshots, saveSessionCartSnapshots, type SessionCartSnapshot } from "@/lib/session-cart-snapshot";
 import { slotControlKey, validateSlotSelection, type PickedSlot } from "@/lib/slot-selection";
 import {
@@ -396,6 +397,7 @@ export function BookingExperience() {
   const [checkoutBusy, setCheckoutBusy] = useState(false);
   /** Successful `POST .../online-booking/create` carts (persisted in sessionStorage for this tab). */
   const [sessionCartRows, setSessionCartRows] = useState<SessionCartSnapshot[]>(() => loadSessionCartSnapshots());
+  const cartLineItemCount = useMemo(() => countSessionCartLineItems(sessionCartRows), [sessionCartRows]);
   const welcomeTickPrev = useRef(0);
   const [pendingWelcome, setPendingWelcome] = useState(false);
 
@@ -1653,7 +1655,8 @@ export function BookingExperience() {
       {state?.productId != null || sessionCartRows.length > 0 ? (
         <BookingSelectionPortal
           slotCount={selectedSlots.size}
-          cartBookingCount={sessionCartRows.length}
+          cartSessionCount={sessionCartRows.length}
+          cartLineItemCount={cartLineItemCount}
           error={slotBarError}
           onClear={clearSlotSelection}
           themeStyle={themeStyle}
@@ -1710,7 +1713,7 @@ export function BookingExperience() {
           }}
           onSuccess={(cart) => {
             const name = selectedProduct?.name ?? "Service";
-            setSessionCartRows((prev) => [...prev, { cart, productName: name }]);
+            setSessionCartRows((prev) => [...prev, { cart, productName: name, bookingForLabel }]);
           }}
           onCheckoutComplete={completeCheckoutOnBondSuccess}
           packageAddons={packageAddons}

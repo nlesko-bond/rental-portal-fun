@@ -1,5 +1,6 @@
 import type { OrganizationCartDto } from "@/types/online-booking";
 import type { SessionCartSnapshot } from "@/lib/session-cart-snapshot";
+import { groupSessionCartSnapshotsByLabel } from "@/lib/session-cart-grouping";
 
 /**
  * Bond may return these on `OrganizationCartDto` (names vary by version; not all in OpenAPI).
@@ -122,6 +123,20 @@ export function aggregateBagSnapshots(rows: SessionCartSnapshot[]): AggregatedBa
     feeTotal: feeAny ? feeSum : null,
     cartGrandTotal: totalAllPresent && rows.length > 0 ? totalSum : null,
   };
+}
+
+/** Per–family-member aggregates (one Bond cart per “add to cart” submission). */
+export function aggregateBagSnapshotsByLabel(rows: SessionCartSnapshot[]): {
+  label: string;
+  items: { index: number; row: SessionCartSnapshot }[];
+  totals: AggregatedBagTotals;
+}[] {
+  const groups = groupSessionCartSnapshotsByLabel(rows);
+  return groups.map((g) => ({
+    label: g.label,
+    items: g.items,
+    totals: aggregateBagSnapshots(g.items.map((x) => x.row)),
+  }));
 }
 
 /**

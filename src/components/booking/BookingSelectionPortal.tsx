@@ -7,8 +7,10 @@ import { IconCartShopping } from "./booking-icons";
 type Props = {
   /** Current slot selection for the booking being built */
   slotCount: number;
-  /** Successful cart submissions this session (shows on FAB when slots cleared) */
-  cartBookingCount?: number;
+  /** Successful `POST …/online-booking/create` sessions in the tab cart */
+  cartSessionCount?: number;
+  /** Total line items across saved carts (FAB badge when cart is non-empty) */
+  cartLineItemCount?: number;
   error: string | null;
   onClear: () => void;
   /** `--cb-*` variables from `resolveBookingThemeStyle` so tokens apply on `body` portal. */
@@ -40,7 +42,8 @@ function useIsClient(): boolean {
  */
 export function BookingSelectionPortal({
   slotCount,
-  cartBookingCount = 0,
+  cartSessionCount = 0,
+  cartLineItemCount = 0,
   error,
   onClear,
   themeStyle,
@@ -56,27 +59,40 @@ export function BookingSelectionPortal({
   if (!isClient || typeof document === "undefined") return null;
   if (overlayOpen) return null;
 
-  const show = slotCount > 0 || cartBookingCount > 0 || (error != null && error.length > 0);
+  const show = slotCount > 0 || cartSessionCount > 0 || (error != null && error.length > 0);
   if (!show) return null;
 
-  const fabBadge = slotCount > 0 ? slotCount : cartBookingCount;
+  /** Cart badge must reflect saved cart lines, not draft slot selection (they are separate). */
+  const cartBadge =
+    cartSessionCount > 0
+      ? cartLineItemCount > 0
+        ? cartLineItemCount
+        : cartSessionCount
+      : 0;
+  const fabBadge = cartSessionCount > 0 ? cartBadge : slotCount;
   const showSlotBar = slotCount > 0;
   const primaryActionLabel =
     slotCount === 1 ? "1 slot selected →" : `${slotCount} slots selected →`;
   const cartFabLabel =
-    slotCount > 0 && cartBookingCount > 0
-      ? `View cart (${cartBookingCount} saved). ${slotCount} slot${slotCount === 1 ? "" : "s"} in current booking.`
-      : `View cart, ${cartBookingCount} saved ${cartBookingCount === 1 ? "booking" : "bookings"}`;
+    slotCount > 0 && cartSessionCount > 0
+      ? `View cart: ${cartSessionCount} saved booking${cartSessionCount === 1 ? "" : "s"}, ${cartLineItemCount || cartSessionCount} line item${
+          (cartLineItemCount || cartSessionCount) === 1 ? "" : "s"
+        }. ${slotCount} slot${slotCount === 1 ? "" : "s"} in current draft.`
+      : cartSessionCount > 0
+        ? `View cart: ${cartSessionCount} booking${cartSessionCount === 1 ? "" : "s"}, ${cartLineItemCount || cartSessionCount} line item${
+            (cartLineItemCount || cartSessionCount) === 1 ? "" : "s"
+          }.`
+        : `Shopping cart`;
 
   const wrapCls = `consumer-booking ${appearanceClass} cb-selection-portal`.trim();
 
   return createPortal(
     <div className={wrapCls} style={themeStyle}>
-      {error && slotCount === 0 && cartBookingCount === 0 ? <p className="cb-selection-err">{error}</p> : null}
-      {slotCount > 0 || cartBookingCount > 0 ? (
+      {error && slotCount === 0 && cartSessionCount === 0 ? <p className="cb-selection-err">{error}</p> : null}
+      {slotCount > 0 || cartSessionCount > 0 ? (
         <div className="cb-selection-cluster cb-selection-cluster--split">
           <div className="cb-selection-fab-row">
-            {onOpenCart && cartBookingCount > 0 ? (
+            {onOpenCart && cartSessionCount > 0 ? (
               <button
                 type="button"
                 className="cb-selection-fab cb-selection-fab--clickable"

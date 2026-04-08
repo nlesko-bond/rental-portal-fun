@@ -3362,6 +3362,25 @@ body {
   color: var(--cb-text-muted);
 }
 
+.consumer-booking .cb-checkout-payment-purchase-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.consumer-booking .cb-checkout-payment-group-title {
+  margin: 0 0 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--cb-text-muted);
+}
+
+.consumer-booking .cb-checkout-payment-group .cb-checkout-payment-lines {
+  margin: 0;
+}
+
 .consumer-booking .cb-checkout-payment-lines {
   list-style: none;
   margin: 0;
@@ -4399,6 +4418,40 @@ body {
   font-size: 0.75rem;
   font-weight: 600;
   color: var(--cb-text-muted);
+}
+
+.consumer-booking .cb-cart-bag-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.consumer-booking .cb-cart-bag-group-title {
+  margin: 0 0 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--cb-text-muted);
+}
+
+.consumer-booking .cb-cart-bag-group .cb-cart-bag-list {
+  margin-bottom: 0;
+}
+
+.consumer-booking .cb-cart-bag-group-totals {
+  margin-top: 0.75rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 0.5rem;
+  border: 1px dashed var(--cb-border);
+  background: color-mix(in srgb, var(--cb-bg-surface) 92%, var(--cb-primary));
+}
+
+.consumer-booking .cb-checkout-payment-group-summary {
+  margin-top: 0.65rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.45rem;
+  background: color-mix(in srgb, var(--cb-bg-surface) 94%, var(--cb-border));
 }
 
 .consumer-booking .cb-cart-bag-list {

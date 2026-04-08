@@ -41,9 +41,10 @@ import type { PackageAddonLine } from "@/lib/product-package-addons";
 import { resolveAddonDisplayPrice } from "@/lib/product-package-addons";
 import type { BondUserDto } from "@/lib/bond-user-types";
 import { slotDurationMinutes, type PickedSlot } from "@/lib/slot-selection";
-import { aggregateBagSnapshots, estimateAmountDue } from "@/lib/checkout-bag-totals";
+import { aggregateBagSnapshots, aggregateBagSnapshotsByLabel, estimateAmountDue } from "@/lib/checkout-bag-totals";
 import { reverseEntitlementDiscountsToUnitPrice } from "@/lib/entitlement-discount";
 import type { SessionCartSnapshot } from "@/lib/session-cart-snapshot";
+import { countSessionCartLineItems, expandSnapshotForPurchaseList } from "@/lib/cart-purchase-lines";
 
 export type CheckoutStep = "addons" | "membership" | "forms" | "confirm" | "cart" | "payment";
 
@@ -646,6 +647,21 @@ export function BookingCheckoutDrawer({
     return any ? sum : null;
   }, [bagSnapshots]);
 
+  const paymentHeadline = useMemo(() => {
+    const fromRows = bagSnapshots
+      .map((r) => r.bookingForLabel)
+      .filter((x): x is string => typeof x === "string" && x.trim().length > 0)
+      .map((x) => x.trim());
+    const unique = [...new Set(fromRows)].sort((a, b) => a.localeCompare(b));
+    if (unique.length === 0) {
+      return { kind: "single" as const, text: bookingForLabel };
+    }
+    if (unique.length === 1) {
+      return { kind: "single" as const, text: unique[0]! };
+    }
+    return { kind: "multi" as const, text: unique.join(", ") };
+  }, [bagSnapshots, bookingForLabel]);
+
   const depositAmount = useMemo(() => {
     const dp = product?.downPayment ?? product?.downpayment;
     if (typeof dp === "number" && Number.isFinite(dp) && dp > 0) return dp;
@@ -717,6 +733,24 @@ export function BookingCheckoutDrawer({
     slotKeySet,
   ]);
 
+  const tailExtraPaymentLines = useMemo(() => {
+    const n = bagSnapshots.length;
+    if (paymentLines.length <= n) return [];
+    return paymentLines.slice(n);
+  }, [paymentLines, bagSnapshots.length]);
+
+  const groupedBagWithTotals = useMemo(() => aggregateBagSnapshotsByLabel(bagSnapshots), [bagSnapshots]);
+
+  const bagDrawerLineCount = useMemo(() => countSessionCartLineItems(bagSnapshots), [bagSnapshots]);
+
+  /** Bond cart fields only (no client-side line math). */
+  const bagSessionAggregates = useMemo(() => aggregateBagSnapshots(bagSnapshots), [bagSnapshots]);
+
+  const bagEstimatedTotal = useMemo(
+    () => estimateAmountDue(bagSessionAggregates, { includeProvisionalFees: false }),
+    [bagSessionAggregates]
+  );
+
   const bagAggregates = useMemo(() => aggregateBagSnapshots(paymentLines), [paymentLines]);
 
   /** Empty until Bond exposes saved payment instruments for the logged-in user. */
@@ -774,7 +808,7 @@ export function BookingCheckoutDrawer({
   const panelCls = `consumer-booking ${appearanceClass} cb-checkout-drawer cb-checkout-drawer--wide`.trim();
 
   if (mode === "bag") {
-    const nItems = bagSnapshots.length;
+    const nBookings = bagSnapshots.length;
     return (
       <RightDrawer
         open={open}
@@ -787,9 +821,10 @@ export function BookingCheckoutDrawer({
         <div className="cb-checkout-inner cb-checkout-inner--bag">
           <div className="cb-cart-bag-heading">
             <p className="cb-cart-bag-subtitle">In your cart</p>
-            {nItems > 0 ? (
+            {nBookings > 0 ? (
               <span className="cb-cart-bag-count-pill">
-                {nItems} {nItems === 1 ? "item" : "items"}
+                {bagDrawerLineCount} line{bagDrawerLineCount === 1 ? "" : "s"} · {nBookings} booking
+                {nBookings === 1 ? "" : "s"}
               </span>
             ) : null}
           </div>
@@ -798,54 +833,126 @@ export function BookingCheckoutDrawer({
             <p className="cb-muted text-sm">Your cart is empty.</p>
           ) : (
             <>
-              <ul className="cb-cart-bag-list">
-                {bagSnapshots.map((row, index) => {
-                  const c = row.cart;
-                  const lineTotal =
-                    typeof c.subtotal === "number" && Number.isFinite(c.subtotal)
-                      ? c.subtotal
-                      : typeof c.price === "number" && Number.isFinite(c.price)
-                        ? c.price
-                        : null;
-                  return (
-                    <li key={`${c.id}-${index}`} className="cb-cart-bag-line">
-                      <div className="cb-cart-bag-line-main">
-                        <div>
-                          <p className="cb-cart-bag-line-title">{row.productName}</p>
-                          <p className="cb-cart-bag-line-meta">Cart #{c.id}</p>
-                        </div>
-                        <div className="cb-cart-bag-line-actions">
-                          {lineTotal != null ? (
-                            <span className="cb-cart-bag-line-price">{formatPrice(lineTotal, bagCurrency)}</span>
-                          ) : (
-                            <span className="cb-muted text-sm">—</span>
-                          )}
-                          {onRemoveBagLine ? (
-                            <button
-                              type="button"
-                              className="cb-cart-bag-remove"
-                              aria-label={`Remove ${row.productName}`}
-                              onClick={() => onRemoveBagLine(index)}
-                            >
-                              <span aria-hidden>🗑</span>
-                            </button>
-                          ) : null}
-                        </div>
+              <div className="cb-cart-bag-groups">
+                {groupedBagWithTotals.map((section) => (
+                  <section key={section.label} className="cb-cart-bag-group">
+                    <h4 className="cb-cart-bag-group-title">{section.label}</h4>
+                    <ul className="cb-cart-bag-list">
+                      {section.items.map(({ index, row }) => {
+                        const lines = expandSnapshotForPurchaseList(row, index);
+                        return (
+                          <li key={`${row.cart.id}-${index}`} className="cb-cart-bag-line">
+                            {lines.map((line, lineIdx) => (
+                              <div
+                                key={line.key}
+                                className={`cb-cart-bag-line-main${lineIdx > 0 ? " mt-3 border-t border-[var(--cb-border)] pt-3" : ""}`}
+                              >
+                                <div>
+                                  <p className="cb-cart-bag-line-title">{line.title}</p>
+                                  <p className="cb-cart-bag-line-meta">{line.meta}</p>
+                                </div>
+                                <div className="cb-cart-bag-line-actions">
+                                  {line.amount != null ? (
+                                    <span className="cb-cart-bag-line-price">{formatPrice(line.amount, bagCurrency)}</span>
+                                  ) : (
+                                    <span className="cb-muted text-sm">—</span>
+                                  )}
+                                  {lineIdx === 0 && onRemoveBagLine ? (
+                                    <button
+                                      type="button"
+                                      className="cb-cart-bag-remove"
+                                      aria-label={`Remove ${row.productName}`}
+                                      onClick={() => onRemoveBagLine(index)}
+                                    >
+                                      <span aria-hidden>🗑</span>
+                                    </button>
+                                  ) : null}
+                                </div>
+                              </div>
+                            ))}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                    <div className="cb-cart-bag-group-totals">
+                      <div className="cb-checkout-total-row">
+                        <span>Subtotal</span>
+                        <span>
+                          {section.totals.lineSubtotal != null
+                            ? formatPrice(section.totals.lineSubtotal, bagCurrency)
+                            : "—"}
+                        </span>
                       </div>
-                    </li>
-                  );
-                })}
-              </ul>
+                      {section.totals.discountTotal != null ? (
+                        <div className="cb-checkout-total-row cb-checkout-total-row--discount">
+                          <span>Savings</span>
+                          <span>−{formatPrice(section.totals.discountTotal, bagCurrency)}</span>
+                        </div>
+                      ) : null}
+                      <div className="cb-checkout-total-row cb-checkout-total-row--muted">
+                        <span>Tax</span>
+                        <span>
+                          {section.totals.taxTotal != null ? formatPrice(section.totals.taxTotal, bagCurrency) : "—"}
+                        </span>
+                      </div>
+                      <div className="cb-checkout-total-row cb-checkout-total-row--muted">
+                        <span>Fees</span>
+                        <span className="text-[var(--cb-text-muted)] text-xs">
+                          {section.totals.feeTotal != null
+                            ? formatPrice(section.totals.feeTotal, bagCurrency)
+                            : "Depends on payment method"}
+                        </span>
+                      </div>
+                    </div>
+                  </section>
+                ))}
+              </div>
               <div className="cb-cart-bag-totals">
+                <h3 className="cb-checkout-section-title">Order summary</h3>
+                <div className="cb-checkout-total-row">
+                  <span>Subtotal</span>
+                  <span>
+                    {bagSessionAggregates.lineSubtotal != null
+                      ? formatPrice(bagSessionAggregates.lineSubtotal, bagCurrency)
+                      : bagGrandTotal != null
+                        ? formatPrice(bagGrandTotal, bagCurrency)
+                        : "—"}
+                  </span>
+                </div>
+                {bagSessionAggregates.discountTotal != null ? (
+                  <div className="cb-checkout-total-row cb-checkout-total-row--discount">
+                    <span>Entitlements and savings</span>
+                    <span>−{formatPrice(bagSessionAggregates.discountTotal, bagCurrency)}</span>
+                  </div>
+                ) : null}
+                <div className="cb-checkout-total-row cb-checkout-total-row--muted">
+                  <span>Estimated tax</span>
+                  <span>
+                    {bagSessionAggregates.taxTotal != null ? formatPrice(bagSessionAggregates.taxTotal, bagCurrency) : "—"}
+                  </span>
+                </div>
+                <div className="cb-checkout-total-row cb-checkout-total-row--muted">
+                  <span>Transaction fees</span>
+                  <span className="text-[var(--cb-text-muted)] text-xs">
+                    {bagSessionAggregates.feeTotal != null
+                      ? formatPrice(bagSessionAggregates.feeTotal, bagCurrency)
+                      : "Depends on payment method at checkout"}
+                  </span>
+                </div>
                 <div className="cb-checkout-total-row cb-checkout-total-row--grand">
-                  <span>Total</span>
+                  <span>Estimated total</span>
                   <strong>
-                    {bagGrandTotal != null ? formatPrice(bagGrandTotal, bagCurrency) : "—"}
+                    {bagEstimatedTotal != null
+                      ? formatPrice(bagEstimatedTotal, bagCurrency)
+                      : bagSessionAggregates.cartGrandTotal != null
+                        ? formatPrice(bagSessionAggregates.cartGrandTotal, bagCurrency)
+                        : "—"}
                   </strong>
                 </div>
               </div>
               <p className="cb-muted text-xs leading-relaxed">
-                Tax and fees may apply at checkout when payment is available.
+                Amounts come from Bond when the API returns them on each cart. Tax and fees finalize when you add a
+                payment method.
               </p>
             </>
           )}
@@ -924,43 +1031,97 @@ export function BookingCheckoutDrawer({
 
         {step === "payment" ? (
           <div className="cb-checkout-step">
-            <p className="cb-checkout-payment-booking-for cb-muted mb-3 text-sm">
-              Booking for <strong className="text-[var(--cb-text)]">{bookingForLabel}</strong>
-              {onBookingForClick ? (
-                <button
-                  type="button"
-                  className="cb-checkout-booking-for-inline-trigger ml-2"
-                  onClick={onBookingForClick}
-                >
-                  Change
-                </button>
-              ) : null}
-            </p>
+            {groupedBagWithTotals.length <= 1 ? (
+              <p className="cb-checkout-payment-booking-for cb-muted mb-3 text-sm">
+                {paymentHeadline.kind === "single" ? (
+                  <>
+                    Booking for <strong className="text-[var(--cb-text)]">{paymentHeadline.text}</strong>
+                  </>
+                ) : (
+                  <>
+                    Bookings for <strong className="text-[var(--cb-text)]">{paymentHeadline.text}</strong>
+                  </>
+                )}
+              </p>
+            ) : (
+              <p className="cb-muted mb-3 text-sm">
+                Purchases are grouped by family member. Review each section before submitting.
+              </p>
+            )}
             <h3 className="cb-checkout-section-title">Purchases</h3>
-            <ul className="cb-checkout-payment-lines mb-4">
-              {paymentLines.map((row, index) => {
-                const c = row.cart;
-                const lineTotal =
-                  typeof c.subtotal === "number" && Number.isFinite(c.subtotal)
-                    ? c.subtotal
-                    : typeof c.price === "number" && Number.isFinite(c.price)
-                      ? c.price
-                      : null;
-                return (
-                  <li key={`pay-line-${index}-${c.id}`} className="cb-checkout-payment-line">
-                    <div>
-                      <span className="cb-checkout-payment-line-title">{row.productName}</span>
-                      <span className="cb-muted block text-xs">
-                        {c.id !== 0 ? `Cart #${c.id}` : "Pending submission"}
+            <div className="cb-checkout-payment-purchase-groups mb-4">
+              {groupedBagWithTotals.map((section) => (
+                <section key={section.label} className="cb-checkout-payment-group">
+                  <h4 className="cb-checkout-payment-group-title">{section.label}</h4>
+                  <ul className="cb-checkout-payment-lines">
+                    {section.items.flatMap(({ index, row }) =>
+                      expandSnapshotForPurchaseList(row, index).map((line) => (
+                        <li key={line.key} className="cb-checkout-payment-line">
+                          <div>
+                            <span className="cb-checkout-payment-line-title">{line.title}</span>
+                            <span className="cb-muted block text-xs">{line.meta}</span>
+                          </div>
+                          <span className="cb-checkout-payment-line-price">
+                            {line.amount != null ? formatPrice(line.amount, bagCurrency) : "—"}
+                          </span>
+                        </li>
+                      ))
+                    )}
+                  </ul>
+                  <div className="cb-checkout-payment-group-summary">
+                    <div className="cb-checkout-total-row">
+                      <span>Subtotal</span>
+                      <span>
+                        {section.totals.lineSubtotal != null
+                          ? formatPrice(section.totals.lineSubtotal, bagCurrency)
+                          : "—"}
                       </span>
                     </div>
-                    <span className="cb-checkout-payment-line-price">
-                      {lineTotal != null ? formatPrice(lineTotal, bagCurrency) : "—"}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
+                    {section.totals.discountTotal != null ? (
+                      <div className="cb-checkout-total-row cb-checkout-total-row--discount">
+                        <span>Savings</span>
+                        <span>−{formatPrice(section.totals.discountTotal, bagCurrency)}</span>
+                      </div>
+                    ) : null}
+                    <div className="cb-checkout-total-row cb-checkout-total-row--muted">
+                      <span>Tax</span>
+                      <span>
+                        {section.totals.taxTotal != null ? formatPrice(section.totals.taxTotal, bagCurrency) : "—"}
+                      </span>
+                    </div>
+                    <div className="cb-checkout-total-row cb-checkout-total-row--muted">
+                      <span>Fees</span>
+                      <span className="text-[var(--cb-text-muted)] text-xs">
+                        {section.totals.feeTotal != null
+                          ? formatPrice(section.totals.feeTotal, bagCurrency)
+                          : "Depends on payment method"}
+                      </span>
+                    </div>
+                  </div>
+                </section>
+              ))}
+              {tailExtraPaymentLines.length > 0 ? (
+                <section className="cb-checkout-payment-group">
+                  <h4 className="cb-checkout-payment-group-title">Pending submission</h4>
+                  <ul className="cb-checkout-payment-lines">
+                    {tailExtraPaymentLines.flatMap((row, i) => {
+                      const idx = bagSnapshots.length + i;
+                      return expandSnapshotForPurchaseList(row, idx).map((line) => (
+                        <li key={line.key} className="cb-checkout-payment-line">
+                          <div>
+                            <span className="cb-checkout-payment-line-title">{line.title}</span>
+                            <span className="cb-muted block text-xs">{line.meta}</span>
+                          </div>
+                          <span className="cb-checkout-payment-line-price">
+                            {line.amount != null ? formatPrice(line.amount, bagCurrency) : "—"}
+                          </span>
+                        </li>
+                      ));
+                    })}
+                  </ul>
+                </section>
+              ) : null}
+            </div>
 
             <h3 className="cb-checkout-section-title">Payment method</h3>
             <div className="cb-checkout-payment-methods mb-4">
@@ -1198,17 +1359,13 @@ export function BookingCheckoutDrawer({
 
         {step === "membership" ? (
           <div className="cb-checkout-step">
-            <p className="cb-checkout-hint">
-              Choose a membership for this booking. Use <strong>Booking for</strong> above to switch family
-              members—requirements update for each person.
-            </p>
             {membershipOptions.length > 0 ? (
               <MembershipRequiredPanel
                 options={membershipOptions}
                 selectedRootId={selectedMembershipRootId}
                 onSelectRoot={setSelectedMembershipRootId}
                 formatPrice={formatPrice}
-                bookingForLabel={bookingForLabel}
+                bookingForLabel={undefined}
               />
             ) : (
               <p className="cb-muted text-sm">No membership options required. Continue to proceed.</p>
