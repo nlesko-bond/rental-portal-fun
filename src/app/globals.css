@@ -4387,6 +4387,71 @@ body {
   justify-content: center;
 }
 
+.consumer-booking .cb-checkout-hint--bag {
+  border-radius: 0.5rem;
+  border: 1px solid var(--cb-border);
+  background: color-mix(in srgb, var(--cb-primary) 6%, var(--cb-bg-surface));
+  padding: 0.65rem 0.85rem;
+  color: var(--cb-text-muted);
+}
+
+.consumer-booking .cb-checkout-bond-receipt {
+  width: 100%;
+  max-width: 22rem;
+  margin: 0 0 1.25rem;
+  text-align: left;
+  border-radius: 0.65rem;
+  border: 1px solid var(--cb-border);
+  background: var(--cb-bg-surface);
+  padding: 1rem 1.1rem;
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--cb-text) 6%, transparent);
+}
+
+.consumer-booking .cb-checkout-bond-receipt--empty {
+  border-style: dashed;
+}
+
+.consumer-booking .cb-checkout-bond-receipt-title {
+  margin: 0 0 0.15rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--cb-primary);
+}
+
+.consumer-booking .cb-checkout-bond-receipt-lines {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.consumer-booking .cb-checkout-bond-receipt-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.35rem 0;
+  font-size: 0.95rem;
+  color: var(--cb-text);
+}
+
+.consumer-booking .cb-checkout-bond-receipt-line--discount span:last-child {
+  color: var(--cb-success);
+  font-weight: 600;
+}
+
+.consumer-booking .cb-checkout-bond-receipt-line--muted span:last-child {
+  color: var(--cb-text-muted);
+}
+
+.consumer-booking .cb-checkout-bond-receipt-line--grand {
+  margin-top: 0.35rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--cb-border);
+  font-weight: 700;
+  font-size: 1.05rem;
+}
+
 /* Session cart bag (FAB) */
 .consumer-booking .cb-checkout-inner--bag {
   padding-bottom: 0.5rem;

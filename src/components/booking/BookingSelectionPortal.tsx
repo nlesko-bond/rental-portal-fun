@@ -71,8 +71,11 @@ export function BookingSelectionPortal({
       : 0;
   const fabBadge = cartSessionCount > 0 ? cartBadge : slotCount;
   const showSlotBar = slotCount > 0;
-  const primaryActionLabel =
-    slotCount === 1 ? "1 slot selected →" : `${slotCount} slots selected →`;
+  const primaryActionLabel = bookBusy
+    ? "Opening…"
+    : cartSessionCount > 0
+      ? "Add another booking"
+      : "Add to cart";
   const cartFabLabel =
     slotCount > 0 && cartSessionCount > 0
       ? `View cart: ${cartSessionCount} saved booking${cartSessionCount === 1 ? "" : "s"}, ${cartLineItemCount || cartSessionCount} line item${

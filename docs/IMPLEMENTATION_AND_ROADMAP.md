@@ -122,8 +122,8 @@ flowchart LR
 
 ### Checkout (implemented — extensions in Roadmap)
 
-- **BFF** to Bond only; `POST .../online-booking/create` via `online-booking-user-api.ts` (`buildOnlineBookingCreateBody` — `segments` + flat `addonProductIds` + optional `questionnaireAnswers`).
-- **Instant book:** create on **Add to cart** when category does not require approval.
+- **BFF** to Bond only; `POST .../online-booking/create` via `online-booking-user-api.ts` (`buildOnlineBookingCreateBody` — `segments` + flat `addonProductIds` + optional `answers` per Bond DTO). Hosted OpenAPI may omit `requestBody` for this operation; see `online-booking-create-body.ts`. Optional `cartId` when merge/update is documented.
+- **Flow:** Bottom bar opens checkout → user completes steps → **Add to cart** runs `create`. Each successful add appends a `OrganizationCartDto` to the session bag until an update-cart API exists.
 - **Approval:** create deferred until checkout **Submit request**; then clear session cart + slot selection + invalidate schedule query.
 - **Payment / Pay now / saved cards:** UI placeholders only until Phase 4 (see **Pinned** below).
 

@@ -2,9 +2,17 @@ import type { PickedSlot } from "./slot-selection";
 import type { PackageAddonLine } from "./product-package-addons";
 
 /**
- * `POST .../online-booking/create` — Bond expects **segments** each with
- * `spaceId`, `activity`, `facilityId`, `productId`, and a non-empty **`slots`** array
- * (nested slot rows with `resourceId`, dates/times, `price`, `timezone`).
+ * `POST /v1/organization/{organizationId}/online-booking/create` (operation `cartReservation`)
+ *
+ * **Request body:** The hosted OpenAPI JSON often lists only **path + auth headers** for this operation and omits
+ * `requestBody`. The JSON body is still required at runtime — it matches Bond’s create-booking DTO (segments, portal
+ * id, category, userId, optional `addonProductIds`, optional `answers`, etc.). This module is the integration contract
+ * until the spec publishes `requestBody` explicitly.
+ *
+ * **Optional `cartId`:** Not in the public create snippet today; add when Bond documents append-to-cart behavior.
+ *
+ * Bond expects **segments** each with `spaceId`, `activity`, `facilityId`, `productId`, and a non-empty **`slots`**
+ * array (nested slot rows with `resourceId`, dates/times, `price`, `timezone`).
  */
 
 /**
@@ -29,6 +37,12 @@ export function filterAddonProductIdsForCreate(
   }
   return [...new Set(out)];
 }
+/** Per Swagger `CreateBookingDto` / online-booking create: `answers[]` with `userId` + nested `answers` (questionId + value). */
+export type OnlineBookingCreateAnswerRow = {
+  userId: number;
+  answers: Array<{ questionId: number; value: string }>;
+};
+
 export function buildOnlineBookingCreateBody(opts: {
   userId: number;
   portalId: number;
@@ -39,7 +53,10 @@ export function buildOnlineBookingCreateBody(opts: {
   productId: number;
   slots: PickedSlot[];
   addonProductIds?: number[];
-  questionnaireAnswers?: Array<Record<string, unknown>>;
+  /** Questionnaire answers for entitlement / promo flows (not `questionnaireAnswers`). */
+  answers?: OnlineBookingCreateAnswerRow[];
+  /** When Bond supports merging into an existing server cart (see Swagger when available). */
+  cartId?: number;
 }): Record<string, unknown> {
   const activity = normalizeActivityForApi(opts.activity);
 
@@ -67,9 +84,8 @@ export function buildOnlineBookingCreateBody(opts: {
     categoryId: opts.categoryId,
     segments,
     ...(opts.addonProductIds && opts.addonProductIds.length > 0 ? { addonProductIds: opts.addonProductIds } : {}),
-    ...(opts.questionnaireAnswers && opts.questionnaireAnswers.length > 0
-      ? { questionnaireAnswers: opts.questionnaireAnswers }
-      : {}),
+    ...(opts.answers && opts.answers.length > 0 ? { answers: opts.answers } : {}),
+    ...(opts.cartId != null && Number.isFinite(opts.cartId) ? { cartId: opts.cartId } : {}),
   };
 }
 

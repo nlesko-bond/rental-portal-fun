@@ -41,7 +41,12 @@ import type { PackageAddonLine } from "@/lib/product-package-addons";
 import { resolveAddonDisplayPrice } from "@/lib/product-package-addons";
 import type { BondUserDto } from "@/lib/bond-user-types";
 import { slotDurationMinutes, type PickedSlot } from "@/lib/slot-selection";
-import { aggregateBagSnapshots, aggregateBagSnapshotsByLabel, estimateAmountDue } from "@/lib/checkout-bag-totals";
+import {
+  aggregateBagSnapshots,
+  aggregateBagSnapshotsByLabel,
+  estimateAmountDue,
+  getBondCartPricingDisplayRows,
+} from "@/lib/checkout-bag-totals";
 import { reverseEntitlementDiscountsToUnitPrice } from "@/lib/entitlement-discount";
 import type { SessionCartSnapshot } from "@/lib/session-cart-snapshot";
 import { countSessionCartLineItems, expandSnapshotForPurchaseList } from "@/lib/cart-purchase-lines";
@@ -400,18 +405,21 @@ export function BookingCheckoutDrawer({
   }, [mergedForms, answers]);
 
   const buildCreatePayload = useCallback((): Record<string, unknown> => {
-    const questionnaireAnswers: Array<Record<string, unknown>> = [];
+    const perQuestion: Array<{ questionId: number; value: string }> = [];
     for (const key of Object.keys(answers)) {
       const parts = key.split(":");
       if (parts.length < 2) continue;
       const questionnaireId = Number(parts[0]);
       const questionId = Number(parts[1]);
       if (!Number.isFinite(questionnaireId) || !Number.isFinite(questionId)) continue;
-      questionnaireAnswers.push({
-        questionnaireId,
-        questionId,
-        value: answers[key] ?? "",
-      });
+      const raw = answers[key];
+      const value =
+        raw === undefined || raw === null
+          ? ""
+          : typeof raw === "string"
+            ? raw
+            : String(raw);
+      perQuestion.push({ questionId, value });
     }
 
     const addonProductIds = [...new Set([...selectedAddonIds, ...requiredSelected])];
@@ -425,7 +433,15 @@ export function BookingCheckoutDrawer({
       productId,
       slots: pickedSlots,
       addonProductIds: addonProductIds.length > 0 ? addonProductIds : undefined,
-      questionnaireAnswers: questionnaireAnswers.length > 0 ? questionnaireAnswers : undefined,
+      answers:
+        perQuestion.length > 0
+          ? [
+              {
+                userId,
+                answers: perQuestion,
+              },
+            ]
+          : undefined,
     });
   }, [
     answers,
@@ -781,6 +797,12 @@ export function BookingCheckoutDrawer({
   const estimatedAmountDue = useMemo(
     () => estimateAmountDue(bagAggregatesForEstimate, { includeProvisionalFees: feesIncludedInEstimate }),
     [bagAggregatesForEstimate, feesIncludedInEstimate]
+  );
+
+  /** Bond-returned pricing for the cart row just created (post–`POST create`). */
+  const lastCartBondPricing = useMemo(
+    () => (lastCart != null ? getBondCartPricingDisplayRows(lastCart) : null),
+    [lastCart]
   );
 
   const displayDiscountTotal = useMemo(() => {
@@ -1245,7 +1267,12 @@ export function BookingCheckoutDrawer({
                   Pay deposit
                 </button>
               ) : (
-                <button type="button" className="cb-btn-primary" disabled title="Payment gateway coming next">
+                <button
+                  type="button"
+                  className="cb-btn-primary"
+                  disabled
+                  title="Purchase / pay endpoint not yet in public API — wire when Bond exposes it"
+                >
                   Pay now
                 </button>
               )}
@@ -1547,6 +1574,14 @@ export function BookingCheckoutDrawer({
               {bookingForBadge ? <span className="cb-member-badge cb-member-badge--gold">{bookingForBadge}</span> : null}
             </div>
 
+            {mode === "checkout" && bagSnapshots.length > 0 ? (
+              <p className="cb-checkout-hint cb-checkout-hint--bag mb-3 text-sm">
+                You already have {bagSnapshots.length} saved booking{bagSnapshots.length === 1 ? "" : "s"} in your
+                cart. This step adds a <strong>new</strong> reservation; Bond returns a separate cart for each until
+                a merge/update API is available.
+              </p>
+            ) : null}
+
             <div className="cb-checkout-totals">
               {showMemberPricing && estimatedOriginalSubtotal != null ? (
                 <>
@@ -1579,7 +1614,8 @@ export function BookingCheckoutDrawer({
             </div>
 
             <p className="cb-muted text-xs leading-relaxed">
-              Tax and payment processing will appear here once your payment gateway is connected.
+              Estimated total before tax and fees. After you add to cart, amounts below come from Bond when the API
+              returns them on the cart.
             </p>
 
             {createMutation.isError ? (
@@ -1628,19 +1664,51 @@ export function BookingCheckoutDrawer({
             </div>
             <p className="cb-checkout-added-kicker">You&apos;re almost done</p>
             <h3 className="cb-checkout-added-title">
-              {approvalDeferred && !lastCart ? "Ready for checkout" : "Added to Cart!"}
+              {approvalDeferred && !lastCart ? "Ready for checkout" : "Added to cart"}
             </h3>
             <p className="cb-checkout-added-copy">
               {approvalDeferred && !lastCart
                 ? "Continue to checkout to submit your request."
-                : "Your booking is in your cart. Add another booking or continue to checkout when you&apos;re ready."}
+                : "Your booking is saved. Add another or continue to checkout when you&apos;re ready."}
               {lastCart != null && lastCart.id != null ? (
                 <>
                   {" "}
-                  <span className="cb-muted">Reference cart #{lastCart.id}</span>
+                  <span className="cb-muted">Cart #{lastCart.id}</span>
                 </>
               ) : null}
             </p>
+            {lastCart != null && lastCartBondPricing != null && lastCartBondPricing.rows.length > 0 ? (
+              <div className="cb-checkout-bond-receipt" aria-label="Cart totals from Bond">
+                <p className="cb-checkout-bond-receipt-title">Cart totals</p>
+                <p className="cb-checkout-bond-receipt-sub text-[var(--cb-text-muted)] text-xs mb-2">
+                  From your booking request — promos, entitlements, and tax when Bond returns them.
+                </p>
+                <ul className="cb-checkout-bond-receipt-lines">
+                  {lastCartBondPricing.rows.map((row, idx) => (
+                    <li
+                      key={`${row.label}-${idx}`}
+                      className={`cb-checkout-bond-receipt-line cb-checkout-bond-receipt-line--${row.variant}`}
+                    >
+                      <span>{row.label}</span>
+                      <span>
+                        {row.amount != null
+                          ? row.variant === "discount"
+                            ? `−${formatPrice(row.amount, lastCartBondPricing.currency)}`
+                            : formatPrice(row.amount, lastCartBondPricing.currency)
+                          : "—"}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : lastCart != null && lastCartBondPricing != null && lastCartBondPricing.rows.length === 0 ? (
+              <div className="cb-checkout-bond-receipt cb-checkout-bond-receipt--empty">
+                <p className="cb-muted text-sm">
+                  Bond did not return line totals on this cart yet. Your booking is still reserved — open the cart bag
+                  to review, or continue to checkout.
+                </p>
+              </div>
+            ) : null}
             <div className="cb-checkout-added-actions">
               {onAddAnotherBooking ? (
                 <button

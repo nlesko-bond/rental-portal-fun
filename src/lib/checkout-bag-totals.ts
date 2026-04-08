@@ -49,7 +49,8 @@ export type AggregatedBagTotals = {
   cartGrandTotal: number | null;
 };
 
-function aggregateCartRecord(cart: OrganizationCartDto): {
+/** Single-cart numeric fields Bond may return (names vary by version). */
+export function getOrganizationCartNumericBreakdown(cart: OrganizationCartDto): {
   line: number | null;
   discount: number | null;
   tax: number | null;
@@ -64,6 +65,16 @@ function aggregateCartRecord(cart: OrganizationCartDto): {
     fee: pickPositiveNumber(o, FEE_KEYS),
     total: pickPositiveNumber(o, TOTAL_KEYS),
   };
+}
+
+function aggregateCartRecord(cart: OrganizationCartDto): {
+  line: number | null;
+  discount: number | null;
+  tax: number | null;
+  fee: number | null;
+  total: number | null;
+} {
+  return getOrganizationCartNumericBreakdown(cart);
 }
 
 /**
@@ -155,4 +166,28 @@ export function estimateAmountDue(
   const withTax = afterDiscounts + (agg.taxTotal ?? 0);
   const withFees = withTax + (opts.includeProvisionalFees ? agg.feeTotal ?? 0 : 0);
   return Math.max(0, withFees);
+}
+
+/** Display rows for one `OrganizationCartDto` after `POST …/online-booking/create` (authoritative when Bond fills fields). */
+export type BondCartPricingDisplayRow = {
+  label: string;
+  amount: number | null;
+  variant: "default" | "discount" | "muted" | "grand";
+};
+
+export function getBondCartPricingDisplayRows(cart: OrganizationCartDto): {
+  currency: string;
+  rows: BondCartPricingDisplayRow[];
+} {
+  const cur = typeof cart.currency === "string" && cart.currency.length > 0 ? cart.currency : "USD";
+  const b = getOrganizationCartNumericBreakdown(cart);
+  const rows: BondCartPricingDisplayRow[] = [];
+  if (b.line != null) rows.push({ label: "Subtotal", amount: b.line, variant: "default" });
+  if (b.discount != null && b.discount > 0) {
+    rows.push({ label: "Discounts & savings", amount: b.discount, variant: "discount" });
+  }
+  if (b.tax != null) rows.push({ label: "Tax", amount: b.tax, variant: "muted" });
+  if (b.fee != null) rows.push({ label: "Fees", amount: b.fee, variant: "muted" });
+  if (b.total != null) rows.push({ label: "Total", amount: b.total, variant: "grand" });
+  return { currency: cur, rows };
 }

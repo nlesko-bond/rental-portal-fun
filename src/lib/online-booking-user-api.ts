@@ -104,8 +104,8 @@ export async function fetchUserRequiredProducts(
 
 /**
  * `POST .../online-booking/create` — JWT. Creates **reservation + cart** (`cartReservation` in Swagger).
- * In the rental portal, **instant book** calls this from “Add to cart”. **Approval** categories defer
- * this call until checkout “Submit request” so the reservation is created when the member submits.
+ * Called after the user finishes add-ons / forms / summary and confirms **Add to cart** (or approval **Submit request**).
+ * **Purchase / pay** will use a separate endpoint when Bond publishes it.
  */
 export async function postOnlineBookingCreate(
   orgId: number,
