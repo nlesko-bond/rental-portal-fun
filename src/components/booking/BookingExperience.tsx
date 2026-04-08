@@ -1661,7 +1661,7 @@ export function BookingExperience() {
           onClear={clearSlotSelection}
           themeStyle={themeStyle}
           appearanceClass={appearanceClass}
-          overlayOpen={bondAuth.loginOpen || picker != null}
+          overlayOpen={bondAuth.loginOpen || picker != null || checkoutDrawerOpen}
           onOpenCart={sessionCartRows.length > 0 ? onOpenCartBag : undefined}
           onBook={onBookNow}
           bookBusy={checkoutBusy}

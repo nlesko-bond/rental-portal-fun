@@ -189,5 +189,7 @@ export type OrganizationCartDto = {
   taxAmount?: number;
   total?: number;
   discountAmount?: number;
+  /** CartDiscountDto[] — entitlement / promo lines with `discount.name`, `discountAmount`, etc. */
+  discounts?: unknown[];
   cartItems?: unknown[];
 } & Record<string, unknown>;

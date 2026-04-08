@@ -142,7 +142,7 @@ export function BookingSelectionPortal({
                   disabled={bookDisabled || bookBusy}
                   onClick={onBook}
                 >
-                  {bookBusy ? "Opening…" : primaryActionLabel}
+                  {primaryActionLabel}
                 </button>
               </div>
             </div>

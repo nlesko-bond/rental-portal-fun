@@ -46,6 +46,7 @@ import {
   aggregateBagSnapshotsByLabel,
   estimateAmountDue,
   getBondCartConfirmSummaryLines,
+  getBondCartPrimaryLineStrike,
   getBondCartPricingDisplayRows,
 } from "@/lib/checkout-bag-totals";
 import { reverseEntitlementDiscountsToUnitPrice } from "@/lib/entitlement-discount";
@@ -474,6 +475,11 @@ export function BookingCheckoutDrawer({
     [bookingPreviewQuery.data]
   );
 
+  const confirmPreviewStrike = useMemo(
+    () => (bookingPreviewQuery.data != null ? getBondCartPrimaryLineStrike(bookingPreviewQuery.data) : null),
+    [bookingPreviewQuery.data]
+  );
+
   const createMutation = useMutation({
     mutationFn: async () => postOnlineBookingCreate(orgId, buildCreatePayload()),
     onSuccess: (cart) => {
@@ -511,20 +517,10 @@ export function BookingCheckoutDrawer({
     },
   });
 
+  /** Only real mutations affect the bottom bar — preview `POST create` runs inside the drawer only. */
   useEffect(() => {
-    onSubmittingChange?.(
-      bookingPreviewQuery.isPending ||
-        bookingPreviewQuery.isFetching ||
-        createMutation.isPending ||
-        submitBookingRequestMutation.isPending
-    );
-  }, [
-    bookingPreviewQuery.isPending,
-    bookingPreviewQuery.isFetching,
-    createMutation.isPending,
-    submitBookingRequestMutation.isPending,
-    onSubmittingChange,
-  ]);
+    onSubmittingChange?.(createMutation.isPending || submitBookingRequestMutation.isPending);
+  }, [createMutation.isPending, submitBookingRequestMutation.isPending, onSubmittingChange]);
 
   /** Non-membership required rows only — membership is handled on the next step when needed. */
   const canProceedAddons = useMemo(() => {
@@ -1505,21 +1501,29 @@ export function BookingCheckoutDrawer({
         {step === "confirm" ? (
           <div className="cb-checkout-step">
             <div className="cb-checkout-summary-cards">
-              {pickedSlots.map((p) => {
-                const orig =
-                  Array.isArray(entitlements) && entitlements.length > 0
+              {pickedSlots.map((p, slotIdx) => {
+                const bondStrike =
+                  slotIdx === 0 && confirmPreviewStrike != null ? confirmPreviewStrike : null;
+                const origFromSchedule =
+                  bondStrike == null && Array.isArray(entitlements) && entitlements.length > 0
                     ? reverseEntitlementDiscountsToUnitPrice(p.price, entitlements)
                     : null;
+                const showStrike =
+                  bondStrike != null
+                    ? bondStrike.original > bondStrike.current + 0.01
+                    : origFromSchedule != null && origFromSchedule > p.price + 0.01;
+                const strikeAmount = bondStrike?.original ?? origFromSchedule;
+                const priceAmount = bondStrike?.current ?? p.price;
                 return (
                   <div key={p.key} className="cb-checkout-line-card">
                     <div className="cb-checkout-line-title">{productName}</div>
                     <div className="cb-checkout-line-meta">{p.resourceName}</div>
                     <div className="cb-checkout-line-time">{formatPickedSlotTimeRange(p)}</div>
                     <div className="cb-checkout-line-price">
-                      {orig != null && orig > p.price + 0.01 ? (
+                      {showStrike && strikeAmount != null ? (
                         <>
-                          <span className="cb-checkout-price-strike">{formatPrice(orig, currency)}</span>{" "}
-                          <strong>{formatPrice(p.price, currency)}</strong>
+                          <span className="cb-checkout-price-strike">{formatPrice(strikeAmount, currency)}</span>{" "}
+                          <strong>{formatPrice(priceAmount, currency)}</strong>
                         </>
                       ) : (
                         <strong>{formatPrice(p.price, currency)}</strong>
@@ -1625,39 +1629,36 @@ export function BookingCheckoutDrawer({
 
             {mode === "checkout" && bagSnapshots.length > 0 ? (
               <p className="cb-checkout-hint cb-checkout-hint--bag mb-3 text-sm">
-                You already have {bagSnapshots.length} saved booking{bagSnapshots.length === 1 ? "" : "s"} in your
-                cart. This step adds a <strong>new</strong> reservation; Bond returns a separate cart for each until
-                a merge/update API is available.
+                You have {bagSnapshots.length} other booking{bagSnapshots.length === 1 ? "" : "s"} in your cart.
               </p>
             ) : null}
 
             {bookingPreviewQuery.isPending ? (
               <div className="cb-checkout-bond-receipt mb-4" aria-busy="true" aria-live="polite">
                 <p className="cb-checkout-bond-receipt-title">Pricing</p>
-                <p className="cb-muted text-sm">Contacting Bond for your cart totals (membership, promos, tax)…</p>
+                <p className="cb-muted text-sm">Loading pricing…</p>
               </div>
             ) : bookingPreviewQuery.isError ? (
               <div className="cb-checkout-bond-receipt cb-checkout-bond-receipt--empty mb-4" role="alert">
-                <p className="text-sm text-[var(--cb-error-text)] mb-2">
-                  Couldn&apos;t load live pricing. You can retry or add to cart and we&apos;ll submit the booking again.
-                </p>
+                <p className="text-sm text-[var(--cb-error-text)] mb-2">Couldn&apos;t load pricing.</p>
                 <button type="button" className="cb-btn-outline text-sm" onClick={() => bookingPreviewQuery.refetch()}>
-                  Retry pricing
+                  Retry
                 </button>
               </div>
             ) : confirmBondSummary != null && confirmBondSummary.rows.length > 0 ? (
-              <div className="cb-checkout-bond-receipt mb-4" aria-label="Pricing from Bond">
-                <p className="cb-checkout-bond-receipt-title">Your price</p>
-                <p className="cb-checkout-bond-receipt-sub text-[var(--cb-text-muted)] text-xs mb-2">
-                  From Bond after applying entitlements, forms, and add-ons on this booking.
-                </p>
+              <div className="cb-checkout-bond-receipt mb-4" aria-label="Cart pricing">
                 <ul className="cb-checkout-bond-receipt-lines">
                   {confirmBondSummary.rows.map((row, idx) => (
                     <li
                       key={`${row.label}-${idx}`}
                       className={`cb-checkout-bond-receipt-line cb-checkout-bond-receipt-line--${row.variant}`}
                     >
-                      <span>{row.label}</span>
+                      <span className="flex flex-col gap-0.5">
+                        <span>{row.label}</span>
+                        {row.detail ? (
+                          <span className="text-[var(--cb-text-muted)] text-xs font-normal">{row.detail}</span>
+                        ) : null}
+                      </span>
                       <span>
                         {row.amount != null
                           ? row.variant === "discount"
@@ -1709,18 +1710,6 @@ export function BookingCheckoutDrawer({
                 </div>
               </div>
             ) : null}
-
-            {bookingPreviewQuery.isSuccess && confirmBondSummary != null && confirmBondSummary.rows.length > 0 ? (
-              <p className="cb-muted text-xs leading-relaxed mb-3">
-                Totals above come from your live cart on Bond. Add to cart saves this cart to your session without
-                creating a second booking.
-              </p>
-            ) : (
-              <p className="cb-muted text-xs leading-relaxed mb-3">
-                When Bond pricing loads above, it replaces this estimate. Otherwise we use schedule prices until add to
-                cart.
-              </p>
-            )}
 
             {createMutation.isError ? (
               <p className="mt-2 text-sm text-[var(--cb-error-text)]" role="alert">

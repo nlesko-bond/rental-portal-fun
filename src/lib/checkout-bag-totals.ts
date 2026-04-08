@@ -79,6 +79,24 @@ export type AggregatedBagTotals = {
   cartGrandTotal: number | null;
 };
 
+/** Sum `discounts[].discountAmount` (Bond uses negative savings amounts). */
+function sumBondCartDiscountArrayAbs(cart: OrganizationCartDto): number | null {
+  const o = cart as Record<string, unknown>;
+  const raw = o.discounts;
+  if (!Array.isArray(raw) || raw.length === 0) return null;
+  let sum = 0;
+  let any = false;
+  for (const d of raw) {
+    if (!d || typeof d !== "object") continue;
+    const amt = coerceFiniteNumber((d as Record<string, unknown>).discountAmount);
+    if (amt != null) {
+      sum += Math.abs(amt);
+      any = true;
+    }
+  }
+  return any ? sum : null;
+}
+
 /** Single-cart numeric fields Bond may return (names vary by version). */
 export function getOrganizationCartNumericBreakdown(cart: OrganizationCartDto): {
   line: number | null;
@@ -88,9 +106,17 @@ export function getOrganizationCartNumericBreakdown(cart: OrganizationCartDto): 
   total: number | null;
 } {
   const o = cart as Record<string, unknown>;
+  const fromArray = sumBondCartDiscountArrayAbs(cart);
+  const top = coerceFiniteNumber(o.discountAmount);
+  const discountAgg =
+    fromArray != null && fromArray > 0
+      ? fromArray
+      : top != null
+        ? Math.abs(top)
+        : pickNonNegativeNumber(o, DISCOUNT_KEYS);
   return {
     line: lineAmountFromCart(cart),
-    discount: pickNonNegativeNumber(o, DISCOUNT_KEYS),
+    discount: discountAgg,
     tax: pickNonNegativeNumber(o, TAX_KEYS),
     fee: pickNonNegativeNumber(o, FEE_KEYS),
     total: pickNonNegativeNumber(o, TOTAL_KEYS),
@@ -203,6 +229,8 @@ export type BondCartPricingDisplayRow = {
   label: string;
   amount: number | null;
   variant: "default" | "discount" | "muted" | "grand";
+  /** Optional second line (e.g. discount `reason.reason` from Bond). */
+  detail?: string;
 };
 
 export function getBondCartPricingDisplayRows(cart: OrganizationCartDto): {
@@ -251,10 +279,58 @@ export function getBondCartPricingDisplayRows(cart: OrganizationCartDto): {
   return { currency: cur, rows };
 }
 
+function parseAllCartItemLines(cart: OrganizationCartDto): { label: string; amount: number }[] {
+  const items = cart.cartItems;
+  if (!Array.isArray(items)) return [];
+  const out: { label: string; amount: number }[] = [];
+  for (const raw of items) {
+    if (!raw || typeof raw !== "object") continue;
+    const it = raw as Record<string, unknown>;
+    const product = it.product as Record<string, unknown> | undefined;
+    const name =
+      product && typeof product.name === "string" && product.name.length > 0
+        ? product.name
+        : typeof it.productId === "number"
+          ? `Product ${it.productId}`
+          : "Line item";
+    const amt = coerceFiniteNumber(it.subtotal) ?? coerceFiniteNumber(it.price);
+    if (amt != null && Math.abs(amt) > 0.0001) out.push({ label: name, amount: Math.abs(amt) });
+  }
+  return out;
+}
+
+/** Each entry in Bond `OrganizationCartDto.discounts[]` (see CartDiscountDto / hosted OpenAPI). */
+function parseBondCartDiscountRows(cart: OrganizationCartDto): BondCartPricingDisplayRow[] {
+  const o = cart as Record<string, unknown>;
+  const raw = o.discounts;
+  if (!Array.isArray(raw)) return [];
+  const rows: BondCartPricingDisplayRow[] = [];
+  for (const d of raw) {
+    if (!d || typeof d !== "object") continue;
+    const r = d as Record<string, unknown>;
+    const amt = coerceFiniteNumber(r.discountAmount);
+    const nested = r.discount && typeof r.discount === "object" ? (r.discount as Record<string, unknown>) : null;
+    const name = nested && typeof nested.name === "string" ? nested.name : "Discount";
+    const pct = coerceFiniteNumber(nested?.percentageValue) ?? coerceFiniteNumber(r.percentage);
+    const reason =
+      r.reason && typeof r.reason === "object" ? (r.reason as Record<string, unknown>) : null;
+    const reasonText = reason && typeof reason.reason === "string" ? reason.reason : undefined;
+    const label = pct != null && pct > 0 ? `${name} (${pct}%)` : name;
+    if (amt != null && Math.abs(amt) > 0.0001) {
+      rows.push({
+        label,
+        amount: Math.abs(amt),
+        variant: "discount",
+        detail: reasonText,
+      });
+    }
+  }
+  return rows;
+}
+
 /**
- * Booking **summary** step: original → discounts → after-discount subtotal → tax → fees → total.
- * Assumes Bond `subtotal` is **after** line discounts; `discountAmount` is the amount taken off, so
- * `original ≈ subtotal + discountAmount` when both exist.
+ * Booking summary: line items (rental + add-ons from `cartItems`) → subtotal → each `discounts[]` row → tax → total.
+ * Data is whatever Bond returns on `POST …/online-booking/create` (same JSON the BFF forwards from Bond APIs).
  */
 export function getBondCartConfirmSummaryLines(cart: OrganizationCartDto): {
   currency: string;
@@ -262,36 +338,84 @@ export function getBondCartConfirmSummaryLines(cart: OrganizationCartDto): {
 } {
   const base = getBondCartPricingDisplayRows(cart);
   const o = cart as Record<string, unknown>;
-  const sub = pickNonNegativeNumber(o, SUBTOTAL_KEYS);
-  const discount = pickNonNegativeNumber(o, DISCOUNT_KEYS);
+  const cur =
+    typeof cart.currency === "string" && cart.currency.length > 0
+      ? cart.currency
+      : typeof o.currency === "string" && o.currency.length > 0
+        ? o.currency
+        : "USD";
+
+  const itemLines = parseAllCartItemLines(cart);
+  const multi = itemLines.length > 1;
+  const b = getOrganizationCartNumericBreakdown(cart);
+  const cartSub = pickNonNegativeNumber(o, SUBTOTAL_KEYS) ?? b.line;
+
+  const rows: BondCartPricingDisplayRow[] = [];
+
+  if (multi) {
+    for (const line of itemLines) {
+      rows.push({ label: line.label, amount: line.amount, variant: "default" });
+    }
+  }
+
+  if (cartSub != null) {
+    rows.push({ label: "Subtotal", amount: cartSub, variant: "default" });
+  } else if (!multi && itemLines.length === 1) {
+    rows.push({ label: itemLines[0]!.label, amount: itemLines[0]!.amount, variant: "default" });
+  }
+
+  const discountRows = parseBondCartDiscountRows(cart);
+  if (discountRows.length > 0) {
+    for (const r of discountRows) rows.push(r);
+  } else {
+    const agg = sumBondCartDiscountArrayAbs(cart);
+    const top = coerceFiniteNumber(o.discountAmount);
+    const absVal = agg != null && agg > 0 ? agg : top != null ? Math.abs(top) : null;
+    if (absVal != null && absVal > 0.0001) {
+      rows.push({ label: "Discounts", amount: absVal, variant: "discount" });
+    }
+  }
+
   const tax = pickNonNegativeNumber(o, TAX_KEYS);
   const fee = pickNonNegativeNumber(o, FEE_KEYS);
+  if (tax != null && tax > 0) rows.push({ label: "Tax", amount: tax, variant: "muted" });
+  if (fee != null && fee > 0) rows.push({ label: "Fees", amount: fee, variant: "muted" });
+
   const total =
     pickNonNegativeNumber(o, TOTAL_KEYS) ??
     (() => {
       const p = coerceFiniteNumber(o.price);
       return p != null && p >= 0 ? p : null;
     })();
-  const b = getOrganizationCartNumericBreakdown(cart);
-  const lineAfterDiscount = sub ?? b.line;
-  const cur = base.currency;
-  const rows: BondCartPricingDisplayRow[] = [];
 
-  if (discount != null && discount > 0 && lineAfterDiscount != null) {
-    rows.push({ label: "Original price", amount: lineAfterDiscount + discount, variant: "default" });
-    rows.push({ label: "Discounts & savings", amount: discount, variant: "discount" });
-    rows.push({ label: "After discounts", amount: lineAfterDiscount, variant: "default" });
-  } else if (lineAfterDiscount != null) {
-    rows.push({ label: "Subtotal", amount: lineAfterDiscount, variant: "default" });
-  }
-
-  if (tax != null && tax > 0) rows.push({ label: "Tax", amount: tax, variant: "muted" });
-  if (fee != null && fee > 0) rows.push({ label: "Fees", amount: fee, variant: "muted" });
   if (total != null) rows.push({ label: "Total", amount: total, variant: "grand" });
-  else if (lineAfterDiscount != null && rows.every((r) => r.variant !== "grand")) {
-    rows.push({ label: "Total", amount: lineAfterDiscount, variant: "grand" });
-  }
+  else if (cartSub != null) rows.push({ label: "Total", amount: cartSub, variant: "grand" });
 
   if (rows.length === 0) return base;
   return { currency: cur, rows };
+}
+
+/** Strike-through vs current price from first non–add-on `cartItems` row (Bond `price` vs `subtotal`). */
+export function getBondCartPrimaryLineStrike(cart: OrganizationCartDto): {
+  original: number;
+  current: number;
+} | null {
+  const items = cart.cartItems;
+  if (!Array.isArray(items)) return null;
+  let it: Record<string, unknown> | null = null;
+  for (const raw of items) {
+    if (!raw || typeof raw !== "object") continue;
+    const row = raw as Record<string, unknown>;
+    if (row.isAddon === true) continue;
+    it = row;
+    break;
+  }
+  if (it == null && items[0] && typeof items[0] === "object") it = items[0] as Record<string, unknown>;
+  if (it == null) return null;
+  const original = coerceFiniteNumber(it.price);
+  const current = coerceFiniteNumber(it.subtotal) ?? coerceFiniteNumber(it.price);
+  if (current == null) return null;
+  if (original != null && original > current + 0.005) return { original, current };
+  if (original != null) return { original, current };
+  return null;
 }
