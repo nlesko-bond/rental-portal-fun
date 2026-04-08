@@ -45,6 +45,7 @@ import {
   aggregateBagSnapshots,
   aggregateBagSnapshotsByLabel,
   estimateAmountDue,
+  getBondCartConfirmSummaryLines,
   getBondCartPricingDisplayRows,
 } from "@/lib/checkout-bag-totals";
 import { reverseEntitlementDiscountsToUnitPrice } from "@/lib/entitlement-discount";
@@ -456,6 +457,23 @@ export function BookingCheckoutDrawer({
     pickedSlots,
   ]);
 
+  /** Same payload as Add to cart — used to preview pricing on the booking summary via `POST …/online-booking/create`. */
+  const previewPayload = useMemo(() => buildCreatePayload(), [buildCreatePayload]);
+
+  const bookingPreviewQuery = useQuery({
+    queryKey: ["bond", "bookingPreview", orgId, previewPayload],
+    queryFn: () => postOnlineBookingCreate(orgId, previewPayload),
+    enabled: mode === "checkout" && open && step === "confirm" && pickedSlots.length > 0,
+    staleTime: 0,
+    refetchOnWindowFocus: false,
+  });
+
+  const confirmBondSummary = useMemo(
+    () =>
+      bookingPreviewQuery.data != null ? getBondCartConfirmSummaryLines(bookingPreviewQuery.data) : null,
+    [bookingPreviewQuery.data]
+  );
+
   const createMutation = useMutation({
     mutationFn: async () => postOnlineBookingCreate(orgId, buildCreatePayload()),
     onSuccess: (cart) => {
@@ -465,8 +483,28 @@ export function BookingCheckoutDrawer({
     },
   });
 
+  const handleConfirmAddToCart = useCallback(() => {
+    if (approvalRequired) {
+      setLastCart(bookingPreviewQuery.data ?? null);
+      setApprovalDeferred(true);
+      setStep("cart");
+      return;
+    }
+    const cart = bookingPreviewQuery.data;
+    if (cart) {
+      setLastCart(cart);
+      onSuccess(cart);
+      setStep("cart");
+      return;
+    }
+    createMutation.mutate();
+  }, [approvalRequired, bookingPreviewQuery.data, onSuccess, createMutation]);
+
   const submitBookingRequestMutation = useMutation({
-    mutationFn: async () => postOnlineBookingCreate(orgId, buildCreatePayload()),
+    mutationFn: async () => {
+      if (lastCart != null) return lastCart;
+      return postOnlineBookingCreate(orgId, buildCreatePayload());
+    },
     onSuccess: () => {
       onCheckoutComplete?.();
       onClose();
@@ -474,8 +512,19 @@ export function BookingCheckoutDrawer({
   });
 
   useEffect(() => {
-    onSubmittingChange?.(createMutation.isPending || submitBookingRequestMutation.isPending);
-  }, [createMutation.isPending, submitBookingRequestMutation.isPending, onSubmittingChange]);
+    onSubmittingChange?.(
+      bookingPreviewQuery.isPending ||
+        bookingPreviewQuery.isFetching ||
+        createMutation.isPending ||
+        submitBookingRequestMutation.isPending
+    );
+  }, [
+    bookingPreviewQuery.isPending,
+    bookingPreviewQuery.isFetching,
+    createMutation.isPending,
+    submitBookingRequestMutation.isPending,
+    onSubmittingChange,
+  ]);
 
   /** Non-membership required rows only — membership is handled on the next step when needed. */
   const canProceedAddons = useMemo(() => {
@@ -1582,41 +1631,96 @@ export function BookingCheckoutDrawer({
               </p>
             ) : null}
 
-            <div className="cb-checkout-totals">
-              {showMemberPricing && estimatedOriginalSubtotal != null ? (
-                <>
-                  <div className="cb-checkout-total-row">
-                    <span>Original rental</span>
-                    <span>{formatPrice(estimatedOriginalSubtotal, currency)}</span>
-                  </div>
-                  <div className="cb-checkout-total-row cb-checkout-total-row--discount">
-                    <span>Member savings</span>
-                    <span>
-                      −{formatPrice(Math.max(0, estimatedOriginalSubtotal - subtotal), currency)}
-                    </span>
-                  </div>
-                </>
-              ) : null}
-              <div className="cb-checkout-total-row">
-                <span>Rental</span>
-                <span>{formatPrice(subtotal, currency)}</span>
+            {bookingPreviewQuery.isPending ? (
+              <div className="cb-checkout-bond-receipt mb-4" aria-busy="true" aria-live="polite">
+                <p className="cb-checkout-bond-receipt-title">Pricing</p>
+                <p className="cb-muted text-sm">Contacting Bond for your cart totals (membership, promos, tax)…</p>
               </div>
-              {requiredProductsTotal + optionalAddonsConfirmTotal > 0 ? (
-                <div className="cb-checkout-total-row">
-                  <span>Add-ons</span>
-                  <span>{formatPrice(requiredProductsTotal + optionalAddonsConfirmTotal, currency)}</span>
-                </div>
-              ) : null}
-              <div className="cb-checkout-total-row cb-checkout-total-row--grand">
-                <span>Total</span>
-                <strong>{formatPrice(confirmGrandTotal, currency)}</strong>
+            ) : bookingPreviewQuery.isError ? (
+              <div className="cb-checkout-bond-receipt cb-checkout-bond-receipt--empty mb-4" role="alert">
+                <p className="text-sm text-[var(--cb-error-text)] mb-2">
+                  Couldn&apos;t load live pricing. You can retry or add to cart and we&apos;ll submit the booking again.
+                </p>
+                <button type="button" className="cb-btn-outline text-sm" onClick={() => bookingPreviewQuery.refetch()}>
+                  Retry pricing
+                </button>
               </div>
-            </div>
+            ) : confirmBondSummary != null && confirmBondSummary.rows.length > 0 ? (
+              <div className="cb-checkout-bond-receipt mb-4" aria-label="Pricing from Bond">
+                <p className="cb-checkout-bond-receipt-title">Your price</p>
+                <p className="cb-checkout-bond-receipt-sub text-[var(--cb-text-muted)] text-xs mb-2">
+                  From Bond after applying entitlements, forms, and add-ons on this booking.
+                </p>
+                <ul className="cb-checkout-bond-receipt-lines">
+                  {confirmBondSummary.rows.map((row, idx) => (
+                    <li
+                      key={`${row.label}-${idx}`}
+                      className={`cb-checkout-bond-receipt-line cb-checkout-bond-receipt-line--${row.variant}`}
+                    >
+                      <span>{row.label}</span>
+                      <span>
+                        {row.amount != null
+                          ? row.variant === "discount"
+                            ? `−${formatPrice(row.amount, confirmBondSummary.currency)}`
+                            : formatPrice(row.amount, confirmBondSummary.currency)
+                          : "—"}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
 
-            <p className="cb-muted text-xs leading-relaxed">
-              Estimated total before tax and fees. After you add to cart, amounts below come from Bond when the API
-              returns them on the cart.
-            </p>
+            {!bookingPreviewQuery.isPending &&
+            !(
+              bookingPreviewQuery.isSuccess &&
+              confirmBondSummary != null &&
+              confirmBondSummary.rows.length > 0
+            ) ? (
+              <div className="cb-checkout-totals">
+                <p className="cb-muted mb-2 text-xs font-medium uppercase tracking-wide">Estimate only</p>
+                {showMemberPricing && estimatedOriginalSubtotal != null ? (
+                  <>
+                    <div className="cb-checkout-total-row">
+                      <span>Original rental</span>
+                      <span>{formatPrice(estimatedOriginalSubtotal, currency)}</span>
+                    </div>
+                    <div className="cb-checkout-total-row cb-checkout-total-row--discount">
+                      <span>Member savings</span>
+                      <span>
+                        −{formatPrice(Math.max(0, estimatedOriginalSubtotal - subtotal), currency)}
+                      </span>
+                    </div>
+                  </>
+                ) : null}
+                <div className="cb-checkout-total-row">
+                  <span>Rental</span>
+                  <span>{formatPrice(subtotal, currency)}</span>
+                </div>
+                {requiredProductsTotal + optionalAddonsConfirmTotal > 0 ? (
+                  <div className="cb-checkout-total-row">
+                    <span>Add-ons</span>
+                    <span>{formatPrice(requiredProductsTotal + optionalAddonsConfirmTotal, currency)}</span>
+                  </div>
+                ) : null}
+                <div className="cb-checkout-total-row cb-checkout-total-row--grand">
+                  <span>Total</span>
+                  <strong>{formatPrice(confirmGrandTotal, currency)}</strong>
+                </div>
+              </div>
+            ) : null}
+
+            {bookingPreviewQuery.isSuccess && confirmBondSummary != null && confirmBondSummary.rows.length > 0 ? (
+              <p className="cb-muted text-xs leading-relaxed mb-3">
+                Totals above come from your live cart on Bond. Add to cart saves this cart to your session without
+                creating a second booking.
+              </p>
+            ) : (
+              <p className="cb-muted text-xs leading-relaxed mb-3">
+                When Bond pricing loads above, it replaces this estimate. Otherwise we use schedule prices until add to
+                cart.
+              </p>
+            )}
 
             {createMutation.isError ? (
               <p className="mt-2 text-sm text-[var(--cb-error-text)]" role="alert">
@@ -1641,17 +1745,14 @@ export function BookingCheckoutDrawer({
               <button
                 type="button"
                 className="cb-btn-primary"
-                disabled={createMutation.isPending}
-                onClick={() => {
-                  if (approvalRequired) {
-                    setApprovalDeferred(true);
-                    setStep("cart");
-                  } else {
-                    createMutation.mutate();
-                  }
-                }}
+                disabled={bookingPreviewQuery.isPending || createMutation.isPending}
+                onClick={handleConfirmAddToCart}
               >
-                {createMutation.isPending ? "Adding…" : "Add to cart"}
+                {createMutation.isPending
+                  ? "Adding…"
+                  : bookingPreviewQuery.isPending
+                    ? "Preparing pricing…"
+                    : "Add to cart"}
               </button>
             </div>
           </div>

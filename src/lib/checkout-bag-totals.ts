@@ -250,3 +250,48 @@ export function getBondCartPricingDisplayRows(cart: OrganizationCartDto): {
 
   return { currency: cur, rows };
 }
+
+/**
+ * Booking **summary** step: original → discounts → after-discount subtotal → tax → fees → total.
+ * Assumes Bond `subtotal` is **after** line discounts; `discountAmount` is the amount taken off, so
+ * `original ≈ subtotal + discountAmount` when both exist.
+ */
+export function getBondCartConfirmSummaryLines(cart: OrganizationCartDto): {
+  currency: string;
+  rows: BondCartPricingDisplayRow[];
+} {
+  const base = getBondCartPricingDisplayRows(cart);
+  const o = cart as Record<string, unknown>;
+  const sub = pickNonNegativeNumber(o, SUBTOTAL_KEYS);
+  const discount = pickNonNegativeNumber(o, DISCOUNT_KEYS);
+  const tax = pickNonNegativeNumber(o, TAX_KEYS);
+  const fee = pickNonNegativeNumber(o, FEE_KEYS);
+  const total =
+    pickNonNegativeNumber(o, TOTAL_KEYS) ??
+    (() => {
+      const p = coerceFiniteNumber(o.price);
+      return p != null && p >= 0 ? p : null;
+    })();
+  const b = getOrganizationCartNumericBreakdown(cart);
+  const lineAfterDiscount = sub ?? b.line;
+  const cur = base.currency;
+  const rows: BondCartPricingDisplayRow[] = [];
+
+  if (discount != null && discount > 0 && lineAfterDiscount != null) {
+    rows.push({ label: "Original price", amount: lineAfterDiscount + discount, variant: "default" });
+    rows.push({ label: "Discounts & savings", amount: discount, variant: "discount" });
+    rows.push({ label: "After discounts", amount: lineAfterDiscount, variant: "default" });
+  } else if (lineAfterDiscount != null) {
+    rows.push({ label: "Subtotal", amount: lineAfterDiscount, variant: "default" });
+  }
+
+  if (tax != null && tax > 0) rows.push({ label: "Tax", amount: tax, variant: "muted" });
+  if (fee != null && fee > 0) rows.push({ label: "Fees", amount: fee, variant: "muted" });
+  if (total != null) rows.push({ label: "Total", amount: total, variant: "grand" });
+  else if (lineAfterDiscount != null && rows.every((r) => r.variant !== "grand")) {
+    rows.push({ label: "Total", amount: lineAfterDiscount, variant: "grand" });
+  }
+
+  if (rows.length === 0) return base;
+  return { currency: cur, rows };
+}
