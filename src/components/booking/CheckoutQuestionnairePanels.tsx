@@ -115,14 +115,19 @@ export function CheckoutQuestionnairePanels({
   }, [loading, mergedForms, answers]);
 
   /**
-   * When answers change and the *currently open* panel becomes complete, move focus to the next
-   * incomplete form. Intentionally omit `expandedQid` from deps: if it were included, opening a
-   * completed panel (toggle) would re-run this effect and immediately collapse — breaking expand/collapse.
+   * When answers change and mandatory items on the *open* panel are satisfied, advance to the next
+   * form that still has unsatisfied mandatory questions.
+   *
+   * Skip entirely for optional-only forms: `isFormQuestionsSatisfied` is vacuously true there (we
+   * only validate mandatory fields), so any keystroke would otherwise look like “done” and collapse.
+   *
+   * Omit `expandedQid` from deps so toggling panels does not re-run this (see prior fix).
    */
   useEffect(() => {
     if (loading || mergedForms.length === 0 || expandedQid == null) return;
     const form = mergedForms.find((f) => f.qid === expandedQid);
     if (!form) return;
+    if (formHasOnlyOptionalQuestions(form.questions)) return;
     if (!isFormQuestionsSatisfied(form.questions, answers, form.qid)) return;
     const nextIncomplete = mergedForms.find(
       (f) => !isFormQuestionsSatisfied(f.questions, answers, f.qid)
