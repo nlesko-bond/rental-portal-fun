@@ -114,7 +114,11 @@ export function CheckoutQuestionnairePanels({
     setExpandedQid(firstIncomplete?.qid ?? mergedForms[0]!.qid);
   }, [loading, mergedForms, answers]);
 
-  /** When the open panel becomes fully satisfied, collapse it so remaining incomplete forms stay visible. */
+  /**
+   * When answers change and the *currently open* panel becomes complete, move focus to the next
+   * incomplete form. Intentionally omit `expandedQid` from deps: if it were included, opening a
+   * completed panel (toggle) would re-run this effect and immediately collapse — breaking expand/collapse.
+   */
   useEffect(() => {
     if (loading || mergedForms.length === 0 || expandedQid == null) return;
     const form = mergedForms.find((f) => f.qid === expandedQid);
@@ -124,7 +128,8 @@ export function CheckoutQuestionnairePanels({
       (f) => !isFormQuestionsSatisfied(f.questions, answers, f.qid)
     );
     setExpandedQid(nextIncomplete?.qid ?? null);
-  }, [loading, mergedForms, answers, expandedQid]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only react to answer / form data changes, not manual expand/collapse
+  }, [loading, mergedForms, answers]);
 
   const toggle = useCallback((qid: number) => {
     setExpandedQid((prev) => (prev === qid ? null : qid));
