@@ -39,7 +39,7 @@ export function MembershipRequiredPanel({
         </p>
       ) : null}
       <p className="cb-membership-modal-lead">
-        This booking requires a membership. Choose one option below. Dependent fees are included in the total.
+        This service requires a membership. Select one below to complete your booking.
       </p>
       <ul className="cb-membership-modal-options" role="radiogroup" aria-label="Membership options">
         {options.map((opt) => {
