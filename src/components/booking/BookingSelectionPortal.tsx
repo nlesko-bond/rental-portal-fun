@@ -22,8 +22,12 @@ type Props = {
    * bar/FAB so it never stacks above drawers (z-index alone is not enough during hydration).
    */
   overlayOpen?: boolean;
-  /** When set and there are saved carts, the cart FAB opens the bag / “Your cart” drawer. */
+  /**
+   * When there are saved carts, the cart FAB opens the bag drawer.
+   * When the bag is empty but `slotCount > 0`, the same FAB opens checkout (`onBook`).
+   */
   onOpenCart?: () => void;
+  /** Opens checkout for the current slot selection (drawer: add-ons → … → summary → Add to cart). */
   onBook?: () => void;
   bookBusy?: boolean;
   bookDisabled?: boolean;
@@ -71,11 +75,15 @@ export function BookingSelectionPortal({
       : 0;
   const fabBadge = cartSessionCount > 0 ? cartBadge : slotCount;
   const showSlotBar = slotCount > 0;
-  const primaryActionLabel = bookBusy
-    ? "Opening…"
-    : cartSessionCount > 0
-      ? "Add another booking"
-      : "Add to cart";
+  const primaryActionLabel =
+    slotCount === 1 ? "1 slot selected →" : `${slotCount} slots selected →`;
+  const fabOpensBag = cartSessionCount > 0 && onOpenCart != null;
+  const fabOpensCheckout = slotCount > 0 && onBook != null;
+  const fabClickable = fabOpensBag || fabOpensCheckout;
+  const handleFabClick = () => {
+    if (fabOpensBag) onOpenCart!();
+    else if (fabOpensCheckout) onBook!();
+  };
   const cartFabLabel =
     slotCount > 0 && cartSessionCount > 0
       ? `View cart: ${cartSessionCount} saved booking${cartSessionCount === 1 ? "" : "s"}, ${cartLineItemCount || cartSessionCount} line item${
@@ -85,7 +93,9 @@ export function BookingSelectionPortal({
         ? `View cart: ${cartSessionCount} booking${cartSessionCount === 1 ? "" : "s"}, ${cartLineItemCount || cartSessionCount} line item${
             (cartLineItemCount || cartSessionCount) === 1 ? "" : "s"
           }.`
-        : `Shopping cart`;
+        : slotCount > 0
+          ? `Open checkout, ${slotCount} slot${slotCount === 1 ? "" : "s"} selected`
+          : `Shopping cart`;
 
   const wrapCls = `consumer-booking ${appearanceClass} cb-selection-portal`.trim();
 
@@ -95,11 +105,11 @@ export function BookingSelectionPortal({
       {slotCount > 0 || cartSessionCount > 0 ? (
         <div className="cb-selection-cluster cb-selection-cluster--split">
           <div className="cb-selection-fab-row">
-            {onOpenCart && cartSessionCount > 0 ? (
+            {fabClickable ? (
               <button
                 type="button"
                 className="cb-selection-fab cb-selection-fab--clickable"
-                onClick={onOpenCart}
+                onClick={handleFabClick}
                 aria-label={cartFabLabel}
               >
                 <IconCartShopping className="text-[var(--cb-primary)]" aria-hidden />
@@ -132,7 +142,7 @@ export function BookingSelectionPortal({
                   disabled={bookDisabled || bookBusy}
                   onClick={onBook}
                 >
-                  {bookBusy ? "Booking…" : primaryActionLabel}
+                  {bookBusy ? "Opening…" : primaryActionLabel}
                 </button>
               </div>
             </div>

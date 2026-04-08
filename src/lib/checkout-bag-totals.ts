@@ -12,6 +12,7 @@ const FEE_KEYS = ["transactionFee", "processingFee", "fees", "feeTotal", "paymen
 const DISCOUNT_KEYS = [
   "discount",
   "discountAmount",
+  "discountSubtotal",
   "discountTotal",
   "memberSavings",
   "entitlementDiscount",
@@ -19,21 +20,50 @@ const DISCOUNT_KEYS = [
 ] as const;
 const TOTAL_KEYS = ["total", "totalAmount", "grandTotal", "amountDue", "balance"] as const;
 
-function pickPositiveNumber(obj: Record<string, unknown>, keys: readonly string[]): number | null {
-  for (const k of keys) {
-    const v = obj[k];
-    if (typeof v === "number" && Number.isFinite(v) && v >= 0) return v;
+/** Bond sometimes returns numeric fields as strings; JSON may omit top-level totals when line detail lives on `cartItems`. */
+function coerceFiniteNumber(v: unknown): number | null {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "string" && v.trim() !== "") {
+    const n = Number(v);
+    if (Number.isFinite(n)) return n;
   }
   return null;
 }
 
+function pickNonNegativeNumber(obj: Record<string, unknown>, keys: readonly string[]): number | null {
+  for (const k of keys) {
+    const n = coerceFiniteNumber(obj[k]);
+    if (n != null && n >= 0) return n;
+  }
+  return null;
+}
+
+function sumCartItemsLineAmount(cart: OrganizationCartDto): number | null {
+  const items = cart.cartItems;
+  if (!Array.isArray(items) || items.length === 0) return null;
+  let sum = 0;
+  let any = false;
+  for (const raw of items) {
+    if (!raw || typeof raw !== "object") continue;
+    const it = raw as Record<string, unknown>;
+    const n =
+      pickNonNegativeNumber(it, ["subtotal", "lineSubtotal", "price"]) ??
+      coerceFiniteNumber(it.unitPrice);
+    if (n != null && n >= 0) {
+      sum += n;
+      any = true;
+    }
+  }
+  return any ? sum : null;
+}
+
 function lineAmountFromCart(cart: OrganizationCartDto): number | null {
   const o = cart as Record<string, unknown>;
-  const sub = pickPositiveNumber(o, SUBTOTAL_KEYS);
+  const sub = pickNonNegativeNumber(o, SUBTOTAL_KEYS);
   if (sub != null) return sub;
-  const price = o.price;
-  if (typeof price === "number" && Number.isFinite(price)) return price;
-  return null;
+  const p = coerceFiniteNumber(o.price);
+  if (p != null && p >= 0) return p;
+  return sumCartItemsLineAmount(cart);
 }
 
 export type AggregatedBagTotals = {
@@ -60,10 +90,10 @@ export function getOrganizationCartNumericBreakdown(cart: OrganizationCartDto): 
   const o = cart as Record<string, unknown>;
   return {
     line: lineAmountFromCart(cart),
-    discount: pickPositiveNumber(o, DISCOUNT_KEYS),
-    tax: pickPositiveNumber(o, TAX_KEYS),
-    fee: pickPositiveNumber(o, FEE_KEYS),
-    total: pickPositiveNumber(o, TOTAL_KEYS),
+    discount: pickNonNegativeNumber(o, DISCOUNT_KEYS),
+    tax: pickNonNegativeNumber(o, TAX_KEYS),
+    fee: pickNonNegativeNumber(o, FEE_KEYS),
+    total: pickNonNegativeNumber(o, TOTAL_KEYS),
   };
 }
 
@@ -179,15 +209,44 @@ export function getBondCartPricingDisplayRows(cart: OrganizationCartDto): {
   currency: string;
   rows: BondCartPricingDisplayRow[];
 } {
-  const cur = typeof cart.currency === "string" && cart.currency.length > 0 ? cart.currency : "USD";
+  const o = cart as Record<string, unknown>;
+  const cur =
+    typeof cart.currency === "string" && cart.currency.length > 0
+      ? cart.currency
+      : typeof o.currency === "string" && o.currency.length > 0
+        ? o.currency
+        : "USD";
   const b = getOrganizationCartNumericBreakdown(cart);
   const rows: BondCartPricingDisplayRow[] = [];
-  if (b.line != null) rows.push({ label: "Subtotal", amount: b.line, variant: "default" });
+
+  const line = b.line;
+  const totalFromKeys = b.total;
+  const cartPrice = coerceFiniteNumber(o.price);
+  const total = totalFromKeys ?? (cartPrice != null && cartPrice >= 0 ? cartPrice : null);
+
+  const lineDiffersFromTotal =
+    line != null && total != null && Math.abs(line - total) > 0.005;
+
+  if (line != null && (lineDiffersFromTotal || total == null)) {
+    rows.push({ label: "Subtotal", amount: line, variant: "default" });
+  }
   if (b.discount != null && b.discount > 0) {
     rows.push({ label: "Discounts & savings", amount: b.discount, variant: "discount" });
   }
-  if (b.tax != null) rows.push({ label: "Tax", amount: b.tax, variant: "muted" });
-  if (b.fee != null) rows.push({ label: "Fees", amount: b.fee, variant: "muted" });
-  if (b.total != null) rows.push({ label: "Total", amount: b.total, variant: "grand" });
+  if (b.tax != null && b.tax > 0) rows.push({ label: "Tax", amount: b.tax, variant: "muted" });
+  if (b.fee != null && b.fee > 0) rows.push({ label: "Fees", amount: b.fee, variant: "muted" });
+  if (total != null) {
+    rows.push({ label: "Total", amount: total, variant: "grand" });
+  } else if (line != null && rows.every((r) => r.variant !== "grand")) {
+    rows.push({ label: "Total", amount: line, variant: "grand" });
+  }
+
+  if (rows.length === 0) {
+    const fallback = cartPrice != null && cartPrice >= 0 ? cartPrice : sumCartItemsLineAmount(cart);
+    if (fallback != null) {
+      rows.push({ label: "Cart total", amount: fallback, variant: "grand" });
+    }
+  }
+
   return { currency: cur, rows };
 }
