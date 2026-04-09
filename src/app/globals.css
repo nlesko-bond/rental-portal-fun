@@ -297,61 +297,6 @@ body {
   background: color-mix(in srgb, var(--cb-bg-surface-muted) 88%, var(--cb-border));
 }
 
-/* Desktop: date, duration, and optional start side-by-side to reduce vertical scroll. */
-.consumer-booking .cb-schedule-when-compact {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.consumer-booking .cb-schedule-when-field {
-  min-width: 0;
-}
-
-@media (min-width: 1024px) {
-  .consumer-booking .cb-schedule-when-compact {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(12.5rem, 1fr));
-    gap: 0.75rem 1.5rem;
-    align-items: start;
-  }
-
-  .consumer-booking .cb-schedule-when-compact .cb-schedule-step-title {
-    margin-top: 0;
-    margin-bottom: 0.35rem;
-    font-size: 0.6875rem;
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--cb-text-muted);
-  }
-
-  .consumer-booking .cb-schedule-when-compact .cb-schedule-step-title--first {
-    margin-top: 0;
-  }
-}
-
-/* View toggle sits beside “Available times” on wide screens */
-.consumer-booking .cb-schedule-view-toolbar {
-  display: flex;
-  max-width: 100%;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 0.5rem 0.75rem;
-}
-
-@media (max-width: 639px) {
-  .consumer-booking .cb-schedule-heading-row:has(.cb-schedule-view-toolbar) {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .consumer-booking .cb-schedule-view-toolbar {
-    justify-content: center;
-  }
-}
-
 .consumer-booking .cb-preferred-start-field {
   box-sizing: border-box;
   display: flex;
