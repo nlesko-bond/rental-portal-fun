@@ -223,9 +223,6 @@ export function ScheduleCalendarView({
                     Peak
                   </span>
                 ) : null}
-                {s.isAvailable && showPeerTiers && tier === "standard" ? (
-                  <span className="cb-slot-btn-tier cb-slot-btn-tier--regular">Regular</span>
-                ) : null}
                 {s.isAvailable && showPeerTiers && tier === "off_peak" ? (
                   <span className="cb-slot-btn-tier cb-slot-btn-tier--off">Off-peak</span>
                 ) : null}
