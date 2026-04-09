@@ -297,6 +297,51 @@ body {
   background: color-mix(in srgb, var(--cb-bg-surface-muted) 88%, var(--cb-border));
 }
 
+/* Row 1: date | row 2: duration + optional start on mobile; md+: calendar | duration+start */
+.consumer-booking .cb-schedule-when-split {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+@media (min-width: 768px) {
+  .consumer-booking .cb-schedule-when-split {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 1rem 1.5rem;
+    align-items: start;
+  }
+
+  .consumer-booking .cb-schedule-when-col--timing .cb-schedule-when-timing-first {
+    margin-top: 0;
+  }
+}
+
+.consumer-booking .cb-schedule-when-col {
+  min-width: 0;
+}
+
+.consumer-booking .cb-schedule-inline-cal {
+  width: 100%;
+}
+
+.consumer-booking .cb-dp-root--inline {
+  padding-top: 0.15rem;
+}
+
+.consumer-booking .cb-dp-root--inline .cb-dp-nav {
+  margin-bottom: 0.45rem;
+}
+
+.consumer-booking .cb-dp-root--inline .cb-dp-grid {
+  gap: 0.2rem;
+}
+
+.consumer-booking .cb-dp-root--inline .cb-dp-cell {
+  min-height: 2.1rem;
+  font-size: 0.8rem;
+}
+
 .consumer-booking .cb-preferred-start-field {
   box-sizing: border-box;
   display: flex;

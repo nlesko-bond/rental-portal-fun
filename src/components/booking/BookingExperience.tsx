@@ -1412,95 +1412,115 @@ export function BookingExperience() {
         {state.productId != null && (
           <div className="cb-schedule-when-band -mx-4 px-4 py-5 sm:mx-0 sm:rounded-xl sm:px-5">
             <section className="text-left" aria-label="Date, duration, and preferred start time">
-              <h3 id="pick-date-heading" className="cb-schedule-step-title cb-schedule-step-title--first">
-                Select a date
-              </h3>
-              {filteredScheduleDates.length > 0 ? (
-                <div className="cb-date-strip-row mt-3">
-                  <div className="cb-date-strip-cluster">
-                    <button
-                      type="button"
-                      className="cb-cal-open-btn"
-                      aria-label="Open calendar to pick an available date"
-                      onClick={() => setPicker("date")}
-                    >
-                      <IconCalendar className="size-7 shrink-0" />
-                    </button>
+              <div className="cb-schedule-when-split">
+                <div className="cb-schedule-when-col cb-schedule-when-col--dates">
+                  <h3 id="pick-date-heading" className="cb-schedule-step-title cb-schedule-step-title--first">
+                    Select a date
+                  </h3>
+                  {filteredScheduleDates.length > 0 ? (
+                    <>
+                      <div className="cb-date-strip-row mt-3 md:hidden">
+                        <div className="cb-date-strip-cluster">
+                          <button
+                            type="button"
+                            className="cb-cal-open-btn"
+                            aria-label="Open calendar to pick an available date"
+                            onClick={() => setPicker("date")}
+                          >
+                            <IconCalendar className="size-7 shrink-0" />
+                          </button>
+                          <div
+                            className="cb-date-strip cb-hide-scrollbar"
+                            role="tablist"
+                            aria-labelledby="pick-date-heading"
+                          >
+                            {filteredScheduleDates.map((d) => (
+                              <button
+                                key={d.date}
+                                type="button"
+                                role="tab"
+                                aria-selected={state.date === d.date}
+                                className={`cb-date-chip ${state.date === d.date ? "cb-date-chip--active" : ""}`}
+                                onClick={() => setDate(d.date)}
+                              >
+                                {formatBookingDateShort(d.date)}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="cb-schedule-inline-cal mt-3 hidden max-w-md md:block">
+                        <AvailableDateCalendarBody
+                          availableDates={filteredScheduleDates.map((d) => d.date)}
+                          vipEarlyAccessDates={vipEarlyAccessDates}
+                          selectedDate={state.date}
+                          onSelect={(d) => setDate(d)}
+                          onClose={() => {}}
+                          closeOnSelect={false}
+                          className="cb-dp-root--inline"
+                          signedIn={bondAuth.session.status === "authenticated"}
+                        />
+                      </div>
+                    </>
+                  ) : null}
+                </div>
+
+                <div className="cb-schedule-when-col cb-schedule-when-col--timing">
+                  <h3 id="pick-duration-heading" className="cb-schedule-step-title cb-schedule-when-timing-first">
+                    Select duration
+                  </h3>
+                  <div className="cb-duration-strip-row mt-3">
                     <div
                       className="cb-date-strip cb-hide-scrollbar"
                       role="tablist"
-                      aria-labelledby="pick-date-heading"
+                      aria-labelledby="pick-duration-heading"
                     >
-                      {filteredScheduleDates.map((d) => (
-                        <button
-                          key={d.date}
-                          type="button"
-                          role="tab"
-                          aria-selected={state.date === d.date}
-                          className={`cb-date-chip ${state.date === d.date ? "cb-date-chip--active" : ""}`}
-                          onClick={() => setDate(d.date)}
-                        >
-                          {formatBookingDateShort(d.date)}
-                        </button>
-                      ))}
+                      {durations.map((m) => {
+                        const active = (state.duration ?? durations[0] ?? 60) === m;
+                        return (
+                          <button
+                            key={m}
+                            type="button"
+                            role="tab"
+                            aria-selected={active}
+                            className={`cb-date-chip cb-duration-chip ${active ? "cb-date-chip--active" : ""}`}
+                            onClick={() => setDuration(m)}
+                          >
+                            {formatDurationLabel(m)}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
-                </div>
-              ) : null}
 
-              <h3 id="pick-duration-heading" className="cb-schedule-step-title">
-                Select duration
-              </h3>
-              <div className="cb-duration-strip-row mt-3">
-                <div
-                  className="cb-date-strip cb-hide-scrollbar"
-                  role="tablist"
-                  aria-labelledby="pick-duration-heading"
-                >
-                  {durations.map((m) => {
-                    const active = (state.duration ?? durations[0] ?? 60) === m;
-                    return (
+                  {showPreferredStart ? (
+                    <>
+                      <h3 id="pick-start-heading" className="cb-schedule-step-title">
+                        Preferred start time{" "}
+                        <span className="cb-schedule-step-optional">(optional)</span>
+                      </h3>
                       <button
-                        key={m}
                         type="button"
-                        role="tab"
-                        aria-selected={active}
-                        className={`cb-date-chip cb-duration-chip ${active ? "cb-date-chip--active" : ""}`}
-                        onClick={() => setDuration(m)}
+                        className="cb-preferred-start-field mt-3 w-full max-w-full self-start sm:w-auto sm:max-w-md"
+                        aria-haspopup="dialog"
+                        aria-expanded={picker === "start"}
+                        aria-labelledby="pick-start-heading"
+                        onClick={() => setPicker("start")}
                       >
-                        {formatDurationLabel(m)}
+                        <IconClockDetail className="cb-preferred-start-field-icon h-5 w-5 shrink-0 text-[var(--cb-primary)]" />
+                        <span className="cb-preferred-start-field-value min-w-0 flex-1 truncate text-left">
+                          {preferredStartTime == null
+                            ? "Any time"
+                            : formatPreferredStartOptionLabel(preferredStartTime)}
+                        </span>
+                        <span className="cb-faint shrink-0 text-[0.65rem]" aria-hidden>
+                          ▾
+                        </span>
                       </button>
-                    );
-                  })}
+                    </>
+                  ) : null}
                 </div>
               </div>
-
-              {showPreferredStart ? (
-                <>
-                  <h3 id="pick-start-heading" className="cb-schedule-step-title">
-                    Preferred start time{" "}
-                    <span className="cb-schedule-step-optional">(optional)</span>
-                  </h3>
-                  <button
-                    type="button"
-                    className="cb-preferred-start-field mt-3 w-full max-w-full self-start sm:w-auto sm:max-w-md"
-                    aria-haspopup="dialog"
-                    aria-expanded={picker === "start"}
-                    aria-labelledby="pick-start-heading"
-                    onClick={() => setPicker("start")}
-                  >
-                    <IconClockDetail className="cb-preferred-start-field-icon h-5 w-5 shrink-0 text-[var(--cb-primary)]" />
-                    <span className="cb-preferred-start-field-value min-w-0 flex-1 truncate text-left">
-                      {preferredStartTime == null
-                        ? "Any time"
-                        : formatPreferredStartOptionLabel(preferredStartTime)}
-                    </span>
-                    <span className="cb-faint shrink-0 text-[0.65rem]" aria-hidden>
-                      ▾
-                    </span>
-                  </button>
-                </>
-              ) : null}
             </section>
           </div>
         )}

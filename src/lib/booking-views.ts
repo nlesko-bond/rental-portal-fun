@@ -1,9 +1,12 @@
 import type { OnlineBookingView } from "@/types/online-booking";
 
-/** Consumer UI never exposes Bond’s `list` schedule mode; portal still may return it in `views`. */
-export function clientScheduleViews(portalViews: OnlineBookingView[]): OnlineBookingView[] {
-  const v = portalViews.filter((x) => x === "calendar" || x === "matrix");
-  return v.length > 0 ? v : ["calendar"];
+/**
+ * Consumer UI never exposes Bond’s `list` schedule mode; portal still may return it in `views`.
+ * We always offer calendar + matrix: the same schedule payload powers both; portals often omit `matrix`
+ * from `views`, which hid the Timeline toggle.
+ */
+export function clientScheduleViews(_portalViews: OnlineBookingView[]): OnlineBookingView[] {
+  return ["calendar", "matrix"];
 }
 
 export function viewUiLabel(v: OnlineBookingView): string {
