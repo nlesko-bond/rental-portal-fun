@@ -26,9 +26,14 @@ function envPlaceholderUrl(): string | undefined {
   return typeof v === "string" && v.trim() ? v.trim() : undefined;
 }
 
+/** Bundled in `public/images/booking/` — real rink photos (no Unsplash). */
+const ICE_HOCKEY_IMAGES = ["/images/booking/hockey-1.png", "/images/booking/hockey-2.png"];
+const ICE_SKATING_IMAGES = ["/images/booking/skating-1.png", "/images/booking/skating-2.png"];
+
 /**
  * Indoor / court imagery only — avoid track & field photos mistaken for “court”.
  * Unsplash often 404s older `photo-*` ids; keep this list to URLs that still resolve.
+ * Prefer adding assets under `public/images/booking/` over growing this list.
  */
 const BASKETBALL_IMAGES = [
   "https://images.unsplash.com/photo-1546519638-68e109498ffc?w=640&q=80&auto=format&fit=crop",
@@ -101,6 +106,26 @@ const STOCK: StockRow[] = [
     url: (seed) => AMERICAN_FOOTBALL_IMAGES[hashPick(seed, AMERICAN_FOOTBALL_IMAGES.length)]!,
   },
   {
+    test: (s) => /\bfield\s+hockey\b/i.test(s),
+    url: (seed) => SOCCER_IMAGES[hashPick(seed, SOCCER_IMAGES.length)]!,
+  },
+  {
+    test: (s) => /\b(ice[\s-]?skating|figure\s+skating|speed\s+skating)\b/i.test(s),
+    url: (seed) => ICE_SKATING_IMAGES[hashPick(seed, ICE_SKATING_IMAGES.length)]!,
+  },
+  {
+    test: (s) => /\b(ringette|sledge\s*hockey|ice\s*hockey)\b/i.test(s),
+    url: (seed) => ICE_HOCKEY_IMAGES[hashPick(seed, ICE_HOCKEY_IMAGES.length)]!,
+  },
+  {
+    test: (s) => /\blacrosse\b/i.test(s),
+    url: (seed) => SOCCER_IMAGES[hashPick(seed, SOCCER_IMAGES.length)]!,
+  },
+  {
+    test: (s) => /\bhockey\b/i.test(s),
+    url: (seed) => ICE_HOCKEY_IMAGES[hashPick(seed, ICE_HOCKEY_IMAGES.length)]!,
+  },
+  {
     test: (s) => /soccer|foot\s*ball|futbol/i.test(s) && !/american|nfl/i.test(s),
     url: (seed) => SOCCER_IMAGES[hashPick(seed, SOCCER_IMAGES.length)]!,
   },
@@ -127,10 +152,6 @@ const STOCK: StockRow[] = [
   {
     test: (s) => /\b(cage|simulator|hittrax|batting\s*cage)\b/i.test(s),
     url: (seed) => BASEBALL_IMAGES[hashPick(seed, BASEBALL_IMAGES.length)]!,
-  },
-  {
-    test: (s) => /\b(lacrosse|field hockey|ice hockey|hockey)\b/i.test(s),
-    url: (seed) => SOCCER_IMAGES[hashPick(seed, SOCCER_IMAGES.length)]!,
   },
   {
     test: (s) => /\b(badminton|squash|racquetball)\b/i.test(s),
@@ -162,7 +183,7 @@ export function resolveCuratedStockImageUrl(product: ExtendedProductDto, activit
 export type ProductCardImageFallbackStep = 0 | 1 | 2;
 
 /**
- * Tiered sources so a broken Bond URL can fall back to activity-matched Unsplash before the SVG gradient.
+ * Tiered sources so a broken Bond URL can fall back to activity-matched stock (Unsplash / bundled SVGs) before the abstract gradient.
  *
  * - **0:** API media → env placeholder → curated stock
  * - **1:** curated stock (skipped if step 0 was already stock-only, to avoid a load loop)
