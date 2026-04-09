@@ -1507,8 +1507,7 @@ export function BookingExperience() {
 
         {state.productId != null && portalViews.length > 1 && (
           <div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
-            <span className="cb-eyebrow">View</span>
-            <div className="cb-segment" role="group" aria-label="Schedule layout">
+            <div className="cb-segment" role="group" aria-label="List or Timeline">
               {portalViews.map((v) => (
                 <button
                   key={v}
