@@ -1388,7 +1388,7 @@ export function BookingExperience() {
               </div>
 
               {/* Below lg: stacked — narrow: chips + calendar button; md..lg-1: inline calendar only (no duplicate pills) */}
-              <div className="cb-schedule-when-stacked lg:hidden">
+              <div className="cb-schedule-when-stacked flex flex-col gap-0 lg:hidden">
                 <h3 id="pick-date-heading" className="cb-schedule-step-title cb-schedule-step-title--first">
                   Select a date
                 </h3>

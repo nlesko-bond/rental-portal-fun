@@ -328,11 +328,7 @@ body {
   flex: 0 1 auto;
 }
 
-.consumer-booking .cb-schedule-when-stacked {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-}
+/* Do not set display on .cb-schedule-when-stacked — it breaks Tailwind lg:hidden (lower specificity). */
 
 .consumer-booking .cb-schedule-inline-cal {
   width: 100%;
