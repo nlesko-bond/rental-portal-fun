@@ -6,9 +6,13 @@ export function mapPortalViewToClientView(v: OnlineBookingView): "calendar" | "m
   return "calendar";
 }
 
-/** Opt-in matrix/timeline UI. Off by default so production stays list-only until UX is ready. */
+/**
+ * Matrix/timeline UI: enabled in `next dev` (NODE_ENV=development) so local testing needs no env;
+ * production requires `NEXT_PUBLIC_BOOKING_TIMELINE_ENABLED=true`.
+ */
 export function bookingTimelineFeatureEnabled(): boolean {
-  return process.env.NEXT_PUBLIC_BOOKING_TIMELINE_ENABLED === "true";
+  if (process.env.NEXT_PUBLIC_BOOKING_TIMELINE_ENABLED === "true") return true;
+  return process.env.NODE_ENV === "development";
 }
 
 /**

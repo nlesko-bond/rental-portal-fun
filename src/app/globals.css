@@ -297,40 +297,41 @@ body {
   background: color-mix(in srgb, var(--cb-bg-surface-muted) 88%, var(--cb-border));
 }
 
-/* Mobile: stack panels; md+: date | duration | optional preferred in separate cards */
-.consumer-booking .cb-schedule-when-split {
+/* lg+: experiment — calendar column + timing column; duration chips wrap (no horizontal scroll) */
+.consumer-booking .cb-schedule-when-wide-grid {
+  display: grid;
+  grid-template-columns: minmax(0, min(20rem, 100%)) minmax(0, 1fr);
+  gap: 1.25rem 1.75rem;
+  align-items: start;
+}
+
+@media (min-width: 1280px) {
+  .consumer-booking .cb-schedule-when-wide-grid {
+    grid-template-columns: minmax(0, 22rem) minmax(0, 1fr);
+    gap: 1.5rem 2rem;
+  }
+}
+
+.consumer-booking .cb-schedule-when-wide-cal {
+  min-width: 0;
+}
+
+.consumer-booking .cb-schedule-when-wide-timing {
+  min-width: 0;
+}
+
+.consumer-booking .cb-duration-chips-wrap {
+  max-width: 100%;
+}
+
+.consumer-booking .cb-duration-chips-wrap .cb-date-chip {
+  flex: 0 1 auto;
+}
+
+.consumer-booking .cb-schedule-when-stacked {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
-}
-
-.consumer-booking .cb-schedule-when-panel {
-  min-width: 0;
-  border-radius: 0.65rem;
-  border: 1px solid color-mix(in srgb, var(--cb-border) 90%, transparent);
-  background: var(--cb-bg-surface);
-  padding: 0.75rem 1rem 1rem;
-  box-shadow: 0 1px 0 color-mix(in srgb, var(--cb-border) 35%, transparent);
-}
-
-@media (min-width: 768px) {
-  .consumer-booking .cb-schedule-when-split--two {
-    display: grid;
-    grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
-    gap: 1rem 1.25rem;
-    align-items: start;
-  }
-
-  .consumer-booking .cb-schedule-when-split--three {
-    display: grid;
-    grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.95fr) minmax(0, 1fr);
-    gap: 1rem 1.25rem;
-    align-items: start;
-  }
-
-  .consumer-booking .cb-schedule-when-panel .cb-schedule-when-panel-first {
-    margin-top: 0;
-  }
+  gap: 0;
 }
 
 .consumer-booking .cb-schedule-inline-cal {
