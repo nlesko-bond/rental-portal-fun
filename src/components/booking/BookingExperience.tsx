@@ -1410,116 +1410,104 @@ export function BookingExperience() {
         </div>
 
         {state.productId != null && (
-          <div className="cb-schedule-when-band -mx-4 px-4 py-5 sm:mx-0 sm:rounded-xl sm:px-5">
+          <div className="cb-schedule-when-band -mx-4 px-4 py-5 sm:mx-0 sm:rounded-xl sm:px-5 lg:py-4">
             <section className="text-left" aria-label="Date, duration, and preferred start time">
-              <h3 id="pick-date-heading" className="cb-schedule-step-title cb-schedule-step-title--first">
-                Select a date
-              </h3>
-              {filteredScheduleDates.length > 0 ? (
-                <div className="cb-date-strip-row mt-3">
-                  <div className="cb-date-strip-cluster">
-                    <button
-                      type="button"
-                      className="cb-cal-open-btn"
-                      aria-label="Open calendar to pick an available date"
-                      onClick={() => setPicker("date")}
-                    >
-                      <IconCalendar className="size-7 shrink-0" />
-                    </button>
+              <div className="cb-schedule-when-compact">
+                <div className="cb-schedule-when-field">
+                  <h3 id="pick-date-heading" className="cb-schedule-step-title cb-schedule-step-title--first">
+                    Select a date
+                  </h3>
+                  {filteredScheduleDates.length > 0 ? (
+                    <div className="cb-date-strip-row cb-schedule-when-field-body mt-3 lg:mt-2">
+                      <div className="cb-date-strip-cluster">
+                        <button
+                          type="button"
+                          className="cb-cal-open-btn"
+                          aria-label="Open calendar to pick an available date"
+                          onClick={() => setPicker("date")}
+                        >
+                          <IconCalendar className="size-7 shrink-0" />
+                        </button>
+                        <div
+                          className="cb-date-strip cb-hide-scrollbar"
+                          role="tablist"
+                          aria-labelledby="pick-date-heading"
+                        >
+                          {filteredScheduleDates.map((d) => (
+                            <button
+                              key={d.date}
+                              type="button"
+                              role="tab"
+                              aria-selected={state.date === d.date}
+                              className={`cb-date-chip ${state.date === d.date ? "cb-date-chip--active" : ""}`}
+                              onClick={() => setDate(d.date)}
+                            >
+                              {formatBookingDateShort(d.date)}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="cb-schedule-when-field">
+                  <h3 id="pick-duration-heading" className="cb-schedule-step-title">
+                    Select duration
+                  </h3>
+                  <div className="cb-duration-strip-row cb-schedule-when-field-body mt-3 lg:mt-2">
                     <div
                       className="cb-date-strip cb-hide-scrollbar"
                       role="tablist"
-                      aria-labelledby="pick-date-heading"
+                      aria-labelledby="pick-duration-heading"
                     >
-                      {filteredScheduleDates.map((d) => (
-                        <button
-                          key={d.date}
-                          type="button"
-                          role="tab"
-                          aria-selected={state.date === d.date}
-                          className={`cb-date-chip ${state.date === d.date ? "cb-date-chip--active" : ""}`}
-                          onClick={() => setDate(d.date)}
-                        >
-                          {formatBookingDateShort(d.date)}
-                        </button>
-                      ))}
+                      {durations.map((m) => {
+                        const active = (state.duration ?? durations[0] ?? 60) === m;
+                        return (
+                          <button
+                            key={m}
+                            type="button"
+                            role="tab"
+                            aria-selected={active}
+                            className={`cb-date-chip cb-duration-chip ${active ? "cb-date-chip--active" : ""}`}
+                            onClick={() => setDuration(m)}
+                          >
+                            {formatDurationLabel(m)}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 </div>
-              ) : null}
 
-              <h3 id="pick-duration-heading" className="cb-schedule-step-title">
-                Select duration
-              </h3>
-              <div className="cb-duration-strip-row mt-3">
-                <div
-                  className="cb-date-strip cb-hide-scrollbar"
-                  role="tablist"
-                  aria-labelledby="pick-duration-heading"
-                >
-                  {durations.map((m) => {
-                    const active = (state.duration ?? durations[0] ?? 60) === m;
-                    return (
-                      <button
-                        key={m}
-                        type="button"
-                        role="tab"
-                        aria-selected={active}
-                        className={`cb-date-chip cb-duration-chip ${active ? "cb-date-chip--active" : ""}`}
-                        onClick={() => setDuration(m)}
-                      >
-                        {formatDurationLabel(m)}
-                      </button>
-                    );
-                  })}
-                </div>
+                {showPreferredStart ? (
+                  <div className="cb-schedule-when-field">
+                    <h3 id="pick-start-heading" className="cb-schedule-step-title">
+                      Preferred start time{" "}
+                      <span className="cb-schedule-step-optional">(optional)</span>
+                    </h3>
+                    <button
+                      type="button"
+                      className="cb-preferred-start-field cb-schedule-when-field-body mt-3 w-full max-w-full self-start sm:w-auto sm:max-w-md lg:mt-2"
+                      aria-haspopup="dialog"
+                      aria-expanded={picker === "start"}
+                      aria-labelledby="pick-start-heading"
+                      onClick={() => setPicker("start")}
+                    >
+                      <IconClockDetail className="cb-preferred-start-field-icon h-5 w-5 shrink-0 text-[var(--cb-primary)]" />
+                      <span className="cb-preferred-start-field-value min-w-0 flex-1 truncate text-left">
+                        {preferredStartTime == null
+                          ? "Any time"
+                          : formatPreferredStartOptionLabel(preferredStartTime)}
+                      </span>
+                      <span className="cb-faint shrink-0 text-[0.65rem]" aria-hidden>
+                        ▾
+                      </span>
+                    </button>
+                  </div>
+                ) : null}
               </div>
-
-              {showPreferredStart ? (
-                <>
-                  <h3 id="pick-start-heading" className="cb-schedule-step-title">
-                    Preferred start time{" "}
-                    <span className="cb-schedule-step-optional">(optional)</span>
-                  </h3>
-                  <button
-                    type="button"
-                    className="cb-preferred-start-field mt-3 w-full max-w-full self-start sm:w-auto sm:max-w-md"
-                    aria-haspopup="dialog"
-                    aria-expanded={picker === "start"}
-                    aria-labelledby="pick-start-heading"
-                    onClick={() => setPicker("start")}
-                  >
-                    <IconClockDetail className="cb-preferred-start-field-icon h-5 w-5 shrink-0 text-[var(--cb-primary)]" />
-                    <span className="cb-preferred-start-field-value min-w-0 flex-1 truncate text-left">
-                      {preferredStartTime == null
-                        ? "Any time"
-                        : formatPreferredStartOptionLabel(preferredStartTime)}
-                    </span>
-                    <span className="cb-faint shrink-0 text-[0.65rem]" aria-hidden>
-                      ▾
-                    </span>
-                  </button>
-                </>
-              ) : null}
             </section>
-          </div>
-        )}
-
-        {state.productId != null && portalViews.length > 1 && (
-          <div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
-            <span className="cb-eyebrow">View</span>
-            <div className="cb-segment" role="group" aria-label="Schedule layout">
-              {portalViews.map((v) => (
-                <button
-                  key={v}
-                  type="button"
-                  onClick={() => setScheduleView(v)}
-                  aria-pressed={state.view === v}
-                >
-                  {viewUiLabel(v)}
-                </button>
-              ))}
-            </div>
           </div>
         )}
 
@@ -1528,6 +1516,23 @@ export function BookingExperience() {
             <h2 id="schedule-heading" className="cb-section-title cb-section-title--inline">
               Available times
             </h2>
+            {state.productId != null && portalViews.length > 1 ? (
+              <div className="cb-schedule-view-toolbar">
+                <span className="cb-eyebrow">View</span>
+                <div className="cb-segment" role="group" aria-label="Schedule layout">
+                  {portalViews.map((v) => (
+                    <button
+                      key={v}
+                      type="button"
+                      onClick={() => setScheduleView(v)}
+                      aria-pressed={state.view === v}
+                    >
+                      {viewUiLabel(v)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </div>
           {slotBarError && state.productId != null ? (
             <p className="cb-slot-limit-alert" role="alert">
