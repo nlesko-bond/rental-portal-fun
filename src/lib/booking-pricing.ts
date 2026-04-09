@@ -46,12 +46,38 @@ export function referenceUnitPrice(product: ExtendedProductDto | undefined): num
   return Math.min(...nums);
 }
 
+/**
+ * Legacy: compare one slot to catalog minimum price — prefer {@link slotPriceTierRelativeToPeers} for schedule grids.
+ */
 export function slotPriceTier(slotUnitPrice: number, reference: number | null): SlotPriceTier {
   if (reference == null || !Number.isFinite(reference) || !Number.isFinite(slotUnitPrice)) {
     return "standard";
   }
   if (slotUnitPrice > reference + EPS) return "peak";
   if (slotUnitPrice < reference - EPS) return "off_peak";
+  return "standard";
+}
+
+/**
+ * Labels slots vs **peers** on the same resource/day: **peak** = highest price; **off-peak** = lowest when there are
+ * 3+ distinct prices; **standard** (Regular) = lower of two prices, or any middle tier when 3+.
+ */
+export function slotPriceTierRelativeToPeers(peerUnitPrices: number[], slotUnitPrice: number): SlotPriceTier {
+  const nums = peerUnitPrices.filter((n) => Number.isFinite(n));
+  if (nums.length === 0 || !Number.isFinite(slotUnitPrice)) return "standard";
+  const r = (x: number) => Math.round(x * 100) / 100;
+  const uniq = [...new Set(nums.map(r))].sort((a, b) => a - b);
+  if (uniq.length < 2) return "standard";
+  const lo = uniq[0]!;
+  const hi = uniq[uniq.length - 1]!;
+  const u = r(slotUnitPrice);
+  if (uniq.length === 2) {
+    if (Math.abs(u - lo) <= EPS) return "standard";
+    if (Math.abs(u - hi) <= EPS) return "peak";
+    return "standard";
+  }
+  if (u <= lo + EPS) return "off_peak";
+  if (u >= hi - EPS) return "peak";
   return "standard";
 }
 

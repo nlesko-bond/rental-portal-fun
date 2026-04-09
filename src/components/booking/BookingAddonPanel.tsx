@@ -79,8 +79,14 @@ export function BookingAddonPanel({
         <button
           type="button"
           className={`cb-addon-card ${sel ? "cb-addon-card--selected" : ""}`}
+          aria-pressed={sel}
           onClick={() => onToggleAddon(a)}
         >
+          {sel ? (
+            <span className="cb-addon-card-selected-pill" aria-hidden>
+              Selected
+            </span>
+          ) : null}
           <span className={levelTagClass(a.level)}>{addonLevelLabel(a.level)}</span>
           <span className="cb-addon-card-title">{a.name}</span>
           {desc ? <span className="cb-addon-card-desc line-clamp-2">{desc}</span> : null}

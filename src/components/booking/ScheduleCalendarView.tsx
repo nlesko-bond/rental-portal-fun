@@ -4,11 +4,9 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { BookingScheduleDto, ExtendedProductDto, ScheduleTimeSlotDto } from "@/types/online-booking";
 import {
   formatSlotPriceDisplay,
-  productHasVariableSchedulePricing,
   productMembershipGated,
-  referenceUnitPrice,
   slotDisplayTotalPrice,
-  slotPriceTier,
+  slotPriceTierRelativeToPeers,
   type SlotPriceTier,
 } from "@/lib/booking-pricing";
 import { slotControlKey } from "@/lib/slot-selection";
@@ -32,6 +30,7 @@ function formatSlotRange12h(startTime: string, endTime: string): string {
 function tierClass(t: SlotPriceTier): string {
   if (t === "peak") return "cb-slot-btn--peak";
   if (t === "off_peak") return "cb-slot-btn--offpeak";
+  if (t === "standard") return "cb-slot-btn--standard";
   return "";
 }
 
@@ -162,8 +161,6 @@ export function ScheduleCalendarView({
     return resourceIds[0]!;
   }, [resourceIds, userResourceTabId]);
 
-  const variable = productHasVariableSchedulePricing(product);
-  const refUnit = referenceUnitPrice(product);
   const membershipGated = productMembershipGated(product);
 
   const grouped = useMemo(() => {
@@ -185,6 +182,9 @@ export function ScheduleCalendarView({
     slots: ScheduleTimeSlotDto[]
   ) {
     const list = slots.filter((s) => s.isAvailable);
+    const peerUnits = list.map((s) => (adjustSlotUnitPrice ? adjustSlotUnitPrice(s.price) : s.price));
+    const distinctPrices = new Set(peerUnits.filter((n) => Number.isFinite(n)));
+    const showPeerTiers = distinctPrices.size >= 2;
     if (list.length === 0) {
       return (
         <p className="cb-resource-empty" role="status">
@@ -199,7 +199,7 @@ export function ScheduleCalendarView({
           const picked = selectedKeys.has(sk);
           const unit = adjustSlotUnitPrice ? adjustSlotUnitPrice(s.price) : s.price;
           const total = slotDisplayTotalPrice(unit, product, durationMinutes);
-          const tier = variable ? slotPriceTier(s.price, refUnit) : "standard";
+          const tier = showPeerTiers ? slotPriceTierRelativeToPeers(peerUnits, unit) : "standard";
           return (
             <li key={`${s.startDate}-${s.startTime}-${i}`} className="cb-slot-grid-cell">
               <button
@@ -217,13 +217,16 @@ export function ScheduleCalendarView({
                     {formatSlotPriceDisplay(total, priceCurrency, { membershipGated })}
                   </span>
                 ) : null}
-                {s.isAvailable && variable && tier === "peak" ? (
+                {s.isAvailable && showPeerTiers && tier === "peak" ? (
                   <span className="cb-slot-btn-tier">
                     <IconPeakTrend className="cb-slot-tier-icon" />
                     Peak
                   </span>
                 ) : null}
-                {s.isAvailable && variable && tier === "off_peak" ? (
+                {s.isAvailable && showPeerTiers && tier === "standard" ? (
+                  <span className="cb-slot-btn-tier cb-slot-btn-tier--regular">Regular</span>
+                ) : null}
+                {s.isAvailable && showPeerTiers && tier === "off_peak" ? (
                   <span className="cb-slot-btn-tier cb-slot-btn-tier--off">Off-peak</span>
                 ) : null}
               </button>

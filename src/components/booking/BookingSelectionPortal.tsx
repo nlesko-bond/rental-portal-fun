@@ -74,7 +74,8 @@ export function BookingSelectionPortal({
         : cartSessionCount
       : 0;
   const fabBadge = cartSessionCount > 0 ? cartBadge : slotCount;
-  const showSlotBar = slotCount > 0;
+  /** Slot strip duplicates the in-page schedule when the session cart already has bookings — FAB stays for cart. */
+  const showSlotBar = slotCount > 0 && cartSessionCount === 0;
   const primaryActionLabel =
     slotCount === 1 ? "1 slot selected →" : `${slotCount} slots selected →`;
   const fabOpensBag = cartSessionCount > 0 && onOpenCart != null;

@@ -18,6 +18,11 @@ export type CategoryBookingRules = {
    * When null or not greater than `advanceBookingWindowDays`, no VIP-only dates are derived here.
    */
   memberAdvanceBookingWindowDays: number | null;
+  /**
+   * Optional shorter minimum notice for members/VIP (`memberships[].minimumBookingNotice` or explicit keys).
+   * When null or not shorter than `minimumBookingNoticeMinutes`, guest notice applies for everyone.
+   */
+  memberMinimumBookingNoticeMinutes: number | null;
   /** If set, minimum minutes between “now” and bookable slot start (client-side hint; Bond still enforces). */
   minimumBookingNoticeMinutes: number | null;
   /**
@@ -185,6 +190,49 @@ function parseMemberAdvanceBookingWindowDays(s: Record<string, unknown>): number
   return maxDays;
 }
 
+function parseMemberMinimumBookingNoticeMinutes(s: Record<string, unknown>): number | null {
+  const direct =
+    num(s.memberMinimumBookingNoticeMinutes) ??
+    num(s.member_minimum_booking_notice_minutes) ??
+    num(s.vipMinimumBookingNoticeMinutes) ??
+    null;
+  if (direct != null && Number.isFinite(direct) && direct >= 0) return direct;
+
+  const nested = s.memberMinimumBookingNotice ?? s.vipMinimumBookingNotice;
+  if (nested && typeof nested === "object" && !Array.isArray(nested)) {
+    const o = nested as Record<string, unknown>;
+    const u = String(o.unit ?? "").toLowerCase();
+    const amt = num(o.amount);
+    if (amt != null && Number.isFinite(amt) && amt >= 0) {
+      if (u === "day" || u === "days") return amt * 24 * 60;
+      if (u === "hour" || u === "hours") return amt * 60;
+      if (u === "minute" || u === "minutes") return amt;
+    }
+  }
+
+  const memberships = s.memberships;
+  if (!Array.isArray(memberships)) return null;
+  let best: number | null = null;
+  for (const item of memberships) {
+    if (!item || typeof item !== "object") continue;
+    const o = item as Record<string, unknown>;
+    const mn = o.minimumBookingNotice;
+    if (mn && typeof mn === "object" && !Array.isArray(mn)) {
+      const rec = mn as Record<string, unknown>;
+      const u = String(rec.unit ?? "").toLowerCase();
+      const amt = num(rec.amount);
+      if (amt == null || !Number.isFinite(amt) || amt < 0) continue;
+      let mins: number;
+      if (u === "day" || u === "days") mins = amt * 24 * 60;
+      else if (u === "hour" || u === "hours") mins = amt * 60;
+      else if (u === "minute" || u === "minutes") mins = amt;
+      else continue;
+      best = best == null ? mins : Math.min(best, mins);
+    }
+  }
+  return best;
+}
+
 /**
  * Reads Bond category `settings` (OpenAPI is a loose object). Prefers nested `bookingDurations`
  * `{ minDuration, maxDuration, durationStep, defaultDuration }`, then flat keys, then legacy array.
@@ -281,12 +329,14 @@ export function parseCategoryBookingRules(settings: CategorySettings | undefined
     (flatDayHours != null && Number.isFinite(flatDayHours) && flatDayHours > 0 ? flatDayHours : null);
 
   const memberAdvanceBookingWindowDays = parseMemberAdvanceBookingWindowDays(s);
+  const memberMinimumBookingNoticeMinutes = parseMemberMinimumBookingNoticeMinutes(s);
 
   return {
     durationOptionsMinutes,
     defaultDurationMinutes,
     advanceBookingWindowDays,
     memberAdvanceBookingWindowDays,
+    memberMinimumBookingNoticeMinutes,
     minimumBookingNoticeMinutes,
     maxSequentialHours,
     maxBookingHoursPerDay,
@@ -336,6 +386,36 @@ export function filterDatesByAdvanceWindow<T extends { date: string }>(
  * Dates returned by schedule settings that fall in the member advance window but outside the guest window.
  * Empty when member window is unset, guest window is unset/unlimited, or member ≤ guest.
  */
+/**
+ * Logged-in users with a wider category **member** advance window than **guest** get extra bookable dates.
+ */
+export function resolveEffectiveAdvanceBookingWindowDays(
+  guestDays: number | null,
+  memberDays: number | null,
+  useMemberWindow: boolean
+): number | null {
+  if (!useMemberWindow || memberDays == null || !Number.isFinite(memberDays) || memberDays < 0) {
+    return guestDays;
+  }
+  if (guestDays == null) return memberDays;
+  return Math.max(guestDays, memberDays);
+}
+
+/**
+ * When category defines a **shorter** member minimum notice than guest, logged-in users get more start times.
+ */
+export function resolveEffectiveMinimumBookingNoticeMinutes(
+  guestMinutes: number | null,
+  memberMinutes: number | null,
+  useMemberMinimumNotice: boolean
+): number | null {
+  if (!useMemberMinimumNotice || memberMinutes == null || !Number.isFinite(memberMinutes) || memberMinutes < 0) {
+    return guestMinutes;
+  }
+  if (guestMinutes == null) return memberMinutes;
+  return Math.min(guestMinutes, memberMinutes);
+}
+
 export function computeVipEarlyAccessDateKeys(
   rows: { date: string }[],
   guestAdvanceBookingWindowDays: number | null,

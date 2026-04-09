@@ -11,6 +11,8 @@ import {
   formatDurationLabel,
   formatDurationPriceBadge,
   parseCategoryBookingRules,
+  resolveEffectiveAdvanceBookingWindowDays,
+  resolveEffectiveMinimumBookingNoticeMinutes,
 } from "@/lib/category-booking-settings";
 import { formatActivityLabel } from "@/lib/booking-activity-display";
 import {
@@ -495,6 +497,7 @@ export function BookingExperience() {
       state?.facilityId,
       state?.activity,
       state?.productPage,
+      effectiveBookingUserId ?? 0,
     ],
     queryFn: () => {
       if (!env.ok || !state) throw new Error("Missing org or selection");
@@ -503,6 +506,7 @@ export function BookingExperience() {
         itemsPerPage: PRODUCTS_PAGE_SIZE,
         facilitiesIds: [state.facilityId],
         sports: [state.activity],
+        ...(effectiveBookingUserId != null ? { userId: effectiveBookingUserId } : {}),
       });
     },
     enabled: env.ok && !!state,
@@ -522,6 +526,46 @@ export function BookingExperience() {
     const cat = portal.options.categories.find((c) => c.id === state.categoryId) ?? portal.options.defaultCategory;
     return parseCategoryBookingRules(cat.settings);
   }, [portal, state]);
+
+  /** Category `memberships[]` / VIP advance window: wider than guest — applied when logged in (Bond still enforces server-side). */
+  const useMemberAdvanceBookingWindow = useMemo(() => {
+    if (bondAuth.session.status !== "authenticated" || categoryRules == null) return false;
+    const g = categoryRules.advanceBookingWindowDays;
+    const m = categoryRules.memberAdvanceBookingWindowDays;
+    if (m == null || !Number.isFinite(m) || m < 0) return false;
+    if (g == null || !Number.isFinite(g)) return true;
+    return m > g;
+  }, [bondAuth.session.status, categoryRules]);
+
+  /** Shorter member minimum notice than guest — more same-day / near-term starts when logged in. */
+  const useMemberMinimumBookingNotice = useMemo(() => {
+    if (bondAuth.session.status !== "authenticated" || categoryRules == null) return false;
+    const g = categoryRules.minimumBookingNoticeMinutes;
+    const m = categoryRules.memberMinimumBookingNoticeMinutes;
+    if (m == null || !Number.isFinite(m) || m < 0) return false;
+    if (g == null || !Number.isFinite(g)) return false;
+    return m < g;
+  }, [bondAuth.session.status, categoryRules]);
+
+  const effectiveAdvanceBookingWindowDays = useMemo(
+    () =>
+      resolveEffectiveAdvanceBookingWindowDays(
+        categoryRules?.advanceBookingWindowDays ?? null,
+        categoryRules?.memberAdvanceBookingWindowDays ?? null,
+        useMemberAdvanceBookingWindow
+      ),
+    [categoryRules, useMemberAdvanceBookingWindow]
+  );
+
+  const effectiveMinimumBookingNoticeMinutes = useMemo(
+    () =>
+      resolveEffectiveMinimumBookingNoticeMinutes(
+        categoryRules?.minimumBookingNoticeMinutes ?? null,
+        categoryRules?.memberMinimumBookingNoticeMinutes ?? null,
+        useMemberMinimumBookingNotice
+      ),
+    [categoryRules, useMemberMinimumBookingNotice]
+  );
 
   const slotRules = useMemo(
     () => ({
@@ -640,8 +684,8 @@ export function BookingExperience() {
 
   const filteredScheduleDates = useMemo(() => {
     const rows = scheduleSettingsQuery.data?.dates ?? [];
-    return filterDatesByAdvanceWindow(rows, categoryRules?.advanceBookingWindowDays ?? null);
-  }, [scheduleSettingsQuery.data, categoryRules?.advanceBookingWindowDays]);
+    return filterDatesByAdvanceWindow(rows, effectiveAdvanceBookingWindowDays);
+  }, [scheduleSettingsQuery.data, effectiveAdvanceBookingWindowDays]);
 
   const bookingInfoDateRange = useMemo(() => {
     const dates = filteredScheduleDates.map((x) => x.date).sort();
@@ -702,9 +746,9 @@ export function BookingExperience() {
     return filterStartTimesByMinimumNotice(
       raw,
       scheduleDateKey,
-      categoryRules?.minimumBookingNoticeMinutes ?? null
+      effectiveMinimumBookingNoticeMinutes
     ).sort();
-  }, [filteredScheduleDates, scheduleDateKey, categoryRules?.minimumBookingNoticeMinutes]);
+  }, [filteredScheduleDates, scheduleDateKey, effectiveMinimumBookingNoticeMinutes]);
 
   /** Nearest Bond-allowed start for the fetch (minimum notice + category increments). */
   const resolvedPreferredStartForFetch = useMemo(() => {
@@ -867,6 +911,7 @@ export function BookingExperience() {
           if (nk.length > 0) next[id] = { all: false, keys: nk };
         }
       }
+      if (JSON.stringify(next) === JSON.stringify(prev)) return prev;
       return next;
     });
   }, [selectedSlots]);
@@ -882,30 +927,37 @@ export function BookingExperience() {
         const eff = getEffectiveAddonSlotKeys(addonSlotTargeting[id], slotKeys);
         if (eff.size === 0) next.delete(id);
       }
+      if (next.size === prev.size && [...next].every((id) => prev.has(id))) return prev;
       return next;
     });
   }, [selectedSlots, packageAddons, addonSlotTargeting]);
 
   const handleAddonToggle = useCallback((addon: PackageAddonLine) => {
     setSelectedAddonIds((prev) => {
-      if (prev.has(addon.id)) {
-        setAddonSlotTargeting((t) => {
-          const u = { ...t };
-          delete u[addon.id];
-          return u;
-        });
-        const n = new Set(prev);
-        n.delete(addon.id);
-        return n;
-      }
-      const n = new Set(prev);
-      n.add(addon.id);
-      if (addon.level === "slot" || addon.level === "hour") {
-        setAddonSlotTargeting((t) => ({ ...t, [addon.id]: { all: true, keys: [] } }));
-      }
-      return n;
+      const next = new Set(prev);
+      if (next.has(addon.id)) next.delete(addon.id);
+      else next.add(addon.id);
+      return next;
     });
   }, []);
+
+  /** Slot/hour add-ons need default targeting; keep in sync without nested setState in the toggle handler. */
+  useEffect(() => {
+    setAddonSlotTargeting((t) => {
+      const next = { ...t };
+      for (const id of selectedAddonIds) {
+        const addon = packageAddons.find((a) => a.id === id);
+        if (!addon || addon.level === "reservation") continue;
+        if (next[id] == null) next[id] = { all: true, keys: [] };
+      }
+      for (const key of Object.keys(next)) {
+        const numId = Number(key);
+        if (!selectedAddonIds.has(numId)) delete next[numId];
+      }
+      if (JSON.stringify(next) === JSON.stringify(t)) return t;
+      return next;
+    });
+  }, [selectedAddonIds, packageAddons]);
 
   const onAddonSelectAllSlots = useCallback((addonId: number, checked: boolean, keys: string[]) => {
     setAddonSlotTargeting((t) => ({
@@ -1015,10 +1067,6 @@ export function BookingExperience() {
   const packageAddonsVisible = addonsExpanded ? packageAddons : packageAddons.slice(0, ADDONS_PAGE);
   const showAddonPanel =
     state.productId != null && packageAddons.length > 0 && selectedSlots.size > 0;
-  const anyVariableProductPricing = Boolean(
-    productsQuery.data?.data.some((p) => productHasVariableSchedulePricing(p))
-  );
-
   const setFacility = (facilityId: number) => {
     setPreferredStartTime(null);
     clearSlotSelection();
@@ -1320,12 +1368,6 @@ export function BookingExperience() {
               );
             })}
           </div>
-          {anyVariableProductPricing ? (
-            <p className="cb-peak-legend cb-muted mt-3 text-left text-sm">
-              <IconPeakTrend className="cb-peak-legend-icon" aria-hidden />
-              Peak / off-peak pricing may apply to some time slots.
-            </p>
-          ) : null}
           {meta && totalPages > 1 && (
             <div className="cb-muted mt-4 flex items-center justify-between gap-4 text-sm">
               <button

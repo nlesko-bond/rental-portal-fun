@@ -507,7 +507,8 @@ body {
 
 /* Selection wins over peak/off-peak tint so it never reads as “another peak row” */
 .consumer-booking .cb-slot-btn--picked.cb-slot-btn--peak,
-.consumer-booking .cb-slot-btn--picked.cb-slot-btn--offpeak {
+.consumer-booking .cb-slot-btn--picked.cb-slot-btn--offpeak,
+.consumer-booking .cb-slot-btn--picked.cb-slot-btn--standard {
   border-color: var(--cb-slot-selected-border);
   background: var(--cb-slot-selected-bg);
 }
@@ -532,6 +533,11 @@ body {
 .consumer-booking .cb-slot-btn--offpeak {
   border-color: color-mix(in srgb, var(--cb-primary) 40%, var(--cb-border));
   background: color-mix(in srgb, var(--cb-primary) 8%, var(--cb-bg-slot));
+}
+
+.consumer-booking .cb-slot-btn--standard {
+  border-color: color-mix(in srgb, #94a3b8 35%, var(--cb-border));
+  background: color-mix(in srgb, #f8fafc 92%, var(--cb-bg-slot));
 }
 
 .consumer-booking .cb-slot-btn-time {
@@ -560,6 +566,10 @@ body {
 
 .consumer-booking .cb-slot-btn-tier--off {
   color: var(--cb-primary);
+}
+
+.consumer-booking .cb-slot-btn-tier--regular {
+  color: #64748b;
 }
 
 .consumer-booking .cb-slot-tier-icon {
@@ -2360,6 +2370,7 @@ body {
 }
 
 .consumer-booking .cb-addon-card {
+  position: relative;
   display: flex;
   width: 100%;
   flex-direction: column;
@@ -2374,6 +2385,20 @@ body {
   transition:
     border-color 0.15s ease,
     box-shadow 0.15s ease;
+}
+
+.consumer-booking .cb-addon-card-selected-pill {
+  position: absolute;
+  top: 0.45rem;
+  right: 0.5rem;
+  border-radius: 9999px;
+  padding: 0.1rem 0.45rem;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--cb-primary);
+  background: color-mix(in srgb, var(--cb-primary) 14%, var(--cb-bg-surface));
 }
 
 .consumer-booking .cb-addon-level-tag {
@@ -2416,6 +2441,8 @@ body {
   border-color: var(--cb-primary);
   border-width: 2px;
   box-shadow: var(--cb-shadow-card);
+  outline: 2px solid color-mix(in srgb, var(--cb-primary) 35%, transparent);
+  outline-offset: 2px;
 }
 
 .consumer-booking .cb-addon-card-title {
@@ -4450,6 +4477,90 @@ body {
   border-top: 1px solid var(--cb-border);
   font-weight: 700;
   font-size: 1.05rem;
+}
+
+/* Bond preview receipt (confirm step): item grid + totals */
+.consumer-booking .cb-checkout-receipt-sheet {
+  width: 100%;
+  margin-bottom: 0.25rem;
+}
+
+.consumer-booking .cb-checkout-receipt-kicker {
+  margin: 0 0 0.5rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--cb-text-muted);
+}
+
+.consumer-booking .cb-checkout-receipt-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.65rem;
+  margin-bottom: 1rem;
+}
+
+@media (min-width: 480px) {
+  .consumer-booking .cb-checkout-receipt-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.consumer-booking .cb-checkout-receipt-box {
+  border-radius: 0.5rem;
+  border: 1px solid var(--cb-border);
+  background: var(--cb-bg-surface);
+  padding: 0.75rem 0.9rem;
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--cb-text) 5%, transparent);
+}
+
+.consumer-booking .cb-checkout-receipt-box-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+}
+
+.consumer-booking .cb-checkout-receipt-box-title {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--cb-text);
+  line-height: 1.3;
+}
+
+.consumer-booking .cb-checkout-receipt-box-badge {
+  flex-shrink: 0;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--cb-primary);
+  background: color-mix(in srgb, var(--cb-primary) 12%, transparent);
+  padding: 0.15rem 0.45rem;
+  border-radius: 0.25rem;
+}
+
+.consumer-booking .cb-checkout-receipt-box-price {
+  font-size: 1rem;
+  text-align: right;
+}
+
+.consumer-booking .cb-checkout-receipt-totals {
+  margin-top: 0.15rem;
+  padding: 0.85rem 1rem;
+  border-radius: 0.55rem;
+  border: 1px solid var(--cb-border);
+  background: color-mix(in srgb, var(--cb-primary) 5%, var(--cb-bg-surface));
+}
+
+.consumer-booking .cb-checkout-receipt-totals .cb-checkout-bond-receipt-line {
+  padding: 0.4rem 0;
+}
+
+.consumer-booking .cb-checkout-receipt-totals .cb-checkout-bond-receipt-line--grand {
+  margin-top: 0.25rem;
 }
 
 /* Session cart bag (FAB) */

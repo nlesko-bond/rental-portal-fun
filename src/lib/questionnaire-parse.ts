@@ -366,6 +366,30 @@ export function formHasOnlyOptionalQuestions(questions: NormalizedQuestion[]): b
   return questions.length > 0 && questions.every((q) => !q.mandatory);
 }
 
+/**
+ * Mandatory free-text-like or multi-select questions: `isAnswerSatisfiedForQuestion` becomes true after a single
+ * character / partial input, so accordion auto-advance must not treat the panel as “done” while the user is still typing.
+ */
+export function formHasMandatoryOpenEndedOrMultiSelectQuestions(questions: NormalizedQuestion[]): boolean {
+  for (const q of questions) {
+    if (!q.mandatory) continue;
+    switch (q.kind) {
+      case "text":
+      case "textarea":
+      case "email":
+      case "tel":
+      case "address":
+      case "date":
+      case "multiselect":
+      case "file":
+        return true;
+      default:
+        break;
+    }
+  }
+  return false;
+}
+
 export function isFormQuestionsSatisfied(
   questions: NormalizedQuestion[],
   answers: Record<string, string>,

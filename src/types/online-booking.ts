@@ -187,6 +187,8 @@ export type OrganizationCartDto = {
   /** When Bond returns tax breakdown (names vary; see `checkout-bag-totals`). */
   tax?: number;
   taxAmount?: number;
+  /** Line-level tax rows (`name`, `rate`, `price`, …) — see hosted `OrganizationCartDto` / tax DTOs. */
+  taxes?: unknown[];
   total?: number;
   discountAmount?: number;
   /** CartDiscountDto[] — entitlement / promo lines with `discount.name`, `discountAmount`, etc. */

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  formHasMandatoryOpenEndedOrMultiSelectQuestions,
   formHasOnlyOptionalQuestions,
   isFormQuestionsSatisfied,
   type NormalizedQuestion,
@@ -121,6 +122,9 @@ export function CheckoutQuestionnairePanels({
    * Skip entirely for optional-only forms: `isFormQuestionsSatisfied` is vacuously true there (we
    * only validate mandatory fields), so any keystroke would otherwise look like “done” and collapse.
    *
+   * Skip when the form has mandatory free text / multiselect / file: one keystroke can satisfy the
+   * validator while the user is still typing — user collapses via header or Continue instead.
+   *
    * Omit `expandedQid` from deps so toggling panels does not re-run this (see prior fix).
    */
   useEffect(() => {
@@ -128,6 +132,7 @@ export function CheckoutQuestionnairePanels({
     const form = mergedForms.find((f) => f.qid === expandedQid);
     if (!form) return;
     if (formHasOnlyOptionalQuestions(form.questions)) return;
+    if (formHasMandatoryOpenEndedOrMultiSelectQuestions(form.questions)) return;
     if (!isFormQuestionsSatisfied(form.questions, answers, form.qid)) return;
     const nextIncomplete = mergedForms.find(
       (f) => !isFormQuestionsSatisfied(f.questions, answers, f.qid)

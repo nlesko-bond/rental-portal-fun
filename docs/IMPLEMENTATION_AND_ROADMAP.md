@@ -61,6 +61,20 @@ flowchart LR
 - **UI state:** `@tanstack/react-query` in `src/app/providers.tsx`.
 - **Main screen:** `src/components/booking/BookingExperience.tsx` (large; contains schedule matrix table, URL sync, queries).
 
+### Online booking — `OrganizationCartDto` vs client state
+
+| Layer | Source |
+|-------|--------|
+| Slots, add-on selection, `pickedSlots`, `addonSlotTargeting` | Client (`BookingExperience`, `BookingCheckoutDrawer`) |
+| Request body for `POST …/online-booking/create` | `online-booking-create-body.ts` → BFF |
+| `OrganizationCartDto` (`cartItems`, `discounts[]`, `subtotal`, `tax`, `total`, …) | Bond response only |
+| Receipt line boxes | `getBondCartReceiptLineItems` → `cartItems[]` (`metadata.description` when Bond sends it — `bond-cart-item-classify.ts`) |
+| Create body vs cart line DTOs | `docs/bond/CART_ITEM_AND_CREATE_BOOKING.md` |
+| Subtotal / discount / tax / total rows on confirm | `getBondCartReceiptSummaryRows`, else `getBondCartPricingDisplayRows` (`checkout-bag-totals.ts`) |
+| Cart line list | `expandSnapshotForPurchaseList` (`cart-purchase-lines.ts`) — `cartItems[]` via `cartItemLineAmountFromDto` |
+
+Preview and add-to-cart use the same endpoint; Bond may return fewer fields on the preview request than after a persisted cart.
+
 ---
 
 ## What is built (inventory)

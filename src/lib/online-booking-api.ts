@@ -28,6 +28,8 @@ export async function fetchCategoryProducts(
     itemsPerPage?: number;
     facilitiesIds?: number[];
     sports?: string[];
+    /** When Bond supports it: user-scoped product list (JWT). Omitted when anonymous. */
+    userId?: number;
   }
 ): Promise<PaginatedProductsResponse> {
   const path = [...orgBase(orgId), "category", String(categoryId), "products"];
@@ -40,6 +42,7 @@ export async function fetchCategoryProducts(
   for (const s of opts.sports ?? []) {
     q.append("sports", s);
   }
+  if (opts.userId != null) q.set("userId", String(opts.userId));
   return bondBffGetJson<PaginatedProductsResponse>(path, q);
 }
 
