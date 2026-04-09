@@ -297,28 +297,116 @@ body {
   background: color-mix(in srgb, var(--cb-bg-surface-muted) 88%, var(--cb-border));
 }
 
-/* Row 1: date | row 2: duration + optional start on mobile; md+: calendar | duration+start */
+/* Stacked on mobile; md+: date | duration | optional start in separate panels */
 .consumer-booking .cb-schedule-when-split {
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
+  gap: 1rem;
+}
+
+.consumer-booking .cb-schedule-when-panel {
+  min-width: 0;
+  border-radius: 0.65rem;
+  border: 1px solid color-mix(in srgb, var(--cb-border) 90%, transparent);
+  background: var(--cb-bg-surface);
+  padding: 0.75rem 1rem 1rem;
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--cb-border) 35%, transparent);
 }
 
 @media (min-width: 768px) {
-  .consumer-booking .cb-schedule-when-split {
+  .consumer-booking .cb-schedule-when-split--two {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    gap: 1rem 1.5rem;
+    grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+    gap: 1rem 1.25rem;
     align-items: start;
   }
 
-  .consumer-booking .cb-schedule-when-col--timing .cb-schedule-when-timing-first {
+  .consumer-booking .cb-schedule-when-split--three {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.95fr) minmax(0, 1fr);
+    gap: 1rem 1.25rem;
+    align-items: start;
+  }
+
+  .consumer-booking .cb-schedule-when-panel .cb-schedule-when-panel-first {
     margin-top: 0;
   }
 }
 
 .consumer-booking .cb-schedule-when-col {
   min-width: 0;
+}
+
+/* Timeline (matrix) cells */
+.consumer-booking .cb-matrix-slot {
+  border-width: 1px;
+  border-style: solid;
+  background: var(--cb-bg-surface);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.consumer-booking .cb-matrix-slot--available:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--cb-primary) 50%, var(--cb-border));
+  box-shadow: 0 2px 10px color-mix(in srgb, var(--cb-primary) 12%, transparent);
+}
+
+.consumer-booking .cb-matrix-slot--standard {
+  border-color: color-mix(in srgb, #94a3b8 35%, var(--cb-border));
+  background: color-mix(in srgb, #f8fafc 92%, var(--cb-bg-slot));
+}
+
+.consumer-booking .cb-matrix-slot--peak {
+  border-color: color-mix(in srgb, #f59e0b 55%, var(--cb-border));
+  background: color-mix(in srgb, #fff7ed 88%, var(--cb-bg-slot));
+}
+
+.consumer-booking .cb-matrix-slot--offpeak {
+  border-color: color-mix(in srgb, var(--cb-primary) 40%, var(--cb-border));
+  background: color-mix(in srgb, var(--cb-primary) 8%, var(--cb-bg-slot));
+}
+
+.consumer-booking .cb-matrix-slot--picked {
+  border-width: 2px;
+  border-color: var(--cb-slot-selected-border);
+  background: var(--cb-slot-selected-bg);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--cb-primary) 25%, transparent),
+    var(--cb-shadow-card);
+}
+
+.consumer-booking .cb-matrix-slot--picked .cb-matrix-slot-time,
+.consumer-booking .cb-matrix-slot--picked .cb-matrix-slot-price {
+  color: var(--cb-primary);
+}
+
+.consumer-booking .cb-matrix-slot--unavailable {
+  border-color: var(--cb-border);
+  background: var(--cb-bg-slot-disabled);
+  text-decoration: line-through;
+}
+
+.consumer-booking .cb-matrix-slot-tier {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  font-size: 0.6rem;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.consumer-booking .cb-matrix-slot-tier--peak {
+  color: #c2410c;
+}
+
+.consumer-booking .cb-matrix-slot-tier--off {
+  color: var(--cb-primary);
+}
+
+.consumer-booking .cb-matrix-slot-tier-ic {
+  width: 0.65rem;
+  height: 0.65rem;
 }
 
 .consumer-booking .cb-schedule-inline-cal {

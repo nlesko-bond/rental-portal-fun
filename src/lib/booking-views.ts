@@ -10,8 +10,8 @@ export function clientScheduleViews(_portalViews: OnlineBookingView[]): OnlineBo
 }
 
 export function viewUiLabel(v: OnlineBookingView): string {
-  if (v === "matrix") return "Timeline view";
-  if (v === "calendar") return "Calendar view";
+  if (v === "matrix") return "Timeline";
+  if (v === "calendar") return "List";
   return v;
 }
 
