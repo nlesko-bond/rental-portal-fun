@@ -15,6 +15,9 @@ type Props = {
   selectedDate: string | null;
   onSelect: (d: string) => void;
   onClose: () => void;
+  /** When embedded in the schedule band, do not close a parent dialog on day select. */
+  closeOnSelect?: boolean;
+  className?: string;
   /** Hide footer “Sign in to see VIP early access” when already authenticated. */
   signedIn?: boolean;
 };
@@ -56,6 +59,8 @@ export function AvailableDateCalendarBody({
   selectedDate,
   onSelect,
   onClose,
+  closeOnSelect = true,
+  className,
   signedIn = false,
 }: Props) {
   const available = useMemo(() => new Set(availableDates), [availableDates]);
@@ -101,7 +106,7 @@ export function AvailableDateCalendarBody({
   }
 
   return (
-    <div className="cb-dp-root">
+    <div className={`cb-dp-root${className ? ` ${className}` : ""}`}>
       <div className="cb-dp-nav">
         <button type="button" className="cb-dp-nav-btn" onClick={prevMonth} aria-label="Previous month">
           <span aria-hidden>‹</span>
@@ -150,7 +155,7 @@ export function AvailableDateCalendarBody({
               onClick={() => {
                 if (!isAvail) return;
                 onSelect(c.key);
-                onClose();
+                if (closeOnSelect) onClose();
               }}
             >
               {c.day}
