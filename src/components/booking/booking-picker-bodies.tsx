@@ -1,6 +1,7 @@
 "use client";
 
 import { formatActivityLabel } from "@/lib/booking-activity-display";
+import { plainAddonDescription } from "@/lib/product-package-addons";
 import type { ExtendedFacilityDto, ReservationProductCategoryDto } from "@/types/online-booking";
 import { useMemo, useState } from "react";
 
@@ -38,8 +39,8 @@ export function IconSearch({ className }: { className?: string }) {
 }
 
 function categorySubtitle(c: ReservationProductCategoryDto): string {
-  const d = c.description?.trim();
-  if (d) return d;
+  const plain = plainAddonDescription(c.description?.trim());
+  if (plain) return plain;
   const n = (c.name ?? "").toLowerCase();
   if (n.includes("rental")) return "Book courts, cages, and fields";
   if (n.includes("lesson")) return "Private coaching sessions";

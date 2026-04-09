@@ -1,6 +1,6 @@
 import type { OnlineBookingView, PublicOnlineBookingPortalDto } from "@/types/online-booking";
 import { parseCategoryBookingRules } from "@/lib/category-booking-settings";
-import { clientScheduleViews, parseClientViewFromUrl } from "@/lib/booking-views";
+import { clientScheduleViews, mapPortalViewToClientView, parseClientViewFromUrl } from "@/lib/booking-views";
 
 export type BookingUrlState = {
   facilityId: number;
@@ -133,11 +133,14 @@ export function resolveBookingState(
     activity = o.defaultActivity;
   }
 
-  let view: OnlineBookingView = views[0] ?? "calendar";
-  if (fromUrl.view && views.includes(fromUrl.view)) {
+  const defaultFromApi = mapPortalViewToClientView(o.defaultView);
+  let view: OnlineBookingView;
+  if (fromUrl.view != null && views.includes(fromUrl.view)) {
     view = fromUrl.view;
-  } else if (o.defaultView !== "list" && views.includes(o.defaultView)) {
-    view = o.defaultView;
+  } else if (views.includes(defaultFromApi)) {
+    view = defaultFromApi;
+  } else {
+    view = views[0] ?? "calendar";
   }
 
   let duration = fromUrl.duration;

@@ -1,9 +1,28 @@
 import type { OnlineBookingView } from "@/types/online-booking";
 
-/** Consumer UI never exposes Bond’s `list` schedule mode; portal still may return it in `views`. */
+/** Bond `list` maps to our slot list UI (`calendar`); we never surface raw `list` in the client. */
+export function mapPortalViewToClientView(v: OnlineBookingView): "calendar" | "matrix" {
+  if (v === "matrix") return "matrix";
+  return "calendar";
+}
+
+/**
+ * Normalized schedule modes for the consumer (calendar = list, matrix = timeline).
+ * Preserves API order but maps `list` → `calendar` and dedupes.
+ */
 export function clientScheduleViews(portalViews: OnlineBookingView[]): OnlineBookingView[] {
-  const v = portalViews.filter((x) => x === "calendar" || x === "matrix");
-  return v.length > 0 ? v : ["calendar"];
+  const out: OnlineBookingView[] = [];
+  const seen = new Set<OnlineBookingView>();
+  for (const v of portalViews) {
+    const c = mapPortalViewToClientView(v);
+    if (c === "calendar" || c === "matrix") {
+      if (!seen.has(c)) {
+        seen.add(c);
+        out.push(c);
+      }
+    }
+  }
+  return out.length > 0 ? out : ["calendar"];
 }
 
 export function viewUiLabel(v: OnlineBookingView): string {
@@ -13,6 +32,7 @@ export function viewUiLabel(v: OnlineBookingView): string {
 }
 
 export function parseClientViewFromUrl(raw: string | null): OnlineBookingView | undefined {
-  if (raw === "calendar" || raw === "matrix") return raw;
+  if (raw === "calendar" || raw === "list") return "calendar";
+  if (raw === "matrix") return "matrix";
   return undefined;
 }
