@@ -74,8 +74,8 @@ export function BookingSelectionPortal({
         : cartSessionCount
       : 0;
   const fabBadge = cartSessionCount > 0 ? cartBadge : slotCount;
-  /** Slot strip duplicates the in-page schedule when the session cart already has bookings — FAB stays for cart. */
-  const showSlotBar = slotCount > 0 && cartSessionCount === 0;
+  /** Show draft slot CTA whenever slots are selected; cart FAB still opens bag when there are saved bookings. */
+  const showSlotBar = slotCount > 0;
   const primaryActionLabel =
     slotCount === 1 ? "1 slot selected →" : `${slotCount} slots selected →`;
   const fabOpensBag = cartSessionCount > 0 && onOpenCart != null;
@@ -113,7 +113,7 @@ export function BookingSelectionPortal({
                 onClick={handleFabClick}
                 aria-label={cartFabLabel}
               >
-                <IconCartShopping className="text-[var(--cb-primary)]" aria-hidden />
+                <IconCartShopping className="text-[var(--cb-text-on-primary)]" aria-hidden />
                 <span className="cb-selection-fab-badge" aria-hidden>
                   {fabBadge > 99 ? "99+" : fabBadge}
                 </span>
@@ -124,7 +124,7 @@ export function BookingSelectionPortal({
                 role="img"
                 aria-label={`Shopping cart, ${fabBadge} ${fabBadge === 1 ? "item" : "items"}`}
               >
-                <IconCartShopping className="text-[var(--cb-primary)]" aria-hidden />
+                <IconCartShopping className="text-[var(--cb-text-on-primary)]" aria-hidden />
                 <span className="cb-selection-fab-badge" aria-hidden>
                   {fabBadge > 99 ? "99+" : fabBadge}
                 </span>

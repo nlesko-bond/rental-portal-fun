@@ -22,7 +22,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - **BFF:** `src/app/api/bond/[...path]/route.ts` — forwards `v1/organization/*` with server env `BOND_API_KEY`; reads user JWTs from httpOnly cookies set by `/api/bond-auth/login`.
 - **Auth proxy:** `src/app/api/bond-auth/*` — login/session/logout; env `BOND_AUTH_BASE_URL`.
 - **Client fetch helper:** `src/lib/bond-client.ts` (uses `credentials: "include"` for cookies).
-- **User / checkout APIs:** `src/lib/online-booking-user-api.ts` (`getUser`, booking-information, questionnaires, required products, `POST` create); `src/lib/online-booking-create-body.ts` (create payload — `addonProductIds` are product IDs; server prices the cart).
+- **User / checkout APIs:** `src/lib/online-booking-user-api.ts` (`getUser`, booking-information, questionnaires, required products, `POST` create); `src/lib/online-booking-create-body.ts` (create payload — `addons[]` with `productId` + `quantity`; server prices the cart).
 - **Roadmap / gaps:** `docs/IMPLEMENTATION_AND_ROADMAP.md` — booking-information enforcement, server cart/totals vs client estimates, payment pins.
 - **Server state:** `@tanstack/react-query` via `src/app/providers.tsx`.
 

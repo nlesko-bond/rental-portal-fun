@@ -1,15 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useLayoutEffect, useMemo, useRef } from "react";
 import type { BookingScheduleDto, ExtendedProductDto, ScheduleTimeSlotDto } from "@/types/online-booking";
-import {
-  formatSlotPriceDisplay,
-  slotDisplayTotalPrice,
-  slotPriceTierRelativeToPeers,
-  type SlotPriceTier,
-} from "@/lib/booking-pricing";
+import { slotDisplayTotalPrice, slotPriceTierRelativeToPeers, type SlotPriceTier } from "@/lib/booking-pricing";
+import { membershipGateProductNames } from "@/lib/session-booking-display-lines";
 import { slotControlKey } from "@/lib/slot-selection";
 import { IconPeakTrend } from "./booking-icons";
+import { SlotMemberPriceLabel } from "./SlotMemberPriceLabel";
 
 function formatTime12hFromKey(timeKey: string): string {
   const hhmm = timeKey.slice(11, 16);
@@ -27,26 +24,76 @@ function slotTitle(slot: { startTime: string; endTime: string }): string {
   return `${slot.startTime.slice(0, 5)}–${slot.endTime.slice(0, 5)}`;
 }
 
-function peerUnitsForColumn(
-  schedule: BookingScheduleDto,
-  timeKey: string,
-  adjust?: (unit: number) => number
-): number[] {
-  const units: number[] = [];
-  for (const row of schedule.resources) {
-    const slot = row.timeSlots.find((s) => `${s.startDate} ${s.startTime}` === timeKey);
-    if (slot?.isAvailable) {
-      const u = adjust ? adjust(slot.price) : slot.price;
-      units.push(u);
-    }
-  }
-  return units;
-}
-
 function matrixTierClassName(t: SlotPriceTier): string {
   if (t === "peak") return "cb-matrix-slot--peak";
   if (t === "off_peak") return "cb-matrix-slot--offpeak";
   return "cb-matrix-slot--standard";
+}
+
+/** Compare "HH:MM" / "HH:MM:SS" strings from the API (same calendar day). */
+function timePartToSeconds(t: string): number {
+  const base = t.trim().split(".")[0] ?? "";
+  const m = base.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+  if (!m) return 0;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  const sec = m[3] != null ? Number(m[3]) : 0;
+  return h * 3600 + min * 60 + sec;
+}
+
+function timePortionFromTimeKey(timeKey: string): string {
+  return timeKey.length > 11 ? timeKey.slice(11) : "";
+}
+
+function columnHasAvailableSlot(schedule: BookingScheduleDto, timeKey: string): boolean {
+  for (const row of schedule.resources) {
+    const slot = row.timeSlots.find((s) => `${s.startDate} ${s.startTime}` === timeKey);
+    if (slot?.isAvailable) return true;
+  }
+  return false;
+}
+
+function findScrollAnchorColumnIndex(
+  timeKeys: string[],
+  schedule: BookingScheduleDto,
+  scheduleDate: string,
+  preferredStartResolved: string | null,
+  firstAvailableColIndex: number
+): number {
+  if (timeKeys.length === 0) return -1;
+
+  if (!preferredStartResolved) {
+    return firstAvailableColIndex;
+  }
+
+  const prefSec = timePartToSeconds(preferredStartResolved);
+  const datePrefix = `${scheduleDate} `;
+
+  for (let i = 0; i < timeKeys.length; i++) {
+    const k = timeKeys[i]!;
+    if (!k.startsWith(datePrefix)) continue;
+    const t = timePortionFromTimeKey(k);
+    if (timePartToSeconds(t) === prefSec) {
+      return i;
+    }
+  }
+
+  for (let i = 0; i < timeKeys.length; i++) {
+    const k = timeKeys[i]!;
+    if (!k.startsWith(datePrefix)) continue;
+    const t = timePortionFromTimeKey(k);
+    if (timePartToSeconds(t) < prefSec) continue;
+    if (columnHasAvailableSlot(schedule, k)) return i;
+  }
+
+  for (let i = 0; i < timeKeys.length; i++) {
+    const k = timeKeys[i]!;
+    if (!k.startsWith(datePrefix)) continue;
+    const t = timePortionFromTimeKey(k);
+    if (timePartToSeconds(t) >= prefSec) return i;
+  }
+
+  return firstAvailableColIndex;
 }
 
 type Props = {
@@ -56,8 +103,14 @@ type Props = {
   priceCurrency: string | null;
   membershipGated: boolean;
   selectedKeys: ReadonlySet<string>;
+  /** Slots already in the session cart — not selectable again. */
+  reservedSlotKeys?: ReadonlySet<string>;
   onToggleSlot: (resourceId: number, resourceName: string, slot: ScheduleTimeSlotDto) => void;
   adjustSlotUnitPrice?: (unitPrice: number) => number;
+  /** Changes when the user picks a new schedule day — scroll position is recomputed. */
+  autoScrollKey: string;
+  /** Snapped preferred start (matches slot fetch); when set, matrix scrolls to that column or first available at/after it. */
+  preferredStartResolved: string | null;
 };
 
 export function ScheduleMatrix({
@@ -67,9 +120,14 @@ export function ScheduleMatrix({
   priceCurrency,
   membershipGated,
   selectedKeys,
+  reservedSlotKeys,
   onToggleSlot,
   adjustSlotUnitPrice,
+  autoScrollKey,
+  preferredStartResolved,
 }: Props) {
+  const membershipGateNames = useMemo(() => membershipGateProductNames(product), [product]);
+  const scrollElRef = useRef<HTMLDivElement | null>(null);
   const anchorColRef = useRef<HTMLTableCellElement | null>(null);
 
   const timeKeys = useMemo(() => {
@@ -93,24 +151,44 @@ export function ScheduleMatrix({
     return -1;
   }, [timeKeys, schedule.resources]);
 
-  useEffect(() => {
-    if (firstAvailableColIndex < 0) return;
-    const id = requestAnimationFrame(() => {
-      anchorColRef.current?.scrollIntoView({ behavior: "smooth", inline: "start", block: "nearest" });
-    });
-    return () => cancelAnimationFrame(id);
-  }, [firstAvailableColIndex, schedule, timeKeys]);
+  const scrollAnchorColIndex = useMemo(
+    () =>
+      findScrollAnchorColumnIndex(
+        timeKeys,
+        schedule,
+        autoScrollKey,
+        preferredStartResolved,
+        firstAvailableColIndex
+      ),
+    [timeKeys, schedule.resources, autoScrollKey, preferredStartResolved, firstAvailableColIndex]
+  );
+
+  useLayoutEffect(() => {
+    if (scrollAnchorColIndex < 0) return;
+    const wrap = scrollElRef.current;
+    const anchor = anchorColRef.current;
+    if (!wrap || !anchor) return;
+    const w = wrap.getBoundingClientRect();
+    const a = anchor.getBoundingClientRect();
+    const nextScrollLeft = wrap.scrollLeft + (a.left - w.left);
+    wrap.scrollLeft = Math.max(0, nextScrollLeft - 2);
+  }, [scrollAnchorColIndex, autoScrollKey, preferredStartResolved, timeKeys.length]);
 
   return (
-    <div className="cb-matrix-scroll cb-hide-scrollbar overflow-x-auto">
-      <table className="cb-matrix-table min-w-full text-left">
+    <div
+      ref={scrollElRef}
+      className="cb-matrix-scroll overflow-x-auto overflow-y-hidden w-full min-w-0"
+    >
+      <table className="cb-matrix-table min-w-full border-separate border-spacing-0 text-left">
         <thead>
           <tr className="border-b border-[var(--cb-border)] bg-[var(--cb-bg-table-head)]">
-            <th className="cb-matrix-th-resource p-3 font-semibold text-[var(--cb-text)]">Resource</th>
+            <th className="cb-matrix-th-resource cb-matrix-cell--sticky-row p-3 font-semibold text-[var(--cb-text)]">
+              Resource
+            </th>
             {timeKeys.map((k, i) => (
               <th
                 key={k}
-                ref={i === firstAvailableColIndex ? anchorColRef : undefined}
+                ref={i === scrollAnchorColIndex ? anchorColRef : undefined}
                 className="cb-matrix-th-time whitespace-nowrap p-2 text-center text-xs font-semibold text-[var(--cb-text-muted)] sm:p-3 sm:text-sm"
               >
                 {formatTime12hFromKey(k)}
@@ -119,12 +197,22 @@ export function ScheduleMatrix({
           </tr>
         </thead>
         <tbody>
-          {schedule.resources.map((row) => (
+          {schedule.resources.map((row) => {
+            // Peer prices for this resource across the day (list view uses the same rule).
+            const peerUnitsRawForRow = row.timeSlots.filter((s) => s.isAvailable).map((s) => s.price);
+            const roundedRow = peerUnitsRawForRow.map((n) => Math.round(n * 100) / 100);
+            const distinctRow = new Set(roundedRow);
+            const showPeerTiers = distinctRow.size >= 2;
+
+            return (
             <tr key={row.resource.id} className="border-b border-[var(--cb-border)]">
-              <td className="p-2 text-sm font-semibold text-[var(--cb-text)] sm:p-3">{row.resource.name}</td>
+              <td className="cb-matrix-td-resource cb-matrix-cell--sticky-row p-2 text-sm font-semibold text-[var(--cb-text)] sm:p-3">
+                {row.resource.name}
+              </td>
               {timeKeys.map((k) => {
                 const slot = row.timeSlots.find((s) => `${s.startDate} ${s.startTime}` === k);
                 const sk = slot ? slotControlKey(row.resource.id, slot) : "";
+                const inCart = Boolean(sk && reservedSlotKeys?.has(sk));
                 const picked = sk && selectedKeys.has(sk);
                 const unit =
                   slot && slot.isAvailable
@@ -134,13 +222,9 @@ export function ScheduleMatrix({
                     : NaN;
                 const slotTotal =
                   slot && slot.isAvailable ? slotDisplayTotalPrice(unit, product, durationMinutes) : NaN;
-                const peerUnits = peerUnitsForColumn(schedule, k, adjustSlotUnitPrice);
-                const rounded = peerUnits.map((n) => Math.round(n * 100) / 100);
-                const distinct = new Set(rounded);
-                const showPeerTiers = distinct.size >= 2;
                 const tier =
                   slot?.isAvailable && showPeerTiers
-                    ? slotPriceTierRelativeToPeers(peerUnits, unit)
+                    ? slotPriceTierRelativeToPeers(peerUnitsRawForRow, slot.price)
                     : "standard";
 
                 return (
@@ -148,23 +232,37 @@ export function ScheduleMatrix({
                     {slot ? (
                       <button
                         type="button"
-                        disabled={!slot.isAvailable}
-                        onClick={() => slot.isAvailable && onToggleSlot(row.resource.id, row.resource.name, slot)}
-                        title={slotTitle(slot)}
+                        disabled={!slot.isAvailable || inCart}
+                        onClick={() =>
+                          slot.isAvailable && !inCart && onToggleSlot(row.resource.id, row.resource.name, slot)
+                        }
+                        title={inCart ? "Already in your cart" : slotTitle(slot)}
                         className={`cb-matrix-slot flex min-h-[4.5rem] w-full min-w-[5rem] flex-col items-center justify-center gap-0.5 rounded-lg border px-1.5 py-2 text-center transition-colors sm:min-w-[6rem] sm:px-2 sm:py-2.5 ${
                           !slot.isAvailable
                             ? "cb-matrix-slot--unavailable cursor-not-allowed opacity-50"
-                            : `cb-matrix-slot--available ${matrixTierClassName(tier)}${picked ? " cb-matrix-slot--picked" : ""}`
+                            : inCart
+                              ? "cb-matrix-slot--incart cursor-not-allowed opacity-60"
+                              : `cb-matrix-slot--available ${matrixTierClassName(tier)}${picked ? " cb-matrix-slot--picked" : ""}`
                         }`}
                       >
                         <span className="cb-matrix-slot-time text-[0.7rem] font-bold leading-tight text-[var(--cb-text)] sm:text-xs">
                           {formatTime12hFromKey(k)}
                         </span>
-                        {slot.isAvailable && priceCurrency ? (
-                          <span className="cb-matrix-slot-price text-sm font-bold leading-none text-[var(--cb-primary)] sm:text-base">
-                            {formatSlotPriceDisplay(slotTotal, priceCurrency, { membershipGated })}
+                        {inCart ? (
+                          <span className="cb-matrix-slot-incart mt-0.5 text-[0.55rem] font-bold uppercase tracking-wide text-[var(--cb-text-muted)]">
+                            In cart
                           </span>
-                        ) : slot.isAvailable ? (
+                        ) : null}
+                        {slot.isAvailable && priceCurrency && !inCart ? (
+                          <span className="cb-matrix-slot-price text-sm font-bold leading-none text-[var(--cb-primary)] sm:text-base">
+                            <SlotMemberPriceLabel
+                              amount={slotTotal}
+                              currency={priceCurrency}
+                              membershipGated={membershipGated}
+                              membershipGateNames={membershipGateNames}
+                            />
+                          </span>
+                        ) : slot.isAvailable && !inCart ? (
                           <span className="text-sm font-semibold">{String(slot.price)}</span>
                         ) : (
                           <span className="text-[0.7rem] text-[var(--cb-text-faint)]">—</span>
@@ -186,7 +284,8 @@ export function ScheduleMatrix({
                 );
               })}
             </tr>
-          ))}
+            );
+          })}
         </tbody>
       </table>
     </div>

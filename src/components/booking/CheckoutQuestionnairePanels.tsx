@@ -95,7 +95,8 @@ export function CheckoutQuestionnairePanels({
   profileWaiverDisplay,
 }: Props) {
   const [expandedQid, setExpandedQid] = useState<number | null>(null);
-  const didInit = useRef(false);
+  /** One-time expansion sync after parent prefill fills `answers` (init ran too early when answers were {}). */
+  const expansionInitedRef = useRef(false);
 
   const completedCount = useMemo(
     () =>
@@ -106,13 +107,19 @@ export function CheckoutQuestionnairePanels({
   const totalForms = mergedForms.length;
 
   useEffect(() => {
+    if (loading) expansionInitedRef.current = false;
+  }, [loading]);
+
+  useEffect(() => {
     if (loading || mergedForms.length === 0) return;
-    if (didInit.current) return;
-    didInit.current = true;
+    if (expansionInitedRef.current) return;
+    const anyMandatory = mergedForms.some((f) => f.questions.some((q) => q.mandatory));
+    if (anyMandatory && Object.keys(answers).length === 0) return;
+    expansionInitedRef.current = true;
     const firstIncomplete = mergedForms.find(
       (f) => !isFormQuestionsSatisfied(f.questions, answers, f.qid)
     );
-    setExpandedQid(firstIncomplete?.qid ?? mergedForms[0]!.qid);
+    setExpandedQid(firstIncomplete?.qid ?? null);
   }, [loading, mergedForms, answers]);
 
   /**

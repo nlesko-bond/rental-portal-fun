@@ -1,0 +1,346 @@
+{
+  "CreateBookingDto": {
+    "type": "object",
+    "required": [
+      "userId",
+      "segments"
+    ],
+    "properties": {
+      "name": {
+        "type": "string",
+        "description": "booking name"
+      },
+      "userId": {
+        "type": "integer",
+        "description": "booking owner user ID",
+        "minimum": 1
+      },
+      "segments": {
+        "type": "array",
+        "description": "segments",
+        "items": {
+          "$ref": "#/components/schemas/CreateBookingSegmentDto"
+        },
+        "minItems": 1
+      },
+      "addons": {
+        "type": "array",
+        "description": "reservation addons",
+        "items": {
+          "$ref": "#/components/schemas/CreateBookingAddonDto"
+        },
+        "minItems": 1
+      },
+      "cartId": {
+        "type": "integer",
+        "description": "cart ID",
+        "minimum": 1
+      },
+      "answers": {
+        "type": "array",
+        "description": "user answers",
+        "items": {
+          "$ref": "#/components/schemas/UserAnswersDto"
+        },
+        "minItems": 1
+      },
+      "requiredProducts": {
+        "type": "array",
+        "description": "required products",
+        "items": {
+          "$ref": "#/components/schemas/AddCartItemDto"
+        },
+        "minItems": 1
+      }
+    }
+  },
+  "CreateBookingSegmentDto": {
+    "type": "object",
+    "required": [
+      "spaceId",
+      "activity",
+      "facilityId",
+      "productId",
+      "slots"
+    ],
+    "properties": {
+      "name": {
+        "type": "string",
+        "description": "segment name"
+      },
+      "spaceId": {
+        "type": "integer",
+        "description": "space ID",
+        "minimum": 1
+      },
+      "activity": {
+        "type": "string",
+        "description": "activity",
+        "enum": [
+          "Tennis",
+          "Pickleball",
+          "Badminton",
+          "Table Tennis",
+          "Squash",
+          "Racquetball",
+          "Padel",
+          "Basketball",
+          "Volleyball",
+          "Soccer",
+          "Baseball",
+          "Softball",
+          "Football",
+          "Lacrosse",
+          "Field Hockey",
+          "Ice Hockey",
+          "Cricket",
+          "Rugby",
+          "Swimming",
+          "Gymnastics",
+          "Wrestling",
+          "Boxing",
+          "Martial Arts",
+          "Track and Field",
+          "Cross Country",
+          "Golf",
+          "Bowling",
+          "Fencing",
+          "Rowing",
+          "Sailing",
+          "Surfing",
+          "Skateboarding",
+          "Climbing",
+          "Cycling",
+          "Triathlon",
+          "Fitness",
+          "Yoga",
+          "Dance",
+          "Cheerleading",
+          "Esports",
+          "Other"
+        ]
+      },
+      "instructorId": {
+        "type": "integer",
+        "description": "instructor ID",
+        "minimum": 1
+      },
+      "facilityId": {
+        "type": "integer",
+        "description": "facility ID",
+        "minimum": 1
+      },
+      "productId": {
+        "type": "integer",
+        "description": "product ID",
+        "minimum": 1
+      },
+      "slots": {
+        "type": "array",
+        "description": "slots to book",
+        "items": {
+          "$ref": "#/components/schemas/CreateBookingTimeSlotDto"
+        },
+        "minItems": 1
+      },
+      "addons": {
+        "type": "array",
+        "description": "segment addons",
+        "items": {
+          "$ref": "#/components/schemas/CreateBookingAddonDto"
+        },
+        "minItems": 1
+      }
+    }
+  },
+  "CreateBookingTimeSlotDto": {
+    "type": "object",
+    "required": [
+      "startDate",
+      "startTime",
+      "endDate",
+      "endTime"
+    ],
+    "properties": {
+      "startDate": {
+        "type": "string",
+        "format": "date",
+        "description": "start date",
+        "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+      },
+      "startTime": {
+        "type": "string",
+        "description": "start time",
+        "pattern": "^\\d{2}:\\d{2}$"
+      },
+      "endDate": {
+        "type": "string",
+        "format": "date",
+        "description": "end date",
+        "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+      },
+      "endTime": {
+        "type": "string",
+        "description": "end time",
+        "pattern": "^\\d{2}:\\d{2}$"
+      }
+    }
+  },
+  "CreateBookingAddonDto": {
+    "type": "object",
+    "required": [
+      "productId",
+      "quantity"
+    ],
+    "properties": {
+      "productId": {
+        "type": "integer",
+        "description": "addon's product ID",
+        "minimum": 1
+      },
+      "quantity": {
+        "type": "number",
+        "description": "addon quantity"
+      }
+    }
+  },
+  "UserAnswersDto": {
+    "type": "object",
+    "required": [
+      "userId",
+      "answers"
+    ],
+    "properties": {
+      "userId": {
+        "type": "integer"
+      },
+      "answers": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/QuestionAnswersDto"
+        }
+      }
+    }
+  },
+  "QuestionAnswersDto": {
+    "type": "object",
+    "required": [
+      "questionId",
+      "value"
+    ],
+    "properties": {
+      "questionId": {
+        "type": "integer"
+      },
+      "value": {}
+    }
+  },
+  "AddCartItemDto": {
+    "type": "object",
+    "required": [
+      "productId"
+    ],
+    "properties": {
+      "productId": {
+        "type": "integer",
+        "description": "The product ID of the cart item."
+      },
+      "unitPrice": {
+        "type": "number",
+        "description": "The unit price of the cart item."
+      },
+      "parentResourceType": {
+        "type": "string",
+        "description": "The parent resource type of the cart item.",
+        "enum": [
+          "reservation",
+          "product",
+          "space",
+          "user",
+          "facility",
+          "event",
+          "slot",
+          "segment",
+          "series"
+        ]
+      },
+      "parentResourceId": {
+        "type": "string",
+        "description": "The parent resource ID of the cart item."
+      },
+      "quantity": {
+        "type": "number",
+        "default": 1
+      },
+      "userId": {
+        "type": "integer"
+      },
+      "resources": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/PurchaseResourceDto"
+        }
+      },
+      "children": {
+        "type": "array",
+        "items": {
+          "$ref": "#/components/schemas/AddCartItemDto"
+        }
+      }
+    }
+  },
+  "PurchaseResourceDto": {
+    "type": "object",
+    "required": [
+      "type"
+    ],
+    "properties": {
+      "id": {
+        "type": "integer",
+        "description": "deprecated, use includedIds instead"
+      },
+      "type": {
+        "type": "string",
+        "description": "Purchased resource type",
+        "enum": [
+          "reservation",
+          "product",
+          "space",
+          "user",
+          "facility",
+          "event",
+          "slot",
+          "segment",
+          "series"
+        ]
+      },
+      "startDate": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "resourceIdToRenew": {
+        "type": "integer"
+      },
+      "isAll": {
+        "type": "boolean",
+        "description": "A flag representing if all resources should be selected"
+      },
+      "includedIds": {
+        "type": "array",
+        "description": "IDs of resources selected",
+        "items": {
+          "type": "integer"
+        },
+        "minItems": 1
+      },
+      "excludedIds": {
+        "type": "array",
+        "description": "IDs of resources to exclude from payment",
+        "items": {
+          "type": "integer"
+        },
+        "minItems": 1
+      }
+    }
+  }
+}

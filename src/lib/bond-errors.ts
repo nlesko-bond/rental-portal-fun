@@ -29,7 +29,44 @@ export type ConsumerBookingErrorContext = {
   customerLabel?: string;
   /** Organization / venue display name from the portal. */
   orgName?: string;
+  /** Product / service display name (replaces numeric ids in pricing errors). */
+  productName?: string;
+  /** `POST …/online-booking/create` includes `cartId` — Bond may price slots differently than GET schedule. */
+  mergingIntoExistingCart?: boolean;
 };
+
+/**
+ * Bond sometimes returns messages like `Illegal price: $100 for user '213759' of product '89453'`.
+ * The dollar amount is **Bond’s expected unit price** for that slot in context — not necessarily what the
+ * schedule grid showed. **GET …/schedule** has no `cartId`; **create** with `cartId` can apply tiered or
+ * cart-level rules, so declared `price` on each segment must match Bond’s engine, not only the matrix cell.
+ * Never surface raw ids — use guest + product labels from context.
+ */
+export function formatIllegalPriceMessage(message: string, context?: ConsumerBookingErrorContext): string | null {
+  const t = message.trim();
+  if (!t) return null;
+  if (!/illegal\s+price/i.test(t)) return null;
+  const who = context?.customerLabel?.trim() || "this guest";
+  const prod = context?.productName?.trim() || "this service";
+  const base = `Price issue with ${who} on ${prod}. Try different times or add-ons, or contact the venue if this keeps happening.`;
+  if (context?.mergingIntoExistingCart) {
+    return `${base} Adding to an existing cart can use different unit prices than the schedule; try finishing this booking first or starting a new cart.`;
+  }
+  return base;
+}
+
+/** Map unknown errors (e.g. query failures) to the same friendly copy as {@link formatConsumerBookingError}. */
+export function formatConsumerBookingErrorUnknown(err: unknown, context?: ConsumerBookingErrorContext): string {
+  if (err instanceof BondBffError) return formatConsumerBookingError(err, context);
+  if (err instanceof Error) {
+    const fromMsg = formatIllegalPriceMessage(err.message, context);
+    if (fromMsg) return fromMsg;
+    const m = err.message.trim();
+    if (m.length > 0 && m.length <= 220) return m;
+    if (m.length > 220) return `${m.slice(0, 217)}…`;
+  }
+  return "Something went wrong. Please try again.";
+}
 
 /**
  * Short, non-technical copy for checkout / booking flows (hides internal codes).
@@ -39,9 +76,17 @@ export function formatConsumerBookingError(
   err: BondBffError,
   context?: ConsumerBookingErrorContext
 ): string {
+  if (err.status === 401 || err.status === 403) {
+    return "Something went wrong. Please try again.";
+  }
   const body = asBondApiErrorBody(err.body);
   const code = body?.code;
   const rawMsg = typeof body?.message === "string" ? body.message : "";
+
+  const illegalFromBody = formatIllegalPriceMessage(rawMsg, context);
+  if (illegalFromBody) return illegalFromBody;
+  const illegalFromErr = formatIllegalPriceMessage(err.message ?? "", context);
+  if (illegalFromErr) return illegalFromErr;
 
   if (code === "ONLINE_BOOKING.INVALID_PRODUCT") {
     const reservedEligibility =

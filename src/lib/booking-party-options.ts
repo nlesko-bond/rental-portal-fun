@@ -6,13 +6,16 @@ export type BookingPartyMember = {
   isSelf?: boolean;
   /** e.g. Parent (You), Child — from Bond `family` payload when present */
   relationship?: string;
-  /** Short label for badge chip (Gold, Pass, …) */
+  /** Short label for badge chip (Gold, Pass, …) — account-level; not the same as this product’s membership gate */
   badgeLabel?: string;
   /**
-   * When true, required-products API still lists a membership for the current rental product
-   * (informational — selection is not blocked).
+   * Product lists a membership requirement and GET …/required says this person must still purchase one.
    */
-  needsMembershipHint?: boolean;
+  needsMembershipForProduct?: boolean;
+  /**
+   * Product lists a membership requirement and this person already satisfies it (member rate / access for **this** rental).
+   */
+  hasQualifyingMembershipForProduct?: boolean;
 };
 
 function personLabel(u: Record<string, unknown>): string {

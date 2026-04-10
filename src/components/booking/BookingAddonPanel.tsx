@@ -1,5 +1,6 @@
 "use client";
 
+import { getEffectiveAddonSlotKeys } from "@/lib/addon-slot-targeting";
 import type { PackageAddonLine } from "@/lib/product-package-addons";
 import {
   addonLevelLabel,
@@ -11,6 +12,8 @@ import type { PickedSlot } from "@/lib/slot-selection";
 import { formatPickedSlotTimeRange } from "./booking-slot-labels";
 
 export type AddonSlotTargeting = Record<number, { all: boolean; keys: string[] }>;
+
+export { getEffectiveAddonSlotKeys };
 
 type Props = {
   visibleAddons: PackageAddonLine[];
@@ -31,15 +34,6 @@ function levelTagClass(level: PackageAddonLine["level"]): string {
   if (level === "reservation") return "cb-addon-level-tag cb-addon-level-tag--reservation";
   if (level === "slot") return "cb-addon-level-tag cb-addon-level-tag--slot";
   return "cb-addon-level-tag cb-addon-level-tag--hour";
-}
-
-export function getEffectiveAddonSlotKeys(
-  spec: { all: boolean; keys: string[] } | undefined,
-  allSlotKeys: ReadonlySet<string>
-): Set<string> {
-  if (!spec) return new Set();
-  if (spec.all) return new Set(allSlotKeys);
-  return new Set(spec.keys.filter((k) => allSlotKeys.has(k)));
 }
 
 export function BookingAddonPanel({
@@ -139,28 +133,44 @@ export function BookingAddonPanel({
 
   const showReservationBlock = visReservation.length > 0;
   const showSlotBlock = visSlotHour.length > 0 && pickedSlots.length > 0;
+  const mixedAddonLayout = showReservationBlock && showSlotBlock;
 
   if (!showReservationBlock && !showSlotBlock) return null;
 
+  const reservationBlock = showReservationBlock ? (
+    <div className="cb-addon-subsection">
+      <h4 className="cb-addon-subsection-title">With your reservation</h4>
+      <div className="cb-addon-grid">{visReservation.map(renderCard)}</div>
+    </div>
+  ) : null;
+
+  const slotBlock = showSlotBlock ? (
+    <div className="cb-addon-subsection">
+      <h4 className="cb-addon-subsection-title">For your selected times</h4>
+      <div className="cb-addon-grid">{visSlotHour.map(renderCard)}</div>
+    </div>
+  ) : null;
+
   return (
-    <section className="cb-addon-panel text-left" aria-labelledby="addons-heading">
+    <section
+      className={`cb-addon-panel text-left${mixedAddonLayout ? " cb-addon-panel--mixed" : ""}`}
+      aria-labelledby="addons-heading"
+    >
       <h3 id="addons-heading" className="cb-addon-panel-title">
         Enhance your booking with optional add-ons
       </h3>
 
-      {showReservationBlock ? (
-        <div className="cb-addon-subsection">
-          <h4 className="cb-addon-subsection-title">With your reservation</h4>
-          <div className="cb-addon-grid">{visReservation.map(renderCard)}</div>
+      {mixedAddonLayout ? (
+        <div className="cb-addon-panel-columns">
+          {reservationBlock}
+          {slotBlock}
         </div>
-      ) : null}
-
-      {showSlotBlock ? (
-        <div className="cb-addon-subsection">
-          <h4 className="cb-addon-subsection-title">For your selected times</h4>
-          <div className="cb-addon-grid">{visSlotHour.map(renderCard)}</div>
-        </div>
-      ) : null}
+      ) : (
+        <>
+          {reservationBlock}
+          {slotBlock}
+        </>
+      )}
 
       {hasMoreAddons ? (
         <button type="button" className="cb-addon-more" onClick={onToggleExpand}>

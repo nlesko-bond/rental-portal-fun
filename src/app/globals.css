@@ -297,6 +297,24 @@ body {
   background: color-mix(in srgb, var(--cb-bg-surface-muted) 88%, var(--cb-border));
 }
 
+/* Right column: available times — match card outline (split layout). */
+.consumer-booking .cb-schedule-available-times-shell {
+  border-radius: 0.75rem;
+  border: 1px solid var(--cb-border);
+  background: var(--cb-bg-surface);
+  box-shadow: var(--cb-shadow-card);
+  padding: 1rem 1.1rem 1.15rem;
+}
+
+.consumer-booking .cb-schedule-available-times-shell .cb-matrix-wrap--in-shell {
+  margin-top: 0.75rem;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+  padding: 0;
+}
+
 /* lg+: experiment — calendar column + timing column; duration chips wrap (no horizontal scroll) */
 .consumer-booking .cb-schedule-when-wide-grid {
   display: grid;
@@ -328,7 +346,7 @@ body {
   flex: 0 1 auto;
 }
 
-/* Do not set display on .cb-schedule-when-stacked — it breaks Tailwind lg:hidden (lower specificity). */
+/* Do not set display on .cb-schedule-when-stacked — it breaks Tailwind min-[1068px]:hidden (lower specificity). */
 
 .consumer-booking .cb-schedule-inline-cal {
   width: 100%;
@@ -351,9 +369,33 @@ body {
   font-size: 0.8rem;
 }
 
-/* Timeline matrix */
-.consumer-booking .cb-matrix-wrap {
+/* Timeline matrix — horizontal scroll (visible scrollbar; avoid hiding for discoverability) */
+.consumer-booking .cb-matrix-scroll {
+  -webkit-overflow-scrolling: touch;
+  scrollbar-gutter: stable;
   scrollbar-width: thin;
+}
+
+.consumer-booking .cb-matrix-wrap {
+  min-width: 0;
+}
+
+/* Sticky first column (resource names) while scrolling the timeline horizontally */
+.consumer-booking .cb-matrix-table th.cb-matrix-cell--sticky-row,
+.consumer-booking .cb-matrix-table td.cb-matrix-cell--sticky-row {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  box-shadow: 1px 0 0 var(--cb-border);
+}
+
+.consumer-booking .cb-matrix-table thead th.cb-matrix-cell--sticky-row {
+  z-index: 3;
+  background: var(--cb-bg-table-head);
+}
+
+.consumer-booking .cb-matrix-table tbody td.cb-matrix-cell--sticky-row {
+  background: var(--cb-bg-surface);
 }
 
 .consumer-booking .cb-matrix-slot {
@@ -2491,6 +2533,29 @@ body {
   gap: 0.85rem;
 }
 
+.consumer-booking .cb-addon-panel-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+@media (min-width: 640px) {
+  .consumer-booking .cb-addon-panel-columns {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.consumer-booking .cb-addon-panel--mixed .cb-addon-grid {
+  flex-direction: column;
+  flex-wrap: nowrap;
+}
+
+.consumer-booking .cb-addon-panel--mixed .cb-addon-card-wrap {
+  max-width: none;
+  flex: 1 1 auto;
+}
+
 .consumer-booking .cb-addon-card-wrap {
   display: flex;
   max-width: 18rem;
@@ -2747,8 +2812,8 @@ body {
   justify-content: center;
   border-radius: 9999px;
   border: none;
-  background: var(--cb-accent);
-  color: var(--cb-primary);
+  background: var(--cb-primary);
+  color: var(--cb-text-on-primary);
   box-shadow: 0 10px 24px color-mix(in srgb, #000 22%, transparent);
 }
 
@@ -2766,11 +2831,11 @@ body {
   min-width: 1.2rem;
   padding: 0.1rem 0.32rem;
   border-radius: 9999px;
-  background: var(--cb-primary);
+  background: var(--cb-accent);
   font-size: 0.65rem;
   font-weight: 800;
   line-height: 1.15;
-  color: var(--cb-text-on-primary);
+  color: var(--cb-primary);
   box-shadow: 0 2px 8px color-mix(in srgb, #000 28%, transparent);
 }
 
@@ -3273,6 +3338,24 @@ body {
   color: var(--cb-primary);
 }
 
+.consumer-booking .cb-booking-for-tag--member-access {
+  border: 1px solid color-mix(in srgb, #15803d 40%, var(--cb-border));
+  background: color-mix(in srgb, #15803d 10%, var(--cb-bg-surface));
+  color: #15803d;
+}
+
+.consumer-booking .cb-cart-line-member-badge {
+  border-radius: 9999px;
+  padding: 0.12rem 0.45rem;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  border: 1px solid color-mix(in srgb, #15803d 40%, var(--cb-border));
+  background: color-mix(in srgb, #15803d 10%, var(--cb-bg-surface));
+  color: #15803d;
+}
+
 .consumer-booking .cb-booking-for-rel {
   font-size: 0.75rem;
   color: var(--cb-text-muted);
@@ -3448,9 +3531,11 @@ body {
   font-size: 0.9rem;
 }
 
+/* Unscoped fallback: drawers may portal outside `.consumer-booking`; tokens use fallbacks where needed. */
+.cb-checkout-price-strike,
 .consumer-booking .cb-checkout-price-strike {
   text-decoration: line-through;
-  color: var(--cb-text-muted);
+  color: var(--cb-text-muted, #606e7f);
   font-weight: 500;
   margin-right: 0.35rem;
 }
@@ -4554,7 +4639,7 @@ body {
 
 .consumer-booking .cb-checkout-bond-receipt {
   width: 100%;
-  max-width: 22rem;
+  max-width: none;
   margin: 0 0 1.25rem;
   text-align: left;
   border-radius: 0.65rem;
@@ -4585,11 +4670,31 @@ body {
 
 .consumer-booking .cb-checkout-bond-receipt-line {
   display: flex;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 1rem;
   padding: 0.35rem 0;
   font-size: 0.95rem;
   color: var(--cb-text);
+}
+
+.consumer-booking .cb-checkout-bond-receipt-line-text {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.consumer-booking .cb-checkout-bond-receipt-line-label {
+  font-weight: 600;
+}
+
+.consumer-booking .cb-checkout-bond-receipt-line-detail {
+  font-size: 0.72rem;
+  font-weight: 500;
+  line-height: 1.35;
+  color: var(--cb-text-muted);
 }
 
 .consumer-booking .cb-checkout-bond-receipt-line--discount span:last-child {
@@ -4609,7 +4714,7 @@ body {
   font-size: 1.05rem;
 }
 
-/* Bond preview receipt (confirm step): item grid + totals */
+/* Bond preview receipt (confirm step): stacked line rows + totals */
 .consumer-booking .cb-checkout-receipt-sheet {
   width: 100%;
   margin-bottom: 0.25rem;
@@ -4624,40 +4729,42 @@ body {
   color: var(--cb-text-muted);
 }
 
-.consumer-booking .cb-checkout-receipt-grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 0.65rem;
-  margin-bottom: 1rem;
-}
-
-@media (min-width: 480px) {
-  .consumer-booking .cb-checkout-receipt-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-.consumer-booking .cb-checkout-receipt-box {
+.consumer-booking .cb-checkout-receipt-line-list {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
   border-radius: 0.5rem;
   border: 1px solid var(--cb-border);
   background: var(--cb-bg-surface);
-  padding: 0.75rem 0.9rem;
-  box-shadow: 0 1px 2px color-mix(in srgb, var(--cb-text) 5%, transparent);
+  overflow: hidden;
 }
 
-.consumer-booking .cb-checkout-receipt-box-head {
+.consumer-booking .cb-checkout-receipt-line-item {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 0.5rem;
-  margin-bottom: 0.35rem;
+  gap: 0.75rem;
+  padding: 0.65rem 0.9rem;
+  border-bottom: 1px solid var(--cb-border);
 }
 
-.consumer-booking .cb-checkout-receipt-box-title {
+.consumer-booking .cb-checkout-receipt-line-item:last-child {
+  border-bottom: none;
+}
+
+.consumer-booking .cb-checkout-receipt-line-item-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.5rem;
+  min-width: 0;
+}
+
+.consumer-booking .cb-checkout-receipt-line-title {
   font-weight: 600;
   font-size: 0.95rem;
   color: var(--cb-text);
-  line-height: 1.3;
+  line-height: 1.35;
 }
 
 .consumer-booking .cb-checkout-receipt-box-badge {
@@ -4672,9 +4779,30 @@ body {
   border-radius: 0.25rem;
 }
 
-.consumer-booking .cb-checkout-receipt-box-price {
+/* Also unscoped: checkout panels may portal outside `.consumer-booking` (tokens live there); fallbacks match default DS. */
+.cb-checkout-discount-tag,
+.consumer-booking .cb-checkout-discount-tag {
+  display: inline-block;
+  align-self: flex-start;
+  margin-top: 0.35rem;
+  max-width: 100%;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  line-height: 1.3;
+  color: var(--cb-accent, #f7b500);
+  background: color-mix(in srgb, var(--cb-accent, #f7b500) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--cb-accent, #f7b500) 38%, transparent);
+  padding: 0.15rem 0.45rem;
+  border-radius: 0.25rem;
+}
+
+.consumer-booking .cb-checkout-receipt-line-item-price {
+  flex-shrink: 0;
   font-size: 1rem;
   text-align: right;
+  white-space: nowrap;
 }
 
 .consumer-booking .cb-checkout-receipt-totals {

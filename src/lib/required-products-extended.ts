@@ -97,6 +97,41 @@ export function primaryListPrice(node: ExtendedRequiredProductNode): { amount: n
   return { amount, currency, label: name };
 }
 
+/** List/catalog unit price for a product id in the extended required tree (includes `required: false` satisfied rows). */
+export function unitPriceForRequiredProductInTree(
+  nodes: ExtendedRequiredProductNode[],
+  productId: number
+): number | undefined {
+  function walk(n: ExtendedRequiredProductNode): number | undefined {
+    if (n.id === productId) {
+      const p = primaryListPrice(n);
+      return p?.amount;
+    }
+    for (const c of n.requiredProducts ?? []) {
+      const v = walk(c);
+      if (v !== undefined) return v;
+    }
+    return undefined;
+  }
+  for (const n of nodes) {
+    const v = walk(n);
+    if (v !== undefined) return v;
+  }
+  return undefined;
+}
+
+/** IDs Bond marks as already satisfied (`required: false`), including nested nodes. */
+export function collectSatisfiedRequiredProductIds(nodes: ExtendedRequiredProductNode[]): Set<number> {
+  const out = new Set<number>();
+  function walk(n: ExtendedRequiredProductNode) {
+    if (n.required === false) out.add(n.id);
+    const nested = n.requiredProducts;
+    if (Array.isArray(nested)) for (const c of nested) walk(c);
+  }
+  for (const n of nodes) walk(n);
+  return out;
+}
+
 export function sumNodeTotalUsd(node: ExtendedRequiredProductNode): number {
   let sum = 0;
   const p = primaryListPrice(node);

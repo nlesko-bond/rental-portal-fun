@@ -9,11 +9,47 @@ export type PickedSlot = {
   endDate: string;
   startTime: string;
   endTime: string;
+  /** Display / UI unit price (may include entitlement discounts — can be $0 for members). */
   price: number;
+  /**
+   * Schedule line unit price from the booking API **before** client-side entitlement adjustment.
+   * Bond `POST …/online-booking/create` must receive this; sending $0 from member discounts triggers errors.
+   */
+  scheduleUnitPrice?: number;
   /** Bond `POST .../online-booking/create` segment `spaceId` — prefer `spacesIds[0]` from schedule */
   spaceId: number;
   timezone: string;
 };
+
+/**
+ * Unit price Bond expects on each slot in `POST …/online-booking/create`.
+ * Prefer positive {@link PickedSlot.scheduleUnitPrice} / {@link PickedSlot.price}.
+ * When GET schedule returns **0** for a member-eligible user, Bond still expects the **cash** unit here —
+ * pass {@link fallbackCatalogUnitPrice} (e.g. catalog minimum) so we never send `price: 0` unless Bond truly allows free booking.
+ */
+export function slotPriceForBondApi(s: PickedSlot, fallbackCatalogUnitPrice?: number | null): number {
+  const fb =
+    typeof fallbackCatalogUnitPrice === "number" &&
+    Number.isFinite(fallbackCatalogUnitPrice) &&
+    fallbackCatalogUnitPrice > 0
+      ? fallbackCatalogUnitPrice
+      : null;
+
+  if (typeof s.scheduleUnitPrice === "number" && Number.isFinite(s.scheduleUnitPrice) && s.scheduleUnitPrice > 0) {
+    return s.scheduleUnitPrice;
+  }
+  if (typeof s.price === "number" && Number.isFinite(s.price) && s.price > 0) {
+    return s.price;
+  }
+  if (fb != null) return fb;
+  if (typeof s.scheduleUnitPrice === "number" && Number.isFinite(s.scheduleUnitPrice)) {
+    return s.scheduleUnitPrice;
+  }
+  if (typeof s.price === "number" && Number.isFinite(s.price)) {
+    return s.price;
+  }
+  return 0;
+}
 
 export function slotControlKey(resourceId: number, s: ScheduleTimeSlotDto): string {
   return `${resourceId}-${s.startDate}-${s.startTime}-${s.endTime}`;

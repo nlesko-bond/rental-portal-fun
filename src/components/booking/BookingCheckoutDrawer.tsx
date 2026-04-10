@@ -4,8 +4,7 @@ import { useMutation, useQueries, useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ModalShell } from "@/components/booking/ModalShell";
 import { RightDrawer } from "@/components/ui/RightDrawer";
-import { formatConsumerBookingError } from "@/lib/bond-errors";
-import { BondBffError } from "@/lib/bond-json";
+import { formatConsumerBookingErrorUnknown } from "@/lib/bond-errors";
 import {
   fetchCheckoutQuestionnaires,
   fetchPublicQuestionnaireById,
@@ -27,14 +26,23 @@ import {
 import { MembershipRequiredPanel } from "@/components/booking/MembershipRequiredModal";
 import {
   collectProductAndNestedIds,
+  collectSatisfiedRequiredProductIds,
+  isMembershipRequiredProduct,
   parseExtendedRequiredProductsList,
   partitionMembershipVsOtherRequired,
   primaryListPrice,
+  unitPriceForRequiredProductInTree,
   type ExtendedRequiredProductNode,
 } from "@/lib/required-products-extended";
 import { parseRequiredProductsResponse, type RequiredProductRow } from "@/lib/required-products-parse";
+import { getEffectiveAddonSlotKeys } from "@/lib/addon-slot-targeting";
 import { formatPickedSlotTimeRange } from "./booking-slot-labels";
-import { BookingAddonPanel, getEffectiveAddonSlotKeys, type AddonSlotTargeting } from "./BookingAddonPanel";
+import {
+  groupContiguousPickedSlotsForConfirm,
+  spanLabelForSlotGroup,
+} from "@/lib/booking-slot-group-display";
+import { formatScheduleSummaryForBooking } from "@/lib/session-booking-display-lines";
+import { BookingAddonPanel, type AddonSlotTargeting } from "./BookingAddonPanel";
 import { CheckoutQuestionnairePanels } from "./CheckoutQuestionnairePanels";
 import type { ExtendedProductDto, OrganizationCartDto } from "@/types/online-booking";
 import type { PackageAddonLine } from "@/lib/product-package-addons";
@@ -49,14 +57,92 @@ import {
   getBondCartPrimaryLineStrike,
   getBondCartPricingDisplayRows,
   getBondCartReceiptLineItems,
+  sumBondCartLineKindsFromCart,
 } from "@/lib/checkout-bag-totals";
-import { reverseEntitlementDiscountsToUnitPrice } from "@/lib/entitlement-discount";
+import {
+  describeEntitlementsForDisplay,
+  reverseEntitlementDiscountsToUnitPrice,
+} from "@/lib/entitlement-discount";
 import type { SessionCartSnapshot } from "@/lib/session-cart-snapshot";
-import { countSessionCartLineItems, expandSnapshotForPurchaseList } from "@/lib/cart-purchase-lines";
+import {
+  bagApprovalPolicy,
+  countSessionCartLineItems,
+  expandSnapshotForPurchaseList,
+} from "@/lib/cart-purchase-lines";
 
-export type CheckoutStep = "addons" | "membership" | "forms" | "confirm" | "cart" | "payment";
+/** Until Bond exposes saved instruments, user confirms a card on file so checkout can enforce payment. */
+const BOND_PLACEHOLDER_PAYMENT_ID = "bond-payment-on-file";
+
+function membershipRequiredFromExtendedTree(
+  productId: number,
+  extended: ExtendedRequiredProductNode[]
+): boolean {
+  function walk(nodes: ExtendedRequiredProductNode[]): ExtendedRequiredProductNode | undefined {
+    for (const n of nodes) {
+      if (n.id === productId) return n;
+      if (n.requiredProducts?.length) {
+        const x = walk(n.requiredProducts);
+        if (x) return x;
+      }
+    }
+  }
+  const node = walk(extended);
+  return node != null && isMembershipRequiredProduct(node);
+}
+
+/** True when this required line is submitted for venue approval vs. paid at checkout (memberships = false). */
+function snapshotRowExpectsVenueApproval(
+  r: RequiredProductRow,
+  extended: ExtendedRequiredProductNode[]
+): boolean {
+  if (membershipRequiredFromExtendedTree(r.id, extended)) return false;
+  if (extended.length === 0) {
+    const t = r.productType?.toLowerCase() ?? "";
+    if (t.includes("member") || t.includes("subscription")) return false;
+  }
+  return true;
+}
+
+function groupHeadingForBooking(label: string, sectionIndex: number, sectionCount: number): string {
+  const t = label.trim();
+  const base = t.length === 0 || t === "Booking" ? "Booking" : `Booking for ${t}`;
+  if (sectionCount <= 1) return base;
+  return `${sectionIndex + 1}. ${base}`;
+}
+
+export type CheckoutStep = "addons" | "membership" | "forms" | "confirm" | "payment";
+
+type FlowFlags = { hasAddonsStep: boolean; hasMembershipStep: boolean; hasFormsStep: boolean };
+
+function previousStepInCheckoutFlow(step: CheckoutStep, flow: FlowFlags): CheckoutStep | "close" {
+  if (step === "payment") return "confirm";
+  if (step === "confirm") {
+    if (flow.hasFormsStep) return "forms";
+    if (flow.hasMembershipStep) return "membership";
+    if (flow.hasAddonsStep) return "addons";
+    return "close";
+  }
+  if (step === "forms") {
+    if (flow.hasMembershipStep) return "membership";
+    if (flow.hasAddonsStep) return "addons";
+    return "close";
+  }
+  if (step === "membership") {
+    if (flow.hasAddonsStep) return "addons";
+    return "close";
+  }
+  if (step === "addons") return "close";
+  return "close";
+}
 
 const ADDONS_PAGE = 10;
+
+/** Bond kind breakdown row — hide line items at or below this (display cents). */
+const BOND_KIND_LINE_MIN = 0.005;
+
+function addonCurrencyMatchesProduct(addonCurrency: string, productCurrency: string): boolean {
+  return addonCurrency.trim().toUpperCase() === productCurrency.trim().toUpperCase();
+}
 
 type Props = {
   open: boolean;
@@ -75,8 +161,6 @@ type Props = {
   selectedAddonIds: ReadonlySet<number>;
   questionnaireIds: number[];
   onSuccess: (cart: OrganizationCartDto) => void;
-  /** After cart is created, user can add another booking (clears slot selection in parent). */
-  onAddAnotherBooking?: () => void;
   onSubmittingChange?: (pending: boolean) => void;
   /** Optional add-ons from product.packages */
   packageAddons: PackageAddonLine[];
@@ -112,6 +196,26 @@ type Props = {
   orgDisplayName?: string;
   /** Opens family picker so the user can switch who the booking is for (re-fetches required products). */
   onBookingForClick?: () => void;
+  /** When set, `POST …/create` includes `cartId` so Bond appends to an existing cart (e.g. after “Add another booking”). */
+  mergeCartId?: number;
+  /** After a successful add (or approval-only handoff), parent can switch to bag instead of an “Added to cart” step. */
+  onAddedToCart?: () => void;
+  /** From payment, go back to bag (parent sets `mode` to `"bag"`). */
+  onBackFromPayment?: () => void;
+  /** Bag footer: continue to payment inside checkout flow. */
+  onRequestBagCheckout?: () => void;
+  /** When opening checkout at a specific step (e.g. `payment` after bag “Checkout”). Cleared after apply. */
+  navigateToCheckoutStep?: CheckoutStep | null;
+  onClearNavigateToCheckoutStep?: () => void;
+  /**
+   * When true, the booking-for user already satisfies required membership (per GET …/required) — do not force
+   * the membership step or add a membership line for them.
+   */
+  requiredMembershipAlreadySatisfied?: boolean;
+  /** After addons, lock “booking for” so membership/forms aren’t invalidated by switching participants. */
+  onParticipantLockChange?: (locked: boolean) => void;
+  /** Remove optional add-on selections Bond marks as already satisfied (`required: false`). */
+  onPruneSatisfiedAddonProductIds?: (productIds: number[]) => void;
 };
 
 export function BookingCheckoutDrawer({
@@ -144,7 +248,6 @@ export function BookingCheckoutDrawer({
   appearanceClass = "",
   bondProfile,
   primaryAccountUserId,
-  onAddAnotherBooking,
   mode = "checkout",
   bagSnapshots = [],
   onRemoveBagLine,
@@ -152,8 +255,19 @@ export function BookingCheckoutDrawer({
   onCheckoutComplete,
   orgDisplayName,
   onBookingForClick,
+  mergeCartId,
+  onAddedToCart,
+  onBackFromPayment,
+  onRequestBagCheckout,
+  navigateToCheckoutStep,
+  onClearNavigateToCheckoutStep,
+  requiredMembershipAlreadySatisfied = false,
+  onParticipantLockChange,
+  onPruneSatisfiedAddonProductIds,
 }: Props) {
-  const [step, setStep] = useState<CheckoutStep>("addons");
+  const [step, setStep] = useState<CheckoutStep>(() =>
+    packageAddons.length > 0 ? "addons" : "membership"
+  );
   const [requiredSelected, setRequiredSelected] = useState<Set<number>>(new Set());
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [extrasCollapsed, setExtrasCollapsed] = useState(false);
@@ -167,14 +281,30 @@ export function BookingCheckoutDrawer({
   /** Placeholder until Bond exposes saved instruments (e.g. `GET .../user/payment-methods`). */
   const [selectedPaymentMethodId, setSelectedPaymentMethodId] = useState<string | null>(null);
   const drawerWasOpen = useRef(false);
-  const formsPrefillDone = useRef(false);
+  /** After `navigateToCheckoutStep` applies, skip the next full checkout reset (parent clears navigate in the same tick). */
+  const skipNextCheckoutResetRef = useRef(false);
+  /** Synced after `firstCheckoutStep` is computed — open-reset effect reads this so step matches forms/confirm when needed. */
+  const firstCheckoutStepRef = useRef<CheckoutStep>("addons");
+  /** Must not be a hook dependency — unstable parent lambdas retriggered the effect every render and reset step to addons. */
+  const onClearNavigateRef = useRef(onClearNavigateToCheckoutStep);
+  onClearNavigateRef.current = onClearNavigateToCheckoutStep;
 
   const currency = product?.prices[0]?.currency ?? "USD";
 
   useEffect(() => {
     if (!open) return;
     if (mode === "bag") return;
-    setStep("addons");
+    if (navigateToCheckoutStep != null) {
+      setStep(navigateToCheckoutStep);
+      skipNextCheckoutResetRef.current = true;
+      onClearNavigateRef.current?.();
+      return;
+    }
+    if (skipNextCheckoutResetRef.current) {
+      skipNextCheckoutResetRef.current = false;
+      return;
+    }
+    setStep(firstCheckoutStepRef.current);
     setAnswers({});
     setRequiredSelected(new Set());
     setLastCart(null);
@@ -183,8 +313,7 @@ export function BookingCheckoutDrawer({
     setSelectedMembershipRootId(null);
     setMembershipSelectionResolved(false);
     setSelectedPaymentMethodId(null);
-    formsPrefillDone.current = false;
-  }, [open, productId, mode]);
+  }, [open, productId, mode, navigateToCheckoutStep]);
 
   /** Switching “booking for” re-fetches required products; clear membership selection for the new person. */
   const bookingForUserIdRef = useRef(userId);
@@ -208,14 +337,17 @@ export function BookingCheckoutDrawer({
     drawerWasOpen.current = open;
   }, [open, selectedAddonIds, packageAddons]);
 
-  /** Bond only returns memberships the user still needs; if they already qualify, the list is empty (no gate). */
+  /**
+   * `GET …/products/{productId}/required` for the **booking-for** user — Bond omits SKUs they already hold
+   * (e.g. active membership). Gating / entitlements on slots use product + schedule; per-user advance windows
+   * come from category + schedule APIs elsewhere, not re-derived here.
+   */
   const requiredQuery = useQuery({
     queryKey: ["bond", "requiredProducts", orgId, productId, userId],
     queryFn: () => fetchUserRequiredProducts(orgId, productId, userId),
     enabled:
       mode === "checkout" &&
       open &&
-      step !== "cart" &&
       step !== "payment" &&
       (step === "addons" || step === "membership" || step === "forms" || step === "confirm"),
   });
@@ -225,29 +357,101 @@ export function BookingCheckoutDrawer({
     [requiredQuery.data]
   );
 
+  /** GET …/required marks satisfied SKUs `required: false` — we strip them from checkout UI but Bond create still needs them on `requiredProducts` (with `userId`). */
+  const requiredProductLineItemsForBond = useMemo(() => {
+    const satisfied = collectSatisfiedRequiredProductIds(extendedRequiredList);
+    const ids = new Set<number>([...requiredSelected, ...satisfied]);
+    return [...ids].map((productId) => {
+      const unit = unitPriceForRequiredProductInTree(extendedRequiredList, productId);
+      return {
+        productId,
+        ...(unit !== undefined && Number.isFinite(unit) ? { unitPrice: unit } : {}),
+      };
+    });
+  }, [requiredSelected, extendedRequiredList]);
+
+  const requiredIdsForBond = useMemo(
+    () => requiredProductLineItemsForBond.map((x) => x.productId),
+    [requiredProductLineItemsForBond]
+  );
+
   const { membershipOptions, otherRequired } = useMemo(() => {
     if (extendedRequiredList.length > 0) {
-      return partitionMembershipVsOtherRequired(extendedRequiredList);
+      const p = partitionMembershipVsOtherRequired(extendedRequiredList);
+      const keep = (n: ExtendedRequiredProductNode) => n.required !== false;
+      return {
+        membershipOptions: p.membershipOptions.filter(keep),
+        otherRequired: p.otherRequired.filter(keep),
+      };
     }
     const legacy = parseRequiredProductsResponse(requiredQuery.data);
     return {
       membershipOptions: [] as ExtendedRequiredProductNode[],
-      otherRequired: legacy.map(
-        (r) =>
-          ({
-            id: r.id,
-            name: r.name,
-            productType: r.productType,
-          }) as ExtendedRequiredProductNode
-      ),
+      otherRequired: legacy
+        .filter((r) => r.required !== false)
+        .map(
+          (r) =>
+            ({
+              id: r.id,
+              name: r.name,
+              productType: r.productType,
+              required: r.required,
+            }) as ExtendedRequiredProductNode
+        ),
     };
   }, [extendedRequiredList, requiredQuery.data]);
+
+  const hasAddonsStep = packageAddons.length > 0 || otherRequired.length > 0;
+
+  const pruneSatisfiedAddonsRef = useRef(onPruneSatisfiedAddonProductIds);
+  pruneSatisfiedAddonsRef.current = onPruneSatisfiedAddonProductIds;
+
+  /** Bond marks satisfied SKUs with `required: false` — drop them from checkout selections. */
+  useEffect(() => {
+    if (!requiredQuery.isSuccess || requiredQuery.data === undefined) return;
+    const extended = parseExtendedRequiredProductsList(requiredQuery.data);
+    const satisfied = collectSatisfiedRequiredProductIds(extended);
+    if (satisfied.size === 0) return;
+    setRequiredSelected((prev) => {
+      let changed = false;
+      const next = new Set(prev);
+      for (const id of satisfied) {
+        if (next.has(id)) {
+          next.delete(id);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+    pruneSatisfiedAddonsRef.current?.([...satisfied]);
+  }, [requiredQuery.isSuccess, requiredQuery.data]);
+
+  /** Membership SKUs to show in checkout — empty when the participant already holds required membership. */
+  const membershipOptionsForStep = useMemo(
+    () => (requiredMembershipAlreadySatisfied ? [] : membershipOptions),
+    [requiredMembershipAlreadySatisfied, membershipOptions]
+  );
+
+  useEffect(() => {
+    if (requiredMembershipAlreadySatisfied) {
+      setMembershipSelectionResolved(true);
+    }
+  }, [requiredMembershipAlreadySatisfied]);
+
+  /** If eligibility flips while on the membership step, advance — options list is empty. */
+  useEffect(() => {
+    if (!open || mode !== "checkout") return;
+    if (!requiredMembershipAlreadySatisfied) return;
+    if (step !== "membership") return;
+    setStep(questionnaireIds.length > 0 ? "forms" : "confirm");
+  }, [open, mode, requiredMembershipAlreadySatisfied, step, questionnaireIds.length]);
 
   /** Flat list for confirm-step labels (includes nested required product ids + catalog prices when Bond sends them). */
   const allRequiredFlat: RequiredProductRow[] = useMemo(() => {
     const out: RequiredProductRow[] = [];
     function walk(nodes: ExtendedRequiredProductNode[]) {
       for (const n of nodes) {
+        if (n.required === false) continue;
         const pl = primaryListPrice(n);
         out.push({
           id: n.id,
@@ -262,15 +466,15 @@ export function BookingCheckoutDrawer({
     }
     walk(extendedRequiredList);
     if (out.length > 0) return out;
-    return parseRequiredProductsResponse(requiredQuery.data);
+    return parseRequiredProductsResponse(requiredQuery.data).filter((r) => r.required !== false);
   }, [extendedRequiredList, requiredQuery.data]);
 
   useEffect(() => {
-    if (step !== "membership" || membershipOptions.length !== 1) return;
+    if (step !== "membership" || membershipOptionsForStep.length !== 1) return;
     if (selectedMembershipRootId == null) {
-      setSelectedMembershipRootId(membershipOptions[0]!.id);
+      setSelectedMembershipRootId(membershipOptionsForStep[0]!.id);
     }
-  }, [step, membershipOptions, selectedMembershipRootId]);
+  }, [step, membershipOptionsForStep, selectedMembershipRootId]);
 
   const publicQuestionnaireQueries = useQueries({
     queries: questionnaireIds.map((qid) => ({
@@ -280,9 +484,8 @@ export function BookingCheckoutDrawer({
         mode === "checkout" &&
         open &&
         questionnaireIds.length > 0 &&
-        step !== "cart" &&
         step !== "payment" &&
-        (step === "addons" || step === "forms"),
+        (step === "addons" || step === "forms" || step === "membership"),
     })),
   });
 
@@ -293,26 +496,97 @@ export function BookingCheckoutDrawer({
       mode === "checkout" &&
       open &&
       questionnaireIds.length > 0 &&
-      step !== "cart" &&
       step !== "payment" &&
-      (step === "addons" || step === "forms"),
+      (step === "addons" || step === "forms" || step === "membership"),
   });
 
-  const hasMembershipStep = membershipOptions.length > 0;
+  const hasMembershipStep = membershipOptionsForStep.length > 0;
   const hasFormsStep = questionnaireIds.length > 0;
-  const totalPreSteps = 2 + (hasMembershipStep ? 1 : 0) + (hasFormsStep ? 1 : 0);
+
+  const firstCheckoutStep = useMemo((): CheckoutStep => {
+    if (hasAddonsStep) return "addons";
+    if (hasMembershipStep) return "membership";
+    if (hasFormsStep) return "forms";
+    return "confirm";
+  }, [hasAddonsStep, hasMembershipStep, hasFormsStep]);
+  firstCheckoutStepRef.current = firstCheckoutStep;
+
+  /** When the drawer closes, drop back to the first checkout step so the next open isn’t stuck on confirm/payment after the bag. */
+  useEffect(() => {
+    if (open) return;
+    setStep(firstCheckoutStep);
+  }, [open, firstCheckoutStep]);
+
+  const preCheckoutSteps = useMemo(() => {
+    const s: CheckoutStep[] = [];
+    if (hasAddonsStep) s.push("addons");
+    if (hasMembershipStep) s.push("membership");
+    if (hasFormsStep) s.push("forms");
+    s.push("confirm");
+    return s;
+  }, [hasAddonsStep, hasMembershipStep, hasFormsStep]);
+
+  const totalPreSteps = preCheckoutSteps.length;
 
   const currentPreStepNumber = useMemo(() => {
-    if (step === "cart" || step === "payment") return 0;
-    if (step === "addons") return 1;
-    if (step === "membership") return 2;
-    if (step === "forms") return 2 + (hasMembershipStep ? 1 : 0);
-    if (step === "confirm") return totalPreSteps;
+    if (step === "payment") return 0;
+    const i = preCheckoutSteps.indexOf(step);
+    if (i >= 0) return i + 1;
     return 1;
-  }, [step, hasMembershipStep, totalPreSteps]);
+  }, [step, preCheckoutSteps]);
+
+  useEffect(() => {
+    if (!open) {
+      onParticipantLockChange?.(false);
+      return;
+    }
+    if (mode === "bag") {
+      onParticipantLockChange?.(false);
+      return;
+    }
+    const firstCheckoutStep: CheckoutStep = hasAddonsStep
+      ? "addons"
+      : membershipOptionsForStep.length > 0
+        ? "membership"
+        : questionnaireIds.length > 0
+          ? "forms"
+          : "confirm";
+    const participantLocked = !(step === firstCheckoutStep && firstCheckoutStep !== "confirm");
+    onParticipantLockChange?.(participantLocked);
+  }, [
+    open,
+    mode,
+    step,
+    onParticipantLockChange,
+    hasAddonsStep,
+    membershipOptionsForStep.length,
+    questionnaireIds.length,
+  ]);
+
+  /** Required-only lines arrived after first paint — need the add-ons step to confirm them. */
+  useEffect(() => {
+    if (!open || mode !== "checkout") return;
+    if (packageAddons.length > 0) return;
+    if (otherRequired.length === 0) return;
+    if (step !== "membership") return;
+    setStep("addons");
+  }, [open, mode, packageAddons.length, otherRequired.length, step]);
+
+  /** Never stay on the add-ons step when there is nothing to confirm there. */
+  useEffect(() => {
+    if (!open || mode !== "checkout") return;
+    if (step !== "addons" || hasAddonsStep) return;
+    setStep(
+      membershipOptionsForStep.length > 0
+        ? "membership"
+        : questionnaireIds.length > 0
+          ? "forms"
+          : "confirm"
+    );
+  }, [open, mode, step, hasAddonsStep, membershipOptionsForStep.length, questionnaireIds.length]);
 
   const preCheckoutStepLabel = useMemo(() => {
-    if (step === "cart" || step === "payment") return "";
+    if (step === "payment") return "";
     if (currentPreStepNumber < 1) return "";
     return `Step ${currentPreStepNumber} of ${totalPreSteps}`;
   }, [step, currentPreStepNumber, totalPreSteps]);
@@ -348,8 +622,9 @@ export function BookingCheckoutDrawer({
 
   useEffect(() => {
     if (!open || step !== "forms") return;
-    if (mergedForms.length === 0 || formsPrefillDone.current) return;
-    formsPrefillDone.current = true;
+    if (mergedForms.length === 0) return;
+    /** Wait until at least one questionnaire has loaded questions (avoid one-shot prefill before public/checkout merges). */
+    if (!mergedForms.some((f) => f.questions.length > 0)) return;
     setAnswers((prev) => {
       const next = { ...prev };
       let changed = false;
@@ -407,7 +682,7 @@ export function BookingCheckoutDrawer({
     return true;
   }, [mergedForms, answers]);
 
-  const buildCreatePayload = useCallback((): Record<string, unknown> => {
+  const buildCreatePayload = useCallback((includeCartMerge: boolean): Record<string, unknown> => {
     const perQuestion: Array<{ questionId: number; value: string }> = [];
     for (const key of Object.keys(answers)) {
       const parts = key.split(":");
@@ -428,7 +703,7 @@ export function BookingCheckoutDrawer({
     const { topLevel, perSegment } = splitAddonPayloadForCreate({
       pickedSlots,
       selectedAddonIds: [...selectedAddonIds],
-      requiredSelected: [...requiredSelected],
+      requiredSelected: requiredIdsForBond,
       packageAddons,
       addonSlotTargeting,
     });
@@ -441,6 +716,7 @@ export function BookingCheckoutDrawer({
       activity,
       facilityId,
       productId,
+      product,
       slots: pickedSlots,
       addonProductIds: topLevel.length > 0 ? topLevel : undefined,
       segmentAddonProductIds: hasSegmentAddons ? perSegment : undefined,
@@ -453,11 +729,16 @@ export function BookingCheckoutDrawer({
               },
             ]
           : undefined,
+      cartId:
+        includeCartMerge && mergeCartId != null && mergeCartId > 0 ? mergeCartId : undefined,
+      requiredProductLineItems:
+        requiredProductLineItemsForBond.length > 0 ? requiredProductLineItemsForBond : undefined,
     });
   }, [
     answers,
     selectedAddonIds,
-    requiredSelected,
+    requiredIdsForBond,
+    requiredProductLineItemsForBond,
     packageAddons,
     addonSlotTargeting,
     userId,
@@ -466,75 +747,141 @@ export function BookingCheckoutDrawer({
     activity,
     facilityId,
     productId,
+    product,
     pickedSlots,
+    mergeCartId,
   ]);
 
-  /** Same payload as Add to cart — used to preview pricing on the booking summary via `POST …/online-booking/create`. */
-  const previewPayload = useMemo(() => buildCreatePayload(), [buildCreatePayload]);
+  /**
+   * One `POST …/create` when the user reaches the booking summary (`confirm`): Bond returns the real cart
+   * (discounts, membership lines, `cartId` when merging). **Add to cart** only copies that DTO into the
+   * session bag — no second create.
+   */
+  const confirmBondCartPayload = useMemo(
+    () => buildCreatePayload(mergeCartId != null && mergeCartId > 0),
+    [buildCreatePayload, mergeCartId]
+  );
 
-  const bookingPreviewQuery = useQuery({
-    queryKey: ["bond", "bookingPreview", orgId, previewPayload],
-    queryFn: () => postOnlineBookingCreate(orgId, previewPayload),
+  /** Session already has carts but we have no Bond cart id to merge into — block add until storage is fixed or cleared. */
+  const cannotMergeSessionCart = useMemo(
+    () => bagSnapshots.length > 0 && (mergeCartId == null || mergeCartId <= 0),
+    [bagSnapshots.length, mergeCartId]
+  );
+
+  const confirmBondCartQuery = useQuery({
+    queryKey: ["bond", "confirmBondCart", orgId, confirmBondCartPayload],
+    queryFn: () => postOnlineBookingCreate(orgId, confirmBondCartPayload),
     enabled: mode === "checkout" && open && step === "confirm" && pickedSlots.length > 0,
-    staleTime: 0,
+    staleTime: 60_000,
     refetchOnWindowFocus: false,
   });
 
+  const awaitingConfirmBondCart = confirmBondCartQuery.isPending && confirmBondCartQuery.data == null;
+
   const previewReceiptLines = useMemo(
-    () => (bookingPreviewQuery.data != null ? getBondCartReceiptLineItems(bookingPreviewQuery.data) : []),
-    [bookingPreviewQuery.data]
+    () => (confirmBondCartQuery.data != null ? getBondCartReceiptLineItems(confirmBondCartQuery.data) : []),
+    [confirmBondCartQuery.data]
   );
 
   /** Same `OrganizationCartDto` → rows as post–add-to-cart (`lastCartBondPricing`). */
-  const previewBondPricing = useMemo(
-    () => (bookingPreviewQuery.data != null ? getBondCartPricingDisplayRows(bookingPreviewQuery.data) : null),
-    [bookingPreviewQuery.data]
-  );
+  const previewBondPricing = useMemo(() => {
+    if (confirmBondCartQuery.data == null) return null;
+    const base = getBondCartPricingDisplayRows(confirmBondCartQuery.data);
+    const hint = describeEntitlementsForDisplay(product?.entitlementDiscounts);
+    if (!hint) return base;
+    return {
+      ...base,
+      rows: base.rows.map((r) =>
+        r.variant === "discount" ? { ...r, detail: r.detail ?? hint } : r
+      ),
+    };
+  }, [confirmBondCartQuery.data, product?.entitlementDiscounts]);
+
+  const previewKindBreakdown = useMemo(() => {
+    if (confirmBondCartQuery.data == null) return null;
+    return sumBondCartLineKindsFromCart(confirmBondCartQuery.data);
+  }, [confirmBondCartQuery.data]);
+
+  const showBondSplitRows = useMemo(() => {
+    if (previewKindBreakdown == null) return false;
+    const { rentals, memberships, addons } = previewKindBreakdown;
+    return (
+      Math.abs(rentals) > BOND_KIND_LINE_MIN ||
+      Math.abs(memberships) > BOND_KIND_LINE_MIN ||
+      Math.abs(addons) > BOND_KIND_LINE_MIN
+    );
+  }, [previewKindBreakdown]);
+
+  const bondPricingRowsFiltered = useMemo(() => {
+    if (previewBondPricing == null) return [];
+    const rows = previewBondPricing.rows;
+    if (!showBondSplitRows) return rows;
+    return rows.filter(
+      (r, i) =>
+        !(i === 0 && r.variant === "default" && r.label.trim().toLowerCase() === "subtotal")
+    );
+  }, [previewBondPricing, showBondSplitRows]);
 
   const hasBondReceiptLineItems =
-    bookingPreviewQuery.isSuccess &&
-    bookingPreviewQuery.data != null &&
+    confirmBondCartQuery.isSuccess &&
+    confirmBondCartQuery.data != null &&
     previewReceiptLines.length > 0;
   const showBondPricingFooter =
-    bookingPreviewQuery.isSuccess &&
+    confirmBondCartQuery.isSuccess &&
     previewBondPricing != null &&
     previewBondPricing.rows.length > 0;
 
   const confirmPreviewStrike = useMemo(
-    () => (bookingPreviewQuery.data != null ? getBondCartPrimaryLineStrike(bookingPreviewQuery.data) : null),
-    [bookingPreviewQuery.data]
+    () => (confirmBondCartQuery.data != null ? getBondCartPrimaryLineStrike(confirmBondCartQuery.data) : null),
+    [confirmBondCartQuery.data]
   );
 
-  const createMutation = useMutation({
-    mutationFn: async () => postOnlineBookingCreate(orgId, buildCreatePayload()),
-    onSuccess: (cart) => {
-      setLastCart(cart);
-      onSuccess(cart);
-      setStep("cart");
-    },
-  });
+  const confirmBondCartErrorText = useMemo(() => {
+    if (!confirmBondCartQuery.isError || confirmBondCartQuery.error == null) return null;
+    if (confirmBondCartQuery.isFetching) return null;
+    return formatConsumerBookingErrorUnknown(confirmBondCartQuery.error, {
+      customerLabel: bookingForLabel,
+      orgName: orgDisplayName,
+      productName,
+    });
+  }, [
+    confirmBondCartQuery.isError,
+    confirmBondCartQuery.isFetching,
+    confirmBondCartQuery.error,
+    bookingForLabel,
+    orgDisplayName,
+    productName,
+  ]);
+
+  const finishAddToCart = useCallback(() => {
+    if (onAddedToCart) onAddedToCart();
+    else onClose();
+  }, [onAddedToCart, onClose]);
 
   const handleConfirmAddToCart = useCallback(() => {
+    if (cannotMergeSessionCart) return;
+    const cart = confirmBondCartQuery.data ?? null;
+    if (!approvalRequired && cart == null) return;
+    setLastCart(cart);
     if (approvalRequired) {
-      setLastCart(bookingPreviewQuery.data ?? null);
       setApprovalDeferred(true);
-      setStep("cart");
-      return;
     }
-    const cart = bookingPreviewQuery.data;
-    if (cart) {
-      setLastCart(cart);
+    if (cart != null) {
       onSuccess(cart);
-      setStep("cart");
-      return;
     }
-    createMutation.mutate();
-  }, [approvalRequired, bookingPreviewQuery.data, onSuccess, createMutation]);
+    finishAddToCart();
+  }, [
+    approvalRequired,
+    cannotMergeSessionCart,
+    confirmBondCartQuery.data,
+    finishAddToCart,
+    onSuccess,
+  ]);
 
   const submitBookingRequestMutation = useMutation({
     mutationFn: async () => {
       if (lastCart != null) return lastCart;
-      return postOnlineBookingCreate(orgId, buildCreatePayload());
+      return postOnlineBookingCreate(orgId, buildCreatePayload(true));
     },
     onSuccess: () => {
       onCheckoutComplete?.();
@@ -542,10 +889,24 @@ export function BookingCheckoutDrawer({
     },
   });
 
-  /** Only real mutations affect the bottom bar — preview `POST create` runs inside the drawer only. */
   useEffect(() => {
-    onSubmittingChange?.(createMutation.isPending || submitBookingRequestMutation.isPending);
-  }, [createMutation.isPending, submitBookingRequestMutation.isPending, onSubmittingChange]);
+    const confirmBondBusy =
+      mode === "checkout" &&
+      open &&
+      step === "confirm" &&
+      pickedSlots.length > 0 &&
+      (confirmBondCartQuery.isPending || confirmBondCartQuery.isFetching);
+    onSubmittingChange?.(submitBookingRequestMutation.isPending || confirmBondBusy);
+  }, [
+    mode,
+    open,
+    step,
+    pickedSlots.length,
+    confirmBondCartQuery.isPending,
+    confirmBondCartQuery.isFetching,
+    submitBookingRequestMutation.isPending,
+    onSubmittingChange,
+  ]);
 
   /** Non-membership required rows only — membership is handled on the next step when needed. */
   const canProceedAddons = useMemo(() => {
@@ -556,22 +917,22 @@ export function BookingCheckoutDrawer({
 
   const goNextFromAddons = useCallback(() => {
     if (!canProceedAddons) return;
-    if (membershipOptions.length > 0 && !membershipSelectionResolved) {
+    if (membershipOptionsForStep.length > 0 && !membershipSelectionResolved) {
       setStep("membership");
       return;
     }
     if (questionnaireIds.length > 0) setStep("forms");
     else setStep("confirm");
-  }, [canProceedAddons, membershipOptions.length, membershipSelectionResolved, questionnaireIds.length]);
+  }, [canProceedAddons, membershipOptionsForStep.length, membershipSelectionResolved, questionnaireIds.length]);
 
   const handleMembershipConfirm = useCallback(() => {
-    if (membershipOptions.length === 0) {
+    if (membershipOptionsForStep.length === 0) {
       setMembershipSelectionResolved(true);
       if (questionnaireIds.length > 0) setStep("forms");
       else setStep("confirm");
       return;
     }
-    const root = membershipOptions.find((o) => o.id === selectedMembershipRootId);
+    const root = membershipOptionsForStep.find((o) => o.id === selectedMembershipRootId);
     if (!root) return;
     const ids = collectProductAndNestedIds(root);
     setRequiredSelected((prev) => {
@@ -582,60 +943,42 @@ export function BookingCheckoutDrawer({
     setMembershipSelectionResolved(true);
     if (questionnaireIds.length > 0) setStep("forms");
     else setStep("confirm");
-  }, [membershipOptions, selectedMembershipRootId, questionnaireIds.length]);
+  }, [membershipOptionsForStep, selectedMembershipRootId, questionnaireIds.length]);
 
   const goNextFromForms = useCallback(() => {
     if (!formsValid) return;
     setStep("confirm");
   }, [formsValid]);
 
-  const title = useMemo(() => {
-    if (mode === "bag") return "Your Cart";
-    switch (step) {
-      case "addons":
-        return "Add-ons";
-      case "membership":
-        return "Membership";
-      case "forms":
-        return "Additional Information";
-      case "confirm":
-        return "Booking Summary";
-      case "cart":
-        return "Added to Cart!";
-      case "payment":
-        return "Checkout";
-    }
-  }, [mode, step]);
+  const checkoutFlowFlags = useMemo<FlowFlags>(
+    () => ({
+      hasAddonsStep,
+      hasMembershipStep: membershipOptionsForStep.length > 0,
+      hasFormsStep: questionnaireIds.length > 0,
+    }),
+    [hasAddonsStep, membershipOptionsForStep.length, questionnaireIds.length]
+  );
 
   const handleToolbarBack = useCallback(() => {
     if (mode === "bag") {
       onClose();
       return;
     }
-    if (step === "forms") {
-      setStep(membershipOptions.length > 0 ? "membership" : "addons");
-      return;
-    }
-    if (step === "confirm") {
-      setStep(
-        questionnaireIds.length > 0 ? "forms" : membershipOptions.length > 0 ? "membership" : "addons"
-      );
-      return;
-    }
-    if (step === "membership") {
-      setStep("addons");
-      return;
-    }
     if (step === "payment") {
-      setStep("cart");
+      if (onBackFromPayment) {
+        onBackFromPayment();
+        return;
+      }
+      onClose();
       return;
     }
-    if (step === "cart") {
-      setStep("confirm");
+    const prev = previousStepInCheckoutFlow(step, checkoutFlowFlags);
+    if (prev === "close") {
+      onClose();
       return;
     }
-    onClose();
-  }, [mode, onClose, step, questionnaireIds.length, membershipOptions.length]);
+    setStep(prev);
+  }, [mode, onClose, onBackFromPayment, step, checkoutFlowFlags]);
 
   const showDrawerBack =
     mode === "bag" ||
@@ -643,7 +986,6 @@ export function BookingCheckoutDrawer({
     step === "membership" ||
     step === "forms" ||
     step === "confirm" ||
-    step === "cart" ||
     step === "payment";
 
   const subtotal = useMemo(
@@ -653,9 +995,21 @@ export function BookingCheckoutDrawer({
 
   const entitlements = product?.entitlementDiscounts;
 
+  /** Shown under discounted line items so members see which catalog entitlement applies. */
+  const entitlementCatalogHint = useMemo(
+    () => describeEntitlementsForDisplay(product?.entitlementDiscounts),
+    [product?.entitlementDiscounts]
+  );
+
   const estimatedOriginalSubtotal = useMemo(() => {
     if (!Array.isArray(entitlements) || entitlements.length === 0) return null;
-    return pickedSlots.reduce((s, p) => s + reverseEntitlementDiscountsToUnitPrice(p.price, entitlements), 0);
+    return pickedSlots.reduce((s, p) => {
+      const list =
+        p.scheduleUnitPrice != null && Number.isFinite(p.scheduleUnitPrice)
+          ? p.scheduleUnitPrice
+          : reverseEntitlementDiscountsToUnitPrice(p.price, entitlements);
+      return s + list;
+    }, 0);
   }, [pickedSlots, entitlements]);
 
   const showMemberPricing = useMemo(() => {
@@ -665,6 +1019,8 @@ export function BookingCheckoutDrawer({
   }, [entitlements, estimatedOriginalSubtotal, subtotal]);
 
   const slotKeySet = useMemo(() => new Set(pickedSlots.map((s) => s.key)), [pickedSlots]);
+
+  const confirmSlotGroups = useMemo(() => groupContiguousPickedSlotsForConfirm(pickedSlots), [pickedSlots]);
 
   /** Confirmed required add-ons (memberships, fees) — only same currency as rental for subtotal math. */
   const requiredProductsTotal = useMemo(() => {
@@ -677,13 +1033,30 @@ export function BookingCheckoutDrawer({
     return sum;
   }, [allRequiredFlat, requiredSelected, currency]);
 
+  /** Required SKUs that are membership products (not optional package add-ons). */
+  const membershipRequiredTotal = useMemo(() => {
+    let sum = 0;
+    for (const r of allRequiredFlat) {
+      if (!requiredSelected.has(r.id) || !r.displayPrice) continue;
+      if (r.displayPrice.currency !== currency) continue;
+      if (!isMembershipRequiredProduct(r as ExtendedRequiredProductNode)) continue;
+      sum += r.displayPrice.amount;
+    }
+    return sum;
+  }, [allRequiredFlat, requiredSelected, currency]);
+
+  const nonMembershipRequiredTotal = useMemo(
+    () => Math.max(0, requiredProductsTotal - membershipRequiredTotal),
+    [requiredProductsTotal, membershipRequiredTotal]
+  );
+
   /** Optional package add-ons selected on the add-ons step (matches card math). */
   const optionalAddonsConfirmTotal = useMemo(() => {
     let sum = 0;
     for (const a of packageAddons) {
       if (!selectedAddonIds.has(a.id)) continue;
       const p = resolveAddonDisplayPrice(a);
-      if (!p || p.currency !== currency) continue;
+      if (!p || !addonCurrencyMatchesProduct(p.currency, currency)) continue;
       if (a.level === "reservation") {
         sum += p.price;
         continue;
@@ -756,7 +1129,12 @@ export function BookingCheckoutDrawer({
 
   const paymentLines = useMemo((): SessionCartSnapshot[] => {
     const rows: SessionCartSnapshot[] = [...bagSnapshots];
-    const pushSynthetic = (lineName: string, amount: number, cur: string) => {
+    const pushSynthetic = (
+      lineName: string,
+      amount: number,
+      cur: string,
+      opts?: { approvalRequired?: boolean; scheduleSummary?: string }
+    ) => {
       rows.push({
         cart: {
           id: 0,
@@ -766,15 +1144,23 @@ export function BookingCheckoutDrawer({
           currency: cur,
         } as OrganizationCartDto,
         productName: lineName,
+        bookingForLabel,
+        ...(opts?.scheduleSummary ? { scheduleSummary: opts.scheduleSummary } : {}),
+        ...(opts?.approvalRequired === true ? { approvalRequired: true as const } : {}),
+        ...(opts?.approvalRequired === false ? { approvalRequired: false as const } : {}),
       });
     };
 
     if (approvalDeferred && approvalRequired && pickedSlots.length > 0 && !lastCart) {
-      pushSynthetic(productName, subtotal, currency);
+      const scheduleSummary = formatScheduleSummaryForBooking(pickedSlots, bookingForLabel);
+      pushSynthetic(productName, subtotal, currency, { approvalRequired: true, scheduleSummary });
       for (const r of allRequiredFlat) {
         if (!requiredSelected.has(r.id) || !r.displayPrice) continue;
         if (r.displayPrice.currency !== currency) continue;
-        pushSynthetic(r.name ?? `Product ${r.id}`, r.displayPrice.amount, r.displayPrice.currency);
+        pushSynthetic(r.name ?? `Product ${r.id}`, r.displayPrice.amount, r.displayPrice.currency, {
+          approvalRequired: snapshotRowExpectsVenueApproval(r, extendedRequiredList),
+          scheduleSummary,
+        });
       }
       for (const a of packageAddons) {
         if (!selectedAddonIds.has(a.id)) continue;
@@ -795,16 +1181,25 @@ export function BookingCheckoutDrawer({
             }
           }
         }
-        if (amt > 0) pushSynthetic(a.name, amt, currency);
+        if (amt > 0) pushSynthetic(a.name, amt, currency, { approvalRequired: true, scheduleSummary });
       }
     }
     if (rows.length > 0) return rows;
-    if (lastCart) return [{ cart: lastCart, productName }];
+    if (lastCart)
+      return [
+        {
+          cart: lastCart,
+          productName,
+          bookingForLabel,
+          ...(approvalRequired ? { approvalRequired: true as const } : {}),
+        },
+      ];
     return [];
   }, [
     bagSnapshots,
     lastCart,
     productName,
+    bookingForLabel,
     approvalDeferred,
     approvalRequired,
     pickedSlots,
@@ -812,6 +1207,7 @@ export function BookingCheckoutDrawer({
     subtotal,
     currency,
     allRequiredFlat,
+    extendedRequiredList,
     requiredSelected,
     packageAddons,
     selectedAddonIds,
@@ -827,6 +1223,34 @@ export function BookingCheckoutDrawer({
 
   const groupedBagWithTotals = useMemo(() => aggregateBagSnapshotsByLabel(bagSnapshots), [bagSnapshots]);
 
+  const groupedTailPaymentSections = useMemo(
+    () => aggregateBagSnapshotsByLabel(tailExtraPaymentLines),
+    [tailExtraPaymentLines]
+  );
+
+  const paymentSectionCount = groupedBagWithTotals.length + groupedTailPaymentSections.length;
+
+  const bagPolicyCheckout = useMemo(() => bagApprovalPolicy(paymentLines), [paymentLines]);
+  const bagPolicyBag = useMemo(() => bagApprovalPolicy(bagSnapshots), [bagSnapshots]);
+
+  const title = useMemo(() => {
+    if (mode === "bag") return "Saved bookings";
+    switch (step) {
+      case "addons":
+        return packageAddons.length > 0 ? "Add-ons" : "Required items";
+      case "membership":
+        return "Membership";
+      case "forms":
+        return "Additional Information";
+      case "confirm":
+        return bagSnapshots.length > 0 ? "Review & add to cart" : "Booking summary";
+      case "payment":
+        if (bagPolicyCheckout === "all_pay") return "Pay";
+        if (bagPolicyCheckout === "all_submission") return "Submit request";
+        return "Checkout";
+    }
+  }, [mode, step, bagPolicyCheckout, packageAddons.length, bagSnapshots.length]);
+
   const bagDrawerLineCount = useMemo(() => countSessionCartLineItems(bagSnapshots), [bagSnapshots]);
 
   /** Bond cart fields only (no client-side line math). */
@@ -841,8 +1265,13 @@ export function BookingCheckoutDrawer({
 
   const bagAggregates = useMemo(() => aggregateBagSnapshots(paymentLines), [paymentLines]);
 
-  /** Empty until Bond exposes saved payment instruments for the logged-in user. */
-  const savedPaymentMethods = useMemo<ReadonlyArray<{ id: string; label: string }>>(() => [], []);
+  /** Bond saved instruments (future) + local placeholder after user confirms payment on file. */
+  const savedPaymentMethods = useMemo<ReadonlyArray<{ id: string; label: string }>>(() => {
+    if (selectedPaymentMethodId === BOND_PLACEHOLDER_PAYMENT_ID) {
+      return [{ id: BOND_PLACEHOLDER_PAYMENT_ID, label: "Payment method on file" }];
+    }
+    return [];
+  }, [selectedPaymentMethodId]);
 
   const singleLineMemberSavings = useMemo(() => {
     if (!Array.isArray(entitlements) || entitlements.length === 0) return null;
@@ -862,19 +1291,13 @@ export function BookingCheckoutDrawer({
 
   const feesIncludedInEstimate = useMemo(() => {
     if (bagAggregates.feeTotal != null) return true;
-    if (approvalRequired) return true;
+    if (bagPolicyCheckout === "all_submission") return true;
     return selectedPaymentMethodId != null;
-  }, [bagAggregates.feeTotal, approvalRequired, selectedPaymentMethodId]);
+  }, [bagAggregates.feeTotal, bagPolicyCheckout, selectedPaymentMethodId]);
 
   const estimatedAmountDue = useMemo(
     () => estimateAmountDue(bagAggregatesForEstimate, { includeProvisionalFees: feesIncludedInEstimate }),
     [bagAggregatesForEstimate, feesIncludedInEstimate]
-  );
-
-  /** Bond-returned pricing for the cart row just created (post–`POST create`). */
-  const lastCartBondPricing = useMemo(
-    () => (lastCart != null ? getBondCartPricingDisplayRows(lastCart) : null),
-    [lastCart]
   );
 
   const displayDiscountTotal = useMemo(() => {
@@ -887,7 +1310,7 @@ export function BookingCheckoutDrawer({
     if (bagAggregates.feeTotal != null) {
       return { kind: "amount" as const, value: bagAggregates.feeTotal };
     }
-    if (approvalRequired) {
+    if (bagPolicyCheckout === "all_submission") {
       return { kind: "muted" as const, text: "—" };
     }
     if (savedPaymentMethods.length === 0) {
@@ -897,7 +1320,7 @@ export function BookingCheckoutDrawer({
       return { kind: "hint" as const, text: "Select a payment method" };
     }
     return { kind: "muted" as const, text: "—" };
-  }, [bagAggregates.feeTotal, approvalRequired, savedPaymentMethods.length, selectedPaymentMethodId]);
+  }, [bagAggregates.feeTotal, bagPolicyCheckout, savedPaymentMethods.length, selectedPaymentMethodId]);
 
   const panelCls = `consumer-booking ${appearanceClass} cb-checkout-drawer cb-checkout-drawer--wide`.trim();
 
@@ -908,11 +1331,11 @@ export function BookingCheckoutDrawer({
         open={open}
         onClose={onClose}
         onBack={showDrawerBack ? handleToolbarBack : undefined}
-        ariaLabel="Your cart"
+        ariaLabel="Saved bookings"
         title={title}
         panelClassName={panelCls}
       >
-        <div className="cb-checkout-inner cb-checkout-inner--bag">
+          <div className="cb-checkout-inner cb-checkout-inner--bag">
           <div className="cb-cart-bag-heading">
             <p className="cb-cart-bag-subtitle">In your cart</p>
             {nBookings > 0 ? (
@@ -922,18 +1345,37 @@ export function BookingCheckoutDrawer({
               </span>
             ) : null}
           </div>
+          {groupedBagWithTotals.length > 1 ? (
+            <p className="cb-muted mb-3 text-sm leading-relaxed">
+              Bookings are grouped by person. Each section below is for a different family member.
+            </p>
+          ) : null}
+          {bagSnapshots.length > 0 && approvalRequired ? (
+            <div
+              className="cb-checkout-category-approval-notice mb-3 rounded-md border border-[var(--cb-border)] bg-[var(--cb-surface)] px-3 py-2.5 text-sm leading-snug text-[var(--cb-text)]"
+              role="note"
+            >
+              Rentals and addons are submitted for facility review. Membership charges are handled separately.
+            </div>
+          ) : null}
 
           {bagSnapshots.length === 0 ? (
             <p className="cb-muted text-sm">Your cart is empty.</p>
           ) : (
             <>
               <div className="cb-cart-bag-groups">
-                {groupedBagWithTotals.map((section) => (
-                  <section key={section.label} className="cb-cart-bag-group">
-                    <h4 className="cb-cart-bag-group-title">{section.label}</h4>
+                {groupedBagWithTotals.map((section, si) => (
+                  <section key={`${section.label}-${si}`} className="cb-cart-bag-group">
+                    <h4 className="cb-cart-bag-group-title">
+                      {groupHeadingForBooking(section.label, si, groupedBagWithTotals.length)}
+                    </h4>
                     <ul className="cb-cart-bag-list">
                       {section.items.map(({ index, row }) => {
-                        const lines = expandSnapshotForPurchaseList(row, index);
+                        const lines = expandSnapshotForPurchaseList(row, index, {
+                          bagPolicy: bagPolicyBag,
+                          omitBookingLabelInMeta: true,
+                          hideVenueApprovalLineNotes: approvalRequired,
+                        });
                         return (
                           <li key={`${row.cart.id}-${index}`} className="cb-cart-bag-line">
                             {lines.map((line, lineIdx) => (
@@ -944,10 +1386,33 @@ export function BookingCheckoutDrawer({
                                 <div>
                                   <p className="cb-cart-bag-line-title">{line.title}</p>
                                   <p className="cb-cart-bag-line-meta">{line.meta}</p>
+                                  {line.discountNote ? (
+                                    <span className="cb-checkout-discount-tag">{line.discountNote}</span>
+                                  ) : null}
+                                  {line.memberAccessNote ? (
+                                    <p className="mt-1.5">
+                                      <span className="cb-cart-line-member-badge">{line.memberAccessNote}</span>
+                                    </p>
+                                  ) : null}
+                                  {line.checkoutNote ? (
+                                    <p className="cb-muted mt-0.5 text-[0.7rem] leading-snug">{line.checkoutNote}</p>
+                                  ) : null}
                                 </div>
                                 <div className="cb-cart-bag-line-actions">
                                   {line.amount != null ? (
-                                    <span className="cb-cart-bag-line-price">{formatPrice(line.amount, bagCurrency)}</span>
+                                    <span className="cb-cart-bag-line-price">
+                                      {line.strikeAmount != null &&
+                                      line.strikeAmount > line.amount + 0.005 ? (
+                                        <>
+                                          <span className="cb-checkout-price-strike">
+                                            {formatPrice(line.strikeAmount, bagCurrency)}
+                                          </span>{" "}
+                                          <strong>{formatPrice(line.amount, bagCurrency)}</strong>
+                                        </>
+                                      ) : (
+                                        <strong>{formatPrice(line.amount, bagCurrency)}</strong>
+                                      )}
+                                    </span>
                                   ) : (
                                     <span className="cb-muted text-sm">—</span>
                                   )}
@@ -977,14 +1442,18 @@ export function BookingCheckoutDrawer({
                   <span>Bookings</span>
                   <span>{formatPrice(bagLineBuckets.bookings, bagCurrency)}</span>
                 </div>
-                <div className="cb-checkout-total-row">
-                  <span>Add-ons</span>
-                  <span>{formatPrice(bagLineBuckets.addons, bagCurrency)}</span>
-                </div>
-                <div className="cb-checkout-total-row">
-                  <span>Memberships</span>
-                  <span>{formatPrice(bagLineBuckets.memberships, bagCurrency)}</span>
-                </div>
+                {Math.abs(bagLineBuckets.addons) > BOND_KIND_LINE_MIN ? (
+                  <div className="cb-checkout-total-row">
+                    <span>Add-ons</span>
+                    <span>{formatPrice(bagLineBuckets.addons, bagCurrency)}</span>
+                  </div>
+                ) : null}
+                {Math.abs(bagLineBuckets.memberships) > BOND_KIND_LINE_MIN ? (
+                  <div className="cb-checkout-total-row">
+                    <span>Memberships</span>
+                    <span>{formatPrice(bagLineBuckets.memberships, bagCurrency)}</span>
+                  </div>
+                ) : null}
                 {bagSessionAggregates.discountTotal != null && bagSessionAggregates.discountTotal > 0.0001 ? (
                   <div className="cb-checkout-total-row cb-checkout-total-row--discount">
                     <span>Discount &amp; savings</span>
@@ -1033,9 +1502,9 @@ export function BookingCheckoutDrawer({
               type="button"
               className="cb-btn-primary"
               disabled={bagSnapshots.length === 0}
-              title="Payment integration coming next"
+              onClick={() => onRequestBagCheckout?.()}
             >
-              Checkout →
+              {bagPolicyBag === "all_pay" ? "Pay →" : "Checkout →"}
             </button>
           </div>
         </div>
@@ -1116,85 +1585,163 @@ export function BookingCheckoutDrawer({
                 Purchases are grouped by family member. Review each section before submitting.
               </p>
             )}
-            <h3 className="cb-checkout-section-title">Purchases</h3>
+            <h3 className="cb-checkout-section-title">Order summary</h3>
             <div className="cb-checkout-payment-purchase-groups mb-4">
-              {groupedBagWithTotals.map((section) => (
-                <section key={section.label} className="cb-checkout-payment-group">
-                  <h4 className="cb-checkout-payment-group-title">{section.label}</h4>
+              {groupedBagWithTotals.map((section, si) => (
+                <section key={`${section.label}-${si}`} className="cb-checkout-payment-group">
+                  <h4 className="cb-checkout-payment-group-title">
+                    {groupHeadingForBooking(section.label, si, Math.max(1, paymentSectionCount))}
+                  </h4>
                   <ul className="cb-checkout-payment-lines">
                     {section.items.flatMap(({ index, row }) =>
-                      expandSnapshotForPurchaseList(row, index).map((line) => (
+                      expandSnapshotForPurchaseList(row, index, {
+                        bagPolicy: bagPolicyCheckout,
+                        omitBookingLabelInMeta: true,
+                        hideVenueApprovalLineNotes: approvalRequired,
+                      }).map((line) => (
                         <li key={line.key} className="cb-checkout-payment-line">
                           <div>
                             <span className="cb-checkout-payment-line-title">{line.title}</span>
                             <span className="cb-muted block text-xs">{line.meta}</span>
+                            {line.discountNote ? (
+                              <span className="cb-checkout-discount-tag">{line.discountNote}</span>
+                            ) : null}
+                            {line.memberAccessNote ? (
+                              <span className="cb-cart-line-member-badge mt-1 inline-block">{line.memberAccessNote}</span>
+                            ) : null}
+                            {line.checkoutNote ? (
+                              <span className="cb-muted block text-[0.7rem] leading-snug">{line.checkoutNote}</span>
+                            ) : null}
                           </div>
                           <span className="cb-checkout-payment-line-price">
-                            {line.amount != null ? formatPrice(line.amount, bagCurrency) : "—"}
+                            {line.amount != null ? (
+                              line.strikeAmount != null && line.strikeAmount > line.amount + 0.005 ? (
+                                <>
+                                  <span className="cb-checkout-price-strike">
+                                    {formatPrice(line.strikeAmount, bagCurrency)}
+                                  </span>{" "}
+                                  <strong>{formatPrice(line.amount, bagCurrency)}</strong>
+                                </>
+                              ) : (
+                                <strong>{formatPrice(line.amount, bagCurrency)}</strong>
+                              )
+                            ) : (
+                              "—"
+                            )}
                           </span>
                         </li>
                       ))
                     )}
                   </ul>
-                  <div className="cb-checkout-payment-group-summary">
-                    <div className="cb-checkout-total-row">
-                      <span>Subtotal</span>
-                      <span>
-                        {section.totals.lineSubtotal != null
-                          ? formatPrice(section.totals.lineSubtotal, bagCurrency)
-                          : "—"}
-                      </span>
-                    </div>
-                    {section.totals.discountTotal != null ? (
-                      <div className="cb-checkout-total-row cb-checkout-total-row--discount">
-                        <span>Savings</span>
-                        <span>−{formatPrice(section.totals.discountTotal, bagCurrency)}</span>
-                      </div>
-                    ) : null}
-                    <div className="cb-checkout-total-row cb-checkout-total-row--muted">
-                      <span>Tax</span>
-                      <span>
-                        {section.totals.taxTotal != null ? formatPrice(section.totals.taxTotal, bagCurrency) : "—"}
-                      </span>
-                    </div>
-                    <div className="cb-checkout-total-row cb-checkout-total-row--muted">
-                      <span>Fees</span>
-                      <span className="text-[var(--cb-text-muted)] text-xs">
-                        {section.totals.feeTotal != null
-                          ? formatPrice(section.totals.feeTotal, bagCurrency)
-                          : "Depends on payment method"}
-                      </span>
-                    </div>
-                  </div>
                 </section>
               ))}
-              {tailExtraPaymentLines.length > 0 ? (
-                <ul className="cb-checkout-payment-lines">
-                  {tailExtraPaymentLines.flatMap((row, i) => {
-                    const idx = bagSnapshots.length + i;
-                    return expandSnapshotForPurchaseList(row, idx).map((line) => (
-                      <li key={line.key} className="cb-checkout-payment-line">
-                        <div>
-                          <span className="cb-checkout-payment-line-title">{line.title}</span>
-                          <span className="cb-muted block text-xs">{line.meta}</span>
-                        </div>
-                        <span className="cb-checkout-payment-line-price">
-                          {line.amount != null ? formatPrice(line.amount, bagCurrency) : "—"}
-                        </span>
-                      </li>
-                    ));
-                  })}
-                </ul>
+              {groupedTailPaymentSections.map((section, si) => (
+                <section key={`tail-${section.label}-${si}`} className="cb-checkout-payment-group">
+                  <h4 className="cb-checkout-payment-group-title">
+                    {groupHeadingForBooking(
+                      section.label,
+                      groupedBagWithTotals.length + si,
+                      Math.max(1, paymentSectionCount)
+                    )}
+                  </h4>
+                  <ul className="cb-checkout-payment-lines">
+                    {section.items.flatMap(({ index, row }) =>
+                      expandSnapshotForPurchaseList(row, index, {
+                        bagPolicy: bagPolicyCheckout,
+                        omitBookingLabelInMeta: true,
+                        hideVenueApprovalLineNotes: approvalRequired,
+                      }).map((line) => (
+                        <li key={line.key} className="cb-checkout-payment-line">
+                          <div>
+                            <span className="cb-checkout-payment-line-title">{line.title}</span>
+                            <span className="cb-muted block text-xs">{line.meta}</span>
+                            {line.discountNote ? (
+                              <span className="cb-checkout-discount-tag">{line.discountNote}</span>
+                            ) : null}
+                            {line.memberAccessNote ? (
+                              <span className="cb-cart-line-member-badge mt-1 inline-block">{line.memberAccessNote}</span>
+                            ) : null}
+                            {line.checkoutNote ? (
+                              <span className="cb-muted block text-[0.7rem] leading-snug">{line.checkoutNote}</span>
+                            ) : null}
+                          </div>
+                          <span className="cb-checkout-payment-line-price">
+                            {line.amount != null ? (
+                              line.strikeAmount != null && line.strikeAmount > line.amount + 0.005 ? (
+                                <>
+                                  <span className="cb-checkout-price-strike">
+                                    {formatPrice(line.strikeAmount, bagCurrency)}
+                                  </span>{" "}
+                                  <strong>{formatPrice(line.amount, bagCurrency)}</strong>
+                                </>
+                              ) : (
+                                <strong>{formatPrice(line.amount, bagCurrency)}</strong>
+                              )
+                            ) : (
+                              "—"
+                            )}
+                          </span>
+                        </li>
+                      ))
+                    )}
+                  </ul>
+                </section>
+              ))}
+            </div>
+
+            <h3 className="cb-checkout-section-title">Totals</h3>
+            <div className="cb-checkout-totals mb-6">
+              <div className="cb-checkout-total-row">
+                <span>Subtotal</span>
+                <span>
+                  {bagAggregates.lineSubtotal != null
+                    ? formatPrice(bagAggregates.lineSubtotal, bagCurrency)
+                    : bagGrandTotal != null
+                      ? formatPrice(bagGrandTotal, bagCurrency)
+                      : "—"}
+                </span>
+              </div>
+              {displayDiscountTotal != null ? (
+                <div className="cb-checkout-total-row cb-checkout-total-row--discount">
+                  <span>Discounts &amp; savings</span>
+                  <span>−{formatPrice(displayDiscountTotal, bagCurrency)}</span>
+                </div>
               ) : null}
+              <div className="cb-checkout-total-row cb-checkout-total-row--muted">
+                <span>Tax</span>
+                <span>
+                  {bagAggregates.taxTotal != null
+                    ? formatPrice(bagAggregates.taxTotal, bagCurrency)
+                    : "—"}
+                </span>
+              </div>
+              <div className="cb-checkout-total-row cb-checkout-total-row--muted">
+                <span>Fees</span>
+                <span
+                  className={
+                    transactionFeesDisplay.kind === "hint" ? "text-[var(--cb-text-muted)] text-right text-xs" : ""
+                  }
+                >
+                  {transactionFeesDisplay.kind === "amount"
+                    ? formatPrice(transactionFeesDisplay.value, bagCurrency)
+                    : transactionFeesDisplay.text}
+                </span>
+              </div>
+              <div className="cb-checkout-total-row cb-checkout-total-row--grand">
+                <span>Total</span>
+                <strong>
+                  {estimatedAmountDue != null
+                    ? formatPrice(estimatedAmountDue, bagCurrency)
+                    : bagAggregates.cartGrandTotal != null
+                      ? formatPrice(bagAggregates.cartGrandTotal, bagCurrency)
+                      : "—"}
+                </strong>
+              </div>
             </div>
 
             <h3 className="cb-checkout-section-title">Payment method</h3>
             <div className="cb-checkout-payment-methods mb-4">
-              {savedPaymentMethods.length === 0 ? (
-                <p className="cb-muted text-sm cb-checkout-payment-methods-placeholder">
-                  No saved payment methods yet.
-                </p>
-              ) : (
+              {savedPaymentMethods.length === 0 ? null : (
                 <ul className="cb-checkout-payment-method-list">
                   {savedPaymentMethods.map((pm) => (
                     <li key={pm.id}>
@@ -1214,92 +1761,46 @@ export function BookingCheckoutDrawer({
               <button
                 type="button"
                 className="cb-btn-outline mt-3"
-                disabled
-                title="Requires payment-methods API from Bond"
+                onClick={() => setSelectedPaymentMethodId(BOND_PLACEHOLDER_PAYMENT_ID)}
+                disabled={selectedPaymentMethodId === BOND_PLACEHOLDER_PAYMENT_ID}
               >
-                Add new payment method
+                {selectedPaymentMethodId === BOND_PLACEHOLDER_PAYMENT_ID
+                  ? "Payment method added"
+                  : "Add payment method on file"}
               </button>
-            </div>
-
-            <h3 className="cb-checkout-section-title">Summary</h3>
-            <div className="cb-checkout-totals">
-              <div className="cb-checkout-total-row">
-                <span>Subtotal</span>
-                <span>
-                  {bagAggregates.lineSubtotal != null
-                    ? formatPrice(bagAggregates.lineSubtotal, bagCurrency)
-                    : bagGrandTotal != null
-                      ? formatPrice(bagGrandTotal, bagCurrency)
-                      : "—"}
-                </span>
-              </div>
-              {displayDiscountTotal != null ? (
-                <div className="cb-checkout-total-row cb-checkout-total-row--discount">
-                  <span>Entitlements and savings</span>
-                  <span>−{formatPrice(displayDiscountTotal, bagCurrency)}</span>
-                </div>
-              ) : null}
-              <div className="cb-checkout-total-row cb-checkout-total-row--muted">
-                <span>Estimated tax</span>
-                <span>
-                  {bagAggregates.taxTotal != null
-                    ? formatPrice(bagAggregates.taxTotal, bagCurrency)
-                    : "—"}
-                </span>
-              </div>
-              <div className="cb-checkout-total-row cb-checkout-total-row--muted">
-                <span>Transaction fees</span>
-                <span
-                  className={
-                    transactionFeesDisplay.kind === "hint" ? "text-[var(--cb-text-muted)] text-right text-xs" : ""
-                  }
-                >
-                  {transactionFeesDisplay.kind === "amount"
-                    ? formatPrice(transactionFeesDisplay.value, bagCurrency)
-                    : transactionFeesDisplay.text}
-                </span>
-              </div>
-              <div className="cb-checkout-total-row cb-checkout-total-row--grand">
-                <span>Estimated total</span>
-                <strong>
-                  {estimatedAmountDue != null
-                    ? formatPrice(estimatedAmountDue, bagCurrency)
-                    : bagAggregates.cartGrandTotal != null
-                      ? formatPrice(bagAggregates.cartGrandTotal, bagCurrency)
-                      : "—"}
-                </strong>
-              </div>
             </div>
 
             {submitBookingRequestMutation.isError ? (
               <p className="mt-2 text-sm text-[var(--cb-error-text)]" role="alert">
-                {submitBookingRequestMutation.error instanceof BondBffError
-                  ? formatConsumerBookingError(submitBookingRequestMutation.error, {
-                      customerLabel: bookingForLabel,
-                      orgName: orgDisplayName,
-                    })
-                  : submitBookingRequestMutation.error instanceof Error
-                    ? submitBookingRequestMutation.error.message
-                    : "Could not submit request."}
+                {formatConsumerBookingErrorUnknown(submitBookingRequestMutation.error, {
+                  customerLabel: bookingForLabel,
+                  orgName: orgDisplayName,
+                  productName,
+                })}
               </p>
             ) : null}
 
             <div className="cb-checkout-actions">
-              <button type="button" className="cb-btn-ghost" onClick={() => setStep("cart")}>
-                Back
+              <button type="button" className="cb-btn-ghost" onClick={onClose}>
+                Keep shopping
               </button>
-              {approvalRequired ? (
+              {bagPolicyCheckout === "all_submission" || bagPolicyCheckout === "mixed" ? (
                 <button
                   type="button"
                   className="cb-btn-primary"
                   disabled={
                     submitBookingRequestMutation.isPending ||
                     paymentLines.length === 0 ||
-                    pickedSlots.length === 0
+                    selectedPaymentMethodId == null ||
+                    (pickedSlots.length === 0 && bagSnapshots.length === 0 && !lastCart && !approvalDeferred)
                   }
                   onClick={() => submitBookingRequestMutation.mutate()}
                 >
-                  {submitBookingRequestMutation.isPending ? "Submitting…" : "Submit request"}
+                  {submitBookingRequestMutation.isPending
+                    ? "Submitting…"
+                    : bagPolicyCheckout === "mixed"
+                      ? "Pay & submit"
+                      : "Submit request"}
                 </button>
               ) : depositAmount != null ? (
                 <button
@@ -1320,19 +1821,32 @@ export function BookingCheckoutDrawer({
                 </button>
               )}
             </div>
+
+            {approvalRequired ? (
+              <div
+                className="cb-checkout-category-approval-notice mt-4 rounded-md border border-[var(--cb-border)] bg-[var(--cb-surface)] px-3 py-2.5 text-sm leading-snug text-[var(--cb-text)]"
+                role="note"
+              >
+                Rentals and addons are submitted for facility review. Membership charges are handled separately.
+              </div>
+            ) : null}
           </div>
         ) : null}
 
         {step === "addons" ? (
           <div className="cb-checkout-step">
-            <p className="cb-checkout-hint">
-              {selectedAddonIds.size > 0
-                ? "Your extras from the schedule are kept below. Adjust if needed, then continue."
-                : "Optional add-ons for this service. Required items from Bond are listed first—confirm each before continuing."}
-            </p>
+            {packageAddons.length > 0 ? (
+              <p className="cb-checkout-hint">
+                {selectedAddonIds.size > 0
+                  ? "Your extras from the schedule are listed below. Adjust if needed, then continue."
+                  : "Optional extras for this service appear below when available."}
+              </p>
+            ) : otherRequired.length > 0 ? (
+              <p className="cb-checkout-hint">Confirm each required item before continuing.</p>
+            ) : null}
             {requiredQuery.isPending ? (
               <p className="cb-muted text-sm">Loading required products…</p>
-            ) : membershipOptions.length > 0 && !membershipSelectionResolved ? (
+            ) : membershipOptionsForStep.length > 0 && !membershipSelectionResolved ? (
               <p className="cb-muted mb-3 text-sm">
                 A membership is required for this booking. Continue to choose a plan on the next step.
               </p>
@@ -1429,9 +1943,9 @@ export function BookingCheckoutDrawer({
 
         {step === "membership" ? (
           <div className="cb-checkout-step">
-            {membershipOptions.length > 0 ? (
+            {membershipOptionsForStep.length > 0 ? (
               <MembershipRequiredPanel
-                options={membershipOptions}
+                options={membershipOptionsForStep}
                 selectedRootId={selectedMembershipRootId}
                 onSelectRoot={setSelectedMembershipRootId}
                 formatPrice={formatPrice}
@@ -1441,13 +1955,21 @@ export function BookingCheckoutDrawer({
               <p className="cb-muted text-sm">No membership options required. Continue to proceed.</p>
             )}
             <div className="cb-checkout-actions">
-              <button type="button" className="cb-btn-ghost" onClick={() => setStep("addons")}>
+              <button
+                type="button"
+                className="cb-btn-ghost"
+                onClick={() => {
+                  const p = previousStepInCheckoutFlow("membership", checkoutFlowFlags);
+                  if (p === "close") onClose();
+                  else setStep(p);
+                }}
+              >
                 Back
               </button>
               <button
                 type="button"
                 className="cb-btn-primary"
-                disabled={selectedMembershipRootId == null && membershipOptions.length > 0}
+                disabled={selectedMembershipRootId == null && membershipOptionsForStep.length > 0}
                 onClick={handleMembershipConfirm}
               >
                 Continue
@@ -1485,7 +2007,11 @@ export function BookingCheckoutDrawer({
               <button
                 type="button"
                 className="cb-btn-ghost"
-                onClick={() => setStep(membershipOptions.length > 0 ? "membership" : "addons")}
+                onClick={() => {
+                  const p = previousStepInCheckoutFlow("forms", checkoutFlowFlags);
+                  if (p === "close") onClose();
+                  else setStep(p);
+                }}
               >
                 Back
               </button>
@@ -1498,25 +2024,48 @@ export function BookingCheckoutDrawer({
 
         {step === "confirm" ? (
           <div className="cb-checkout-step">
-            <div className="cb-checkout-summary-cards">
-              {pickedSlots.map((p, slotIdx) => {
+            {mode === "checkout" && bagSnapshots.length > 0 ? (
+              <p className="cb-checkout-hint cb-checkout-hint--bag mb-3 text-sm leading-relaxed">
+                Cart has {bagSnapshots.length} saved booking{bagSnapshots.length === 1 ? "" : "s"}. Pricing here is for
+                your new selection only; tap Add to cart to append.
+              </p>
+            ) : null}
+            {!hasBondReceiptLineItems ? (
+              <>
+                <div className="cb-checkout-summary-cards">
+              {confirmSlotGroups.map((group) => {
+                const p = group[0]!;
+                const firstIdx = pickedSlots.findIndex((s) => s.key === p.key);
+                const single = group.length === 1;
                 const bondStrike =
-                  slotIdx === 0 && confirmPreviewStrike != null ? confirmPreviewStrike : null;
+                  single && firstIdx === 0 && confirmPreviewStrike != null ? confirmPreviewStrike : null;
                 const origFromSchedule =
-                  bondStrike == null && Array.isArray(entitlements) && entitlements.length > 0
-                    ? reverseEntitlementDiscountsToUnitPrice(p.price, entitlements)
+                  bondStrike == null && single && Array.isArray(entitlements) && entitlements.length > 0
+                    ? p.scheduleUnitPrice != null && Number.isFinite(p.scheduleUnitPrice)
+                      ? p.scheduleUnitPrice
+                      : reverseEntitlementDiscountsToUnitPrice(p.price, entitlements)
                     : null;
+                const totalPrice = group.reduce((s, x) => s + x.price, 0);
+                const priceAmount = bondStrike != null ? bondStrike.current : single ? p.price : totalPrice;
                 const showStrike =
                   bondStrike != null
                     ? bondStrike.original > bondStrike.current + 0.01
                     : origFromSchedule != null && origFromSchedule > p.price + 0.01;
                 const strikeAmount = bondStrike?.original ?? origFromSchedule;
-                const priceAmount = bondStrike?.current ?? p.price;
+                const timeLabel = single ? formatPickedSlotTimeRange(p) : spanLabelForSlotGroup(group);
                 return (
-                  <div key={p.key} className="cb-checkout-line-card">
+                  <div key={group.map((g) => g.key).join("|")} className="cb-checkout-line-card">
                     <div className="cb-checkout-line-title">{productName}</div>
-                    <div className="cb-checkout-line-meta">{p.resourceName}</div>
-                    <div className="cb-checkout-line-time">{formatPickedSlotTimeRange(p)}</div>
+                    {showStrike && entitlementCatalogHint ? (
+                      <div className="cb-checkout-line-entitlement mt-0.5 text-xs leading-snug text-[var(--cb-text-muted)]">
+                        {entitlementCatalogHint}
+                      </div>
+                    ) : null}
+                    <div className="cb-checkout-line-meta">
+                      {p.resourceName}
+                      {!single ? ` · ${group.length} consecutive slots` : null}
+                    </div>
+                    <div className="cb-checkout-line-time">{timeLabel}</div>
                     <div className="cb-checkout-line-price">
                       {showStrike && strikeAmount != null ? (
                         <>
@@ -1524,7 +2073,7 @@ export function BookingCheckoutDrawer({
                           <strong>{formatPrice(priceAmount, currency)}</strong>
                         </>
                       ) : (
-                        <strong>{formatPrice(p.price, currency)}</strong>
+                        <strong>{formatPrice(single ? p.price : totalPrice, currency)}</strong>
                       )}
                     </div>
                   </div>
@@ -1535,13 +2084,17 @@ export function BookingCheckoutDrawer({
             {allRequiredFlat.some((r) => requiredSelected.has(r.id)) ||
             [...selectedAddonIds].some((id) => packageAddons.some((p) => p.id === id)) ? (
               <div className="cb-checkout-addons-review">
-                <h3 className="cb-checkout-section-title">Add-ons</h3>
-                {allRequiredFlat.filter((r) => requiredSelected.has(r.id)).length > 0 ? (
+                {allRequiredFlat.filter(
+                  (r) => requiredSelected.has(r.id) && isMembershipRequiredProduct(r as ExtendedRequiredProductNode)
+                ).length > 0 ? (
                   <div className="cb-checkout-addon-review-group">
-                    <p className="cb-checkout-addon-review-label">Required</p>
+                    <h3 className="cb-checkout-section-title">Membership</h3>
                     <ul className="cb-checkout-addon-review-list">
                       {allRequiredFlat
-                        .filter((r) => requiredSelected.has(r.id))
+                        .filter(
+                          (r) =>
+                            requiredSelected.has(r.id) && isMembershipRequiredProduct(r as ExtendedRequiredProductNode)
+                        )
                         .map((r) => (
                           <li key={r.id} className="cb-checkout-addon-review-row">
                             <span>{r.name ?? `Product ${r.id}`}</span>
@@ -1560,6 +2113,40 @@ export function BookingCheckoutDrawer({
                     </ul>
                   </div>
                 ) : null}
+                {allRequiredFlat.filter(
+                  (r) =>
+                    requiredSelected.has(r.id) && !isMembershipRequiredProduct(r as ExtendedRequiredProductNode)
+                ).length > 0 ? (
+                  <div className="cb-checkout-addon-review-group mt-4">
+                    <h3 className="cb-checkout-section-title">Other required</h3>
+                    <ul className="cb-checkout-addon-review-list">
+                      {allRequiredFlat
+                        .filter(
+                          (r) =>
+                            requiredSelected.has(r.id) &&
+                            !isMembershipRequiredProduct(r as ExtendedRequiredProductNode)
+                        )
+                        .map((r) => (
+                          <li key={r.id} className="cb-checkout-addon-review-row">
+                            <span>{r.name ?? `Product ${r.id}`}</span>
+                            {r.displayPrice ? (
+                              <span className="cb-checkout-addon-review-price">
+                                {formatPrice(r.displayPrice.amount, r.displayPrice.currency)}
+                                {r.displayPrice.label ? (
+                                  <span className="cb-checkout-addon-review-freq"> {r.displayPrice.label}</span>
+                                ) : null}
+                              </span>
+                            ) : (
+                              <span className="cb-checkout-addon-review-price cb-muted text-xs">—</span>
+                            )}
+                          </li>
+                        ))}
+                    </ul>
+                  </div>
+                ) : null}
+                {[...selectedAddonIds].some((id) => packageAddons.some((p) => p.id === id)) ? (
+                  <div className="cb-checkout-addon-review-group mt-4">
+                    <h3 className="cb-checkout-section-title">Optional extras</h3>
                 {packageAddons.filter((a) => selectedAddonIds.has(a.id) && a.level === "reservation").length > 0 ? (
                   <div className="cb-checkout-addon-review-group">
                     <p className="cb-checkout-addon-review-label">With your reservation</p>
@@ -1616,22 +2203,35 @@ export function BookingCheckoutDrawer({
                     </ul>
                   </div>
                 ) : null}
+                  </div>
+                ) : null}
               </div>
+            ) : null}
+              </>
             ) : null}
 
             {hasBondReceiptLineItems ? (
               <div className="cb-checkout-receipt-sheet">
                 <p className="cb-checkout-receipt-kicker">Line items</p>
-                <div className="cb-checkout-receipt-grid">
+                <ul className="cb-checkout-receipt-line-list">
                   {previewReceiptLines.map((line) => (
-                    <div key={line.id} className="cb-checkout-receipt-box">
-                      <div className="cb-checkout-receipt-box-head">
-                        <span className="cb-checkout-receipt-box-title">{line.title}</span>
+                    <li key={line.id} className="cb-checkout-receipt-line-item">
+                      <div className="cb-checkout-receipt-line-item-main">
+                        <span className="cb-checkout-receipt-line-title">{line.title}</span>
+                        {line.discountNote ? (
+                          <span className="cb-checkout-discount-tag">{line.discountNote}</span>
+                        ) : line.strikeAmount != null &&
+                          line.strikeAmount > line.amount + 0.005 &&
+                          entitlementCatalogHint ? (
+                          <span className="cb-checkout-receipt-line-entitlement mt-0.5 block text-xs leading-snug text-[var(--cb-text-muted)]">
+                            {entitlementCatalogHint}
+                          </span>
+                        ) : null}
                         {line.badge ? (
                           <span className="cb-checkout-receipt-box-badge">{line.badge}</span>
                         ) : null}
                       </div>
-                      <div className="cb-checkout-receipt-box-price">
+                      <div className="cb-checkout-receipt-line-item-price">
                         {line.strikeAmount != null && line.strikeAmount > line.amount + 0.005 ? (
                           <>
                             <span className="cb-checkout-price-strike">
@@ -1643,25 +2243,55 @@ export function BookingCheckoutDrawer({
                           <strong>{formatPrice(line.amount, currency)}</strong>
                         )}
                       </div>
-                    </div>
+                    </li>
                   ))}
-                </div>
+                </ul>
               </div>
             ) : null}
 
             {showBondPricingFooter && previewBondPricing != null ? (
               <div className="cb-checkout-bond-receipt" aria-label="Cart totals from Bond">
-                <p className="cb-checkout-bond-receipt-title">Cart totals</p>
-                <p className="cb-checkout-bond-receipt-sub text-[var(--cb-text-muted)] text-xs mb-2">
-                  From your booking request — promos, entitlements, and tax when Bond returns them.
-                </p>
+                <p className="cb-muted mb-2 text-xs font-medium uppercase tracking-wide">Estimate from Bond</p>
                 <ul className="cb-checkout-bond-receipt-lines">
-                  {previewBondPricing.rows.map((row, idx) => (
+                  {showBondSplitRows && previewKindBreakdown != null ? (
+                    <>
+                      {Math.abs(previewKindBreakdown.rentals) > BOND_KIND_LINE_MIN ? (
+                        <li className="cb-checkout-bond-receipt-line cb-checkout-bond-receipt-line--default">
+                          <span className="cb-checkout-bond-receipt-line-text">
+                            <span className="cb-checkout-bond-receipt-line-label">Rentals</span>
+                          </span>
+                          <span>{formatPrice(previewKindBreakdown.rentals, previewBondPricing.currency)}</span>
+                        </li>
+                      ) : null}
+                      {Math.abs(previewKindBreakdown.memberships) > BOND_KIND_LINE_MIN ? (
+                        <li className="cb-checkout-bond-receipt-line cb-checkout-bond-receipt-line--default">
+                          <span className="cb-checkout-bond-receipt-line-text">
+                            <span className="cb-checkout-bond-receipt-line-label">Memberships</span>
+                          </span>
+                          <span>{formatPrice(previewKindBreakdown.memberships, previewBondPricing.currency)}</span>
+                        </li>
+                      ) : null}
+                      {Math.abs(previewKindBreakdown.addons) > BOND_KIND_LINE_MIN ? (
+                        <li className="cb-checkout-bond-receipt-line cb-checkout-bond-receipt-line--default">
+                          <span className="cb-checkout-bond-receipt-line-text">
+                            <span className="cb-checkout-bond-receipt-line-label">Add-ons</span>
+                          </span>
+                          <span>{formatPrice(previewKindBreakdown.addons, previewBondPricing.currency)}</span>
+                        </li>
+                      ) : null}
+                    </>
+                  ) : null}
+                  {bondPricingRowsFiltered.map((row, idx) => (
                     <li
                       key={`${row.label}-${idx}`}
                       className={`cb-checkout-bond-receipt-line cb-checkout-bond-receipt-line--${row.variant}`}
                     >
-                      <span>{row.label}</span>
+                      <span className="cb-checkout-bond-receipt-line-text">
+                        <span className="cb-checkout-bond-receipt-line-label">{row.label}</span>
+                        {row.detail ? (
+                          <span className="cb-checkout-bond-receipt-line-detail">{row.detail}</span>
+                        ) : null}
+                      </span>
                       <span>
                         {row.amount != null
                           ? row.variant === "discount"
@@ -1675,32 +2305,41 @@ export function BookingCheckoutDrawer({
               </div>
             ) : null}
 
-            <div className="cb-checkout-summary-who">
-              <span className="cb-checkout-summary-who-label">Booking for</span>
-              <span className="cb-checkout-summary-who-name">{bookingForLabel}</span>
-              {bookingForBadge ? <span className="cb-member-badge cb-member-badge--gold">{bookingForBadge}</span> : null}
-            </div>
-
-            {mode === "checkout" && bagSnapshots.length > 0 ? (
-              <p className="cb-checkout-hint cb-checkout-hint--bag mb-3 text-sm">
-                You have {bagSnapshots.length} other booking{bagSnapshots.length === 1 ? "" : "s"} in your cart.
+            {cannotMergeSessionCart ? (
+              <p className="mb-3 text-sm text-[var(--cb-error-text)]" role="alert">
+                We couldn&apos;t read a cart id from your saved bookings, so another reservation can&apos;t be merged
+                yet. Clear the cart and try again, or refresh the page.
               </p>
             ) : null}
 
-            {bookingPreviewQuery.isPending ? (
+            {awaitingConfirmBondCart ? (
               <div className="cb-checkout-bond-receipt mb-4" aria-busy="true" aria-live="polite">
                 <p className="cb-muted text-sm">Loading pricing…</p>
               </div>
-            ) : bookingPreviewQuery.isError ? (
+            ) : confirmBondCartQuery.isError && confirmBondCartQuery.data == null ? (
               <div className="cb-checkout-bond-receipt cb-checkout-bond-receipt--empty mb-4" role="alert">
-                <p className="text-sm text-[var(--cb-error-text)] mb-2">Couldn&apos;t load pricing.</p>
-                <button type="button" className="cb-btn-outline text-sm" onClick={() => bookingPreviewQuery.refetch()}>
+                <p className="text-sm text-[var(--cb-error-text)] mb-2">
+                  {confirmBondCartErrorText ?? "Couldn&apos;t load pricing."}
+                </p>
+                <button type="button" className="cb-btn-outline text-sm" onClick={() => confirmBondCartQuery.refetch()}>
                   Retry
+                </button>
+              </div>
+            ) : confirmBondCartQuery.isError && confirmBondCartQuery.data != null ? (
+              <div
+                className="cb-checkout-bond-receipt cb-checkout-bond-receipt--empty mb-4 border border-[var(--cb-border)]"
+                role="status"
+              >
+                <p className="text-sm text-[var(--cb-text-muted)] mb-2">
+                  {confirmBondCartErrorText ?? "Pricing may be out of date. Retry to refresh."}
+                </p>
+                <button type="button" className="cb-btn-outline text-sm" onClick={() => confirmBondCartQuery.refetch()}>
+                  Refresh pricing
                 </button>
               </div>
             ) : null}
 
-            {!bookingPreviewQuery.isPending && !showBondPricingFooter ? (
+            {!awaitingConfirmBondCart && !showBondPricingFooter ? (
               <div className="cb-checkout-totals">
                 <p className="cb-muted mb-2 text-xs font-medium uppercase tracking-wide">Estimate only</p>
                 {showMemberPricing && estimatedOriginalSubtotal != null ? (
@@ -1718,13 +2357,19 @@ export function BookingCheckoutDrawer({
                   </>
                 ) : null}
                 <div className="cb-checkout-total-row">
-                  <span>Rental</span>
+                  <span>Rentals</span>
                   <span>{formatPrice(subtotal, currency)}</span>
                 </div>
-                {requiredProductsTotal + optionalAddonsConfirmTotal > 0 ? (
+                {membershipRequiredTotal > 0 ? (
                   <div className="cb-checkout-total-row">
-                    <span>Add-ons</span>
-                    <span>{formatPrice(requiredProductsTotal + optionalAddonsConfirmTotal, currency)}</span>
+                    <span>Memberships</span>
+                    <span>{formatPrice(membershipRequiredTotal, currency)}</span>
+                  </div>
+                ) : null}
+                {optionalAddonsConfirmTotal + nonMembershipRequiredTotal > 0 ? (
+                  <div className="cb-checkout-total-row">
+                    <span>Extras</span>
+                    <span>{formatPrice(optionalAddonsConfirmTotal + nonMembershipRequiredTotal, currency)}</span>
                   </div>
                 ) : null}
                 <div className="cb-checkout-total-row cb-checkout-total-row--grand">
@@ -1734,117 +2379,42 @@ export function BookingCheckoutDrawer({
               </div>
             ) : null}
 
-            {createMutation.isError ? (
-              <p className="mt-2 text-sm text-[var(--cb-error-text)]" role="alert">
-                {createMutation.error instanceof BondBffError
-                  ? formatConsumerBookingError(createMutation.error, {
-                      customerLabel: bookingForLabel,
-                      orgName: orgDisplayName,
-                    })
-                  : createMutation.error instanceof Error
-                    ? createMutation.error.message
-                    : "Could not create reservation."}
-              </p>
-            ) : null}
             <div className="cb-checkout-actions">
               <button
                 type="button"
                 className="cb-btn-ghost"
-                onClick={() => setStep(questionnaireIds.length > 0 ? "forms" : "addons")}
+                onClick={() => {
+                  const p = previousStepInCheckoutFlow("confirm", checkoutFlowFlags);
+                  if (p === "close") onClose();
+                  else setStep(p);
+                }}
               >
                 Back
               </button>
               <button
                 type="button"
                 className="cb-btn-primary"
-                disabled={bookingPreviewQuery.isFetching || createMutation.isPending}
+                disabled={
+                  cannotMergeSessionCart ||
+                  awaitingConfirmBondCart ||
+                  (!approvalRequired &&
+                    confirmBondCartQuery.data == null &&
+                    (confirmBondCartQuery.isPending ||
+                      confirmBondCartQuery.isFetching ||
+                      confirmBondCartQuery.isError))
+                }
                 onClick={handleConfirmAddToCart}
               >
-                {createMutation.isPending
-                  ? "Adding…"
-                  : bookingPreviewQuery.isFetching
-                    ? "Preparing pricing…"
+                {awaitingConfirmBondCart
+                  ? "Preparing pricing…"
+                  : confirmBondCartQuery.isFetching && confirmBondCartQuery.data != null
+                    ? "Updating pricing…"
                     : "Add to cart"}
               </button>
             </div>
           </div>
         ) : null}
 
-        {step === "cart" && (lastCart || approvalDeferred) ? (
-          <div className="cb-checkout-step cb-checkout-step--added">
-            <div className="cb-checkout-added-iconwrap" aria-hidden>
-              <span className="cb-checkout-added-check">✓</span>
-            </div>
-            <p className="cb-checkout-added-kicker">You&apos;re almost done</p>
-            <h3 className="cb-checkout-added-title">
-              {approvalDeferred && !lastCart ? "Ready for checkout" : "Added to cart"}
-            </h3>
-            <p className="cb-checkout-added-copy">
-              {approvalDeferred && !lastCart
-                ? "Continue to checkout to submit your request."
-                : "Your booking is saved. Add another or continue to checkout when you&apos;re ready."}
-              {lastCart != null && lastCart.id != null ? (
-                <>
-                  {" "}
-                  <span className="cb-muted">Cart #{lastCart.id}</span>
-                </>
-              ) : null}
-            </p>
-            {lastCart != null && lastCartBondPricing != null && lastCartBondPricing.rows.length > 0 ? (
-              <div className="cb-checkout-bond-receipt" aria-label="Cart totals from Bond">
-                <p className="cb-checkout-bond-receipt-title">Cart totals</p>
-                <p className="cb-checkout-bond-receipt-sub text-[var(--cb-text-muted)] text-xs mb-2">
-                  From your booking request — promos, entitlements, and tax when Bond returns them.
-                </p>
-                <ul className="cb-checkout-bond-receipt-lines">
-                  {lastCartBondPricing.rows.map((row, idx) => (
-                    <li
-                      key={`${row.label}-${idx}`}
-                      className={`cb-checkout-bond-receipt-line cb-checkout-bond-receipt-line--${row.variant}`}
-                    >
-                      <span>{row.label}</span>
-                      <span>
-                        {row.amount != null
-                          ? row.variant === "discount"
-                            ? `−${formatPrice(row.amount, lastCartBondPricing.currency)}`
-                            : formatPrice(row.amount, lastCartBondPricing.currency)
-                          : "—"}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : lastCart != null && lastCartBondPricing != null && lastCartBondPricing.rows.length === 0 ? (
-              <div className="cb-checkout-bond-receipt cb-checkout-bond-receipt--empty">
-                <p className="cb-muted text-sm">
-                  Bond did not return line totals on this cart yet. Your booking is still reserved — open the cart bag
-                  to review, or continue to checkout.
-                </p>
-              </div>
-            ) : null}
-            <div className="cb-checkout-added-actions">
-              {onAddAnotherBooking ? (
-                <button
-                  type="button"
-                  className="cb-btn-outline cb-checkout-added-btn"
-                  onClick={() => {
-                    onAddAnotherBooking();
-                    onClose();
-                  }}
-                >
-                  Add another booking
-                </button>
-              ) : null}
-              <button
-                type="button"
-                className="cb-btn-primary cb-checkout-added-btn"
-                onClick={() => setStep("payment")}
-              >
-                Checkout
-              </button>
-            </div>
-          </div>
-        ) : null}
       </div>
 
       <ModalShell

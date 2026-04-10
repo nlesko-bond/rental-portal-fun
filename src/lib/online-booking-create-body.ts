@@ -1,58 +1,25 @@
-import type { PickedSlot } from "./slot-selection";
+import { getEffectiveAddonSlotKeys } from "@/lib/addon-slot-targeting";
+import { cashUnitPriceForBondFallback } from "./booking-pricing";
+import { slotPriceForBondApi, type PickedSlot } from "./slot-selection";
 import type { PackageAddonLine } from "./product-package-addons";
+import type { AddCartItemDtoMinimal, CreateBookingAddonDto } from "@/types/create-booking-dto";
+import type { ExtendedProductDto } from "@/types/online-booking";
 
 /**
  * `POST /v1/organization/{organizationId}/online-booking/create` (operation `cartReservation`)
  *
- * **Request body:** The hosted OpenAPI JSON often lists only **path + auth headers** for this operation and omits
- * `requestBody`. The JSON body is still required at runtime — it matches Bond’s create-booking DTO (segments, portal
- * id, category, userId, optional `addonProductIds`, optional `answers`, etc.). This module is the integration contract
- * until the spec publishes `requestBody` explicitly.
- *
- * **Optional `cartId`:** Not in the public create snippet today; add when Bond documents append-to-cart behavior.
+ * **Authoritative schema (until Swagger lists requestBody):** `docs/bond/create-booking-dto.schema.json`
+ * — `CreateBookingDto` uses **`addons[]`** (`productId` + `quantity`) at root and per segment, not flat `addonProductIds`.
  *
  * Bond expects **segments** each with `spaceId`, `activity`, `facilityId`, `productId`, and a non-empty **`slots`**
  * array (nested slot rows with `resourceId`, dates/times, `price`, `timezone`).
  */
 
-/**
- * Bond often accepts only **reservation-scoped** add-on product IDs at the top level.
- * Slot/hour add-ons are sent as **`addonProductIds` on each segment** that the add-on applies to
- * (see `splitAddonPayloadForCreate` + `segmentAddonProductIds` in `buildOnlineBookingCreateBody`).
- */
-export function filterAddonProductIdsForCreate(
-  ids: number[],
-  packageAddons: PackageAddonLine[]
-): number[] {
-  const byId = new Map(packageAddons.map((a) => [a.id, a]));
-  const out: number[] = [];
-  for (const id of ids) {
-    const line = byId.get(id);
-    if (!line) {
-      out.push(id);
-      continue;
-    }
-    if (line.level === "reservation") out.push(id);
-  }
-  return [...new Set(out)];
-}
-
 export type AddonSlotTargetingInput = Record<number, { all: boolean; keys: string[] }>;
 
-function effectiveAddonKeys(
-  spec: { all: boolean; keys: string[] } | undefined,
-  allKeys: Set<string>
-): Set<string> {
-  // UI sets `{ all: true }` in an effect after toggle; one render can omit targeting — default to all picked slots.
-  if (!spec) return new Set(allKeys);
-  if (spec.all) return new Set(allKeys);
-  return new Set(spec.keys.filter((k) => allKeys.has(k)));
-}
-
 /**
- * Splits add-on product ids for `POST …/online-booking/create`:
- * - **Top-level** `addonProductIds`: required products + reservation-level optional add-ons + unknown ids.
- * - **Per-segment** `addonProductIds`: slot/hour add-ons, copied onto each segment whose slot key is targeted.
+ * Splits add-on product ids for `POST …/online-booking/create` → passed to {@link buildOnlineBookingCreateBody}
+ * as **`addons[]`** (root + per-segment quantities).
  */
 export function splitAddonPayloadForCreate(opts: {
   pickedSlots: PickedSlot[];
@@ -65,11 +32,9 @@ export function splitAddonPayloadForCreate(opts: {
   const perSegment: number[][] = opts.pickedSlots.map(() => []);
   const topLevel: number[] = [];
   const byId = new Map(opts.packageAddons.map((a) => [a.id, a]));
+  /** Includes satisfied membership SKUs (`required: false` on GET …/required), not only checkout `requiredSelected`. */
   const reqSet = new Set(opts.requiredSelected);
-
-  for (const id of opts.requiredSelected) {
-    topLevel.push(id);
-  }
+  /** Required SKUs belong only in `requiredProducts` on `CreateBookingDto`, not duplicated in root `addons`. */
 
   for (const id of opts.selectedAddonIds) {
     if (reqSet.has(id)) continue;
@@ -82,7 +47,7 @@ export function splitAddonPayloadForCreate(opts: {
       topLevel.push(id);
       continue;
     }
-    const eff = effectiveAddonKeys(opts.addonSlotTargeting[id], slotKeySet);
+    const eff = getEffectiveAddonSlotKeys(opts.addonSlotTargeting[id], slotKeySet);
     opts.pickedSlots.forEach((slot, idx) => {
       if (eff.has(slot.key)) perSegment[idx]!.push(id);
     });
@@ -92,6 +57,15 @@ export function splitAddonPayloadForCreate(opts: {
     topLevel: [...new Set(topLevel)],
     perSegment,
   };
+}
+
+/** Collapses duplicate product ids into `{ productId, quantity }[]` for `CreateBookingDto.addons`. */
+export function addonProductIdsToAddonDtos(ids: readonly number[]): CreateBookingAddonDto[] {
+  const m = new Map<number, number>();
+  for (const id of ids) {
+    m.set(id, (m.get(id) ?? 0) + 1);
+  }
+  return [...m.entries()].map(([productId, quantity]) => ({ productId, quantity }));
 }
 /** Per Swagger `CreateBookingDto` / online-booking create: `answers[]` with `userId` + nested `answers` (questionId + value). */
 export type OnlineBookingCreateAnswerRow = {
@@ -108,16 +82,24 @@ export function buildOnlineBookingCreateBody(opts: {
   facilityId: number;
   productId: number;
   slots: PickedSlot[];
-  /** Reservation + required + unknown ids (not placed on segments). */
+  /** Reservation-level add-on product ids → top-level `addons[]` with quantities. */
   addonProductIds?: number[];
-  /** Same length as `slots` — slot/hour add-on ids per segment (Bond segment `addonProductIds`). */
+  /** Same length as `slots` — slot/hour add-on ids per segment → `segments[i].addons[]`. */
   segmentAddonProductIds?: number[][];
   /** Questionnaire answers for entitlement / promo flows (not `questionnaireAnswers`). */
   answers?: OnlineBookingCreateAnswerRow[];
-  /** When Bond supports merging into an existing server cart (see Swagger when available). */
+  /** Merge this reservation into an existing Bond cart (append line items). */
   cartId?: number;
+  /**
+   * Bond `requiredProducts[]` (`AddCartItemDto`) — include satisfied membership SKUs (`required: false` on GET …/required)
+   * plus checkout selections; each line gets `userId` + `quantity: 1` so validation matches member-priced slots.
+   */
+  requiredProductLineItems?: Array<{ productId: number; unitPrice?: number }>;
+  /** Used when schedule slot `price` is 0 (member display) — Bond create still needs a positive cash unit. */
+  product?: ExtendedProductDto;
 }): Record<string, unknown> {
   const activity = normalizeActivityForApi(opts.activity);
+  const catalogFallback = cashUnitPriceForBondFallback(opts.product);
 
   const segments = opts.slots.map((s, i) => {
     const seg: Record<string, unknown> = {
@@ -132,24 +114,38 @@ export function buildOnlineBookingCreateBody(opts: {
           endDate: s.endDate,
           startTime: s.startTime,
           endTime: s.endTime,
-          price: s.price,
+          price: slotPriceForBondApi(s, catalogFallback),
           timezone: s.timezone,
         },
       ],
     };
     const segAddons = opts.segmentAddonProductIds?.[i];
     if (segAddons != null && segAddons.length > 0) {
-      seg.addonProductIds = [...new Set(segAddons)];
+      seg.addons = addonProductIdsToAddonDtos(segAddons);
     }
     return seg;
   });
+
+  const rootAddonIds = opts.addonProductIds ?? [];
+  const rootAddonDtos = addonProductIdsToAddonDtos(rootAddonIds);
+
+  const requiredProducts: AddCartItemDtoMinimal[] | undefined =
+    opts.requiredProductLineItems && opts.requiredProductLineItems.length > 0
+      ? [...new Map(opts.requiredProductLineItems.map((l) => [l.productId, l])).values()].map((line) => ({
+          productId: line.productId,
+          userId: opts.userId,
+          quantity: 1,
+          ...(line.unitPrice !== undefined && Number.isFinite(line.unitPrice) ? { unitPrice: line.unitPrice } : {}),
+        }))
+      : undefined;
 
   return {
     userId: opts.userId,
     onlineBookingPortalId: opts.portalId,
     categoryId: opts.categoryId,
     segments,
-    ...(opts.addonProductIds && opts.addonProductIds.length > 0 ? { addonProductIds: [...new Set(opts.addonProductIds)] } : {}),
+    ...(rootAddonDtos.length > 0 ? { addons: rootAddonDtos } : {}),
+    ...(requiredProducts != null && requiredProducts.length > 0 ? { requiredProducts } : {}),
     ...(opts.answers && opts.answers.length > 0 ? { answers: opts.answers } : {}),
     ...(opts.cartId != null && Number.isFinite(opts.cartId) ? { cartId: opts.cartId } : {}),
   };

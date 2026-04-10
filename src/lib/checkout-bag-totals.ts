@@ -8,6 +8,7 @@ import {
   getCartItemMetadataDescription,
   receiptBadgeForCartLine,
 } from "@/lib/bond-cart-item-classify";
+import { describeCartItemDiscountLabels, resolveDiscountTriggerName } from "@/lib/entitlement-discount";
 
 /**
  * Bond may return these on `OrganizationCartDto` (names vary by version; not all in OpenAPI).
@@ -55,6 +56,136 @@ function getCartItemLineAmount(it: Record<string, unknown>): number | null {
 export function cartItemLineAmountFromDto(raw: unknown): number | null {
   if (!raw || typeof raw !== "object") return null;
   return getCartItemLineAmount(raw as Record<string, unknown>);
+}
+
+export { describeCartItemDiscountLabels } from "./entitlement-discount";
+
+function sumLineDiscountSavingsFromBond(it: Record<string, unknown>): number | null {
+  let sum = 0;
+  let any = false;
+  const raw = it.discounts;
+  if (Array.isArray(raw) && raw.length > 0) {
+    for (const d of raw) {
+      if (!d || typeof d !== "object") continue;
+      const disc = coerceFiniteNumber((d as Record<string, unknown>).discountAmount);
+      if (disc != null && Math.abs(disc) > 0.0001) {
+        sum += Math.abs(disc);
+        any = true;
+      }
+    }
+  }
+  if (!any && it.discount && typeof it.discount === "object") {
+    const disc = coerceFiniteNumber((it.discount as Record<string, unknown>).discountAmount);
+    if (disc != null && Math.abs(disc) > 0.0001) {
+      sum += Math.abs(disc);
+      any = true;
+    }
+  }
+  return any ? sum : null;
+}
+
+/** Percent from Bond line `discounts[]` or lone `discount` (same shapes as `describeCartItemDiscountLabels`). */
+function extractPercentFromBondDiscounts(it: Record<string, unknown>): number | null {
+  const tryEntry = (r: Record<string, unknown>): number | null => {
+    const nested =
+      r.discount && typeof r.discount === "object" ? (r.discount as Record<string, unknown>) : null;
+    const p =
+      coerceFiniteNumber(nested?.percentageValue) ??
+      coerceFiniteNumber(nested?.percentage) ??
+      coerceFiniteNumber(r.percentageValue) ??
+      coerceFiniteNumber(r.percentage) ??
+      coerceFiniteNumber(r.percent);
+    if (p != null && p > 0 && p <= 100) return p;
+    return null;
+  };
+  const raw = it.discounts;
+  if (Array.isArray(raw)) {
+    for (const d of raw) {
+      if (!d || typeof d !== "object") continue;
+      const p = tryEntry(d as Record<string, unknown>);
+      if (p != null) return p;
+    }
+  }
+  if (it.discount && typeof it.discount === "object") {
+    const p = tryEntry(it.discount as Record<string, unknown>);
+    if (p != null) return p;
+  }
+  return null;
+}
+
+/**
+ * When Bond sends **line** `discounts[]` with both a **percentage** and **discountAmount**, derive list + net so the UI
+ * matches “X% off” (e.g. 10% → strike from savings/0.1, net = strike − savings). Falls back to {@link computeBondLineStrikeAmount} when not reconcilable.
+ */
+export function resolveBondLineDisplayAmounts(
+  it: Record<string, unknown>,
+  kind: CartLineKind
+): { strike: number; net: number } | null {
+  if (kind !== "booking" && kind !== "membership") return null;
+  const savings = sumLineDiscountSavingsFromBond(it);
+  if (savings == null || savings <= 0.005) return null;
+  const pct = extractPercentFromBondDiscounts(it);
+  if (pct == null || pct <= 0 || pct > 100) return null;
+
+  const strikeFromSavings = savings / (pct / 100);
+  if (!Number.isFinite(strikeFromSavings) || strikeFromSavings <= 0.005) return null;
+
+  const expectedSavings = strikeFromSavings * (pct / 100);
+  if (Math.abs(expectedSavings - savings) > 0.05) return null;
+
+  const net = strikeFromSavings - savings;
+  if (!Number.isFinite(net) || net < -0.005) return null;
+
+  return { strike: strikeFromSavings, net: net < 0 ? 0 : net };
+}
+
+/**
+ * List / pre-discount price for a Bond cart line: explicit list fields, `price` above line amount, or amount + line `discounts[]` savings.
+ */
+export function computeBondLineStrikeAmount(it: Record<string, unknown>, lineAmount: number): number | undefined {
+  if (!Number.isFinite(lineAmount) || lineAmount < 0) return undefined;
+  const explicit =
+    coerceFiniteNumber(it.originalPrice) ??
+    coerceFiniteNumber(it.listPrice) ??
+    coerceFiniteNumber(it.grossPrice) ??
+    coerceFiniteNumber(it.priceBeforeDiscount) ??
+    null;
+  if (explicit != null && explicit > lineAmount + 0.005) return Math.abs(explicit);
+
+  const priceField = coerceFiniteNumber(it.price);
+  if (priceField != null && priceField > lineAmount + 0.005) return Math.abs(priceField);
+
+  const savings = sumLineDiscountSavingsFromBond(it);
+  if (savings != null && savings > 0.005) return lineAmount + savings;
+
+  return undefined;
+}
+
+/** Sum cart line amounts by Bond line kind (reservation vs membership vs add-on) for pricing footers. */
+export function sumBondCartLineKindsFromCart(cart: OrganizationCartDto): {
+  rentals: number;
+  memberships: number;
+  addons: number;
+} {
+  const items = cart.cartItems;
+  if (!Array.isArray(items) || items.length === 0) {
+    return { rentals: 0, memberships: 0, addons: 0 };
+  }
+  const flat = flattenBondCartItemNodes(items);
+  let rentals = 0;
+  let memberships = 0;
+  let addons = 0;
+  for (const raw of flat) {
+    if (!raw || typeof raw !== "object") continue;
+    const it = raw as Record<string, unknown>;
+    const n = cartItemLineAmountFromDto(it);
+    if (n == null) continue;
+    const k = classifyCartItemLineKind(it);
+    if (k === "membership") memberships += n;
+    else if (k === "addon") addons += n;
+    else rentals += n;
+  }
+  return { rentals, memberships, addons };
 }
 
 /**
@@ -180,6 +311,40 @@ export function getOrganizationCartNumericBreakdown(cart: OrganizationCartDto): 
     tax: pickNonNegativeNumber(o, TAX_KEYS) ?? sumTaxesArrayPrice(o),
     fee: pickNonNegativeNumber(o, FEE_KEYS),
     total: pickNonNegativeNumber(o, TOTAL_KEYS),
+  };
+}
+
+/**
+ * Single place to read **subtotal / discounts / tax / fees / total** from `OrganizationCartDto`
+ * after `POST …/online-booking/create` (or preview). Prefer this over ad-hoc field reads in UI.
+ */
+export function getBondCartTotalsSummary(cart: OrganizationCartDto): {
+  currency: string;
+  lineSubtotal: number | null;
+  discountTotal: number | null;
+  taxTotal: number | null;
+  feeTotal: number | null;
+  grandTotal: number | null;
+  /** True when `grandTotal` came from Bond top-level total-style fields. */
+  totalFromBond: boolean;
+} {
+  const b = getOrganizationCartNumericBreakdown(cart);
+  const o = cart as Record<string, unknown>;
+  const currency =
+    typeof cart.currency === "string" && cart.currency.length > 0
+      ? cart.currency
+      : typeof o.currency === "string" && o.currency.length > 0
+        ? o.currency
+        : "USD";
+  const total = b.total;
+  return {
+    currency,
+    lineSubtotal: b.line,
+    discountTotal: b.discount,
+    taxTotal: b.tax,
+    feeTotal: b.fee,
+    grandTotal: total ?? null,
+    totalFromBond: total != null,
   };
 }
 
@@ -387,12 +552,14 @@ function parseBondCartDiscountRows(cart: OrganizationCartDto): BondCartPricingDi
     }
     const amt = coerceFiniteNumber(r.discountAmount);
     const nested = r.discount && typeof r.discount === "object" ? (r.discount as Record<string, unknown>) : null;
-    const name = nested && typeof nested.name === "string" ? nested.name : "Discount";
-    const pct = coerceFiniteNumber(nested?.percentageValue) ?? coerceFiniteNumber(r.percentage);
     const reason =
       r.reason && typeof r.reason === "object" ? (r.reason as Record<string, unknown>) : null;
     const reasonText = reason && typeof reason.reason === "string" ? reason.reason : undefined;
-    const label = pct != null && pct > 0 ? `${name} (${pct}%)` : name;
+    const displayName =
+      resolveDiscountTriggerName(r, nested, reason) ??
+      (nested && typeof nested.name === "string" && nested.name.length > 0 ? nested.name : "Discount");
+    const pct = coerceFiniteNumber(nested?.percentageValue) ?? coerceFiniteNumber(r.percentage);
+    const label = pct != null && pct > 0 ? `${displayName} (${pct}%)` : displayName;
     if (amt != null && Math.abs(amt) > 0.0001) {
       rows.push({
         label,
@@ -415,6 +582,8 @@ export type BondCartReceiptLineItem = {
   kind: CartLineKind;
   /** e.g. Add-on, Slot add-on, Membership — from `kind` + `metadata.description`. */
   badge?: string;
+  /** Promo / membership label from Bond line `discounts[]` when present. */
+  discountNote?: string;
 };
 
 /**
@@ -440,15 +609,30 @@ export function getBondCartReceiptLineItems(cart: OrganizationCartDto): BondCart
         : typeof it.productId === "number"
           ? `Product ${it.productId}`
           : "Line item";
-    const amount = getCartItemLineAmount(it);
-    if (amount == null) continue;
-    const price = coerceFiniteNumber(it.price);
-    let strike: number | undefined;
-    if (price != null && price > amount + 0.005) strike = Math.abs(price);
+    const netBond = getCartItemLineAmount(it);
+    if (netBond == null) continue;
     const kind = classifyCartItemLineKind(it);
     const desc = getCartItemMetadataDescription(it);
     const badge = receiptBadgeForCartLine(kind, desc);
-    out.push({ id, title, amount, strikeAmount: strike, kind, badge });
+    /** Promo labels: rental + membership lines — Bond may echo the same promo on add-on rows; we hide on add-ons only. */
+    const resolved = kind === "booking" || kind === "membership" ? resolveBondLineDisplayAmounts(it, kind) : null;
+    const amount = resolved?.net ?? netBond;
+    const strike =
+      resolved?.strike ??
+      (kind === "booking" || kind === "membership" ? computeBondLineStrikeAmount(it, amount) : undefined);
+    const discountNote =
+      kind === "booking" || kind === "membership"
+        ? describeCartItemDiscountLabels(it)
+        : undefined;
+    out.push({
+      id,
+      title,
+      amount,
+      ...(strike != null ? { strikeAmount: strike } : {}),
+      kind,
+      badge,
+      ...(discountNote ? { discountNote } : {}),
+    });
   }
   return out;
 }

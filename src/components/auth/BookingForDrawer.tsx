@@ -15,19 +15,6 @@ type Props = {
   profileLoading?: boolean;
 };
 
-function MemberBadge({ label }: { label: string }) {
-  const lower = label.toLowerCase();
-  const tier =
-    lower.includes("gold") || label === "Gold"
-      ? "cb-member-badge--gold"
-      : lower.includes("silver") || label === "Silver"
-        ? "cb-member-badge--silver"
-        : lower.includes("bronze") || label === "Bronze"
-          ? "cb-member-badge--bronze"
-          : "cb-member-badge--pass";
-  return <span className={`cb-member-badge ${tier}`}>{label}</span>;
-}
-
 export function BookingForDrawer({
   open,
   onClose,
@@ -109,18 +96,25 @@ export function BookingForDrawer({
                 <span className="cb-booking-for-card-main">
                   <span className="cb-booking-for-name-row">
                     <span className="cb-booking-for-name">{m.label}</span>
-                    {m.needsMembershipHint ? (
+                    {m.hasQualifyingMembershipForProduct ? (
+                      <span
+                        className="cb-booking-for-tag cb-booking-for-tag--member-access"
+                        title="This person has a qualifying membership for this rental product and can use member pricing."
+                      >
+                        Member access
+                      </span>
+                    ) : null}
+                    {m.needsMembershipForProduct ? (
                       <span
                         className="cb-booking-for-tag cb-booking-for-tag--membership"
                         title="This person still needs a qualifying membership for this product. You can add it at checkout."
                       >
-                        Membership
+                        Needs membership
                       </span>
                     ) : null}
                   </span>
                   {m.relationship ? <span className="cb-booking-for-rel">{m.relationship}</span> : null}
                 </span>
-                {m.badgeLabel ? <MemberBadge label={m.badgeLabel} /> : null}
                 {active ? (
                   <span className="cb-booking-for-check" aria-hidden>
                     ✓

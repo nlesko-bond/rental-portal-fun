@@ -2,15 +2,11 @@
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { BookingScheduleDto, ExtendedProductDto, ScheduleTimeSlotDto } from "@/types/online-booking";
-import {
-  formatSlotPriceDisplay,
-  productMembershipGated,
-  slotDisplayTotalPrice,
-  slotPriceTierRelativeToPeers,
-  type SlotPriceTier,
-} from "@/lib/booking-pricing";
+import { productMembershipGated, slotDisplayTotalPrice, slotPriceTierRelativeToPeers, type SlotPriceTier } from "@/lib/booking-pricing";
+import { membershipGateProductNames } from "@/lib/session-booking-display-lines";
 import { slotControlKey } from "@/lib/slot-selection";
 import { IconPeakTrend } from "./booking-icons";
+import { SlotMemberPriceLabel } from "./SlotMemberPriceLabel";
 
 function formatSlotRange12h(startTime: string, endTime: string): string {
   const fmt = (t: string) => {
@@ -131,12 +127,20 @@ function ResourceSearchJump({
   );
 }
 
+const EMPTY_SLOT_KEY_SET = new Set<string>();
+
 type Props = {
   schedule: BookingScheduleDto;
   product: ExtendedProductDto | undefined;
   durationMinutes: number;
   priceCurrency: string | null;
+  /**
+   * When set, overrides catalog-driven membership price label (e.g. participant already has required membership).
+   * When omitted, derived from `product` via `productMembershipGated`.
+   */
+  membershipGated?: boolean;
   selectedKeys: ReadonlySet<string>;
+  reservedSlotKeys?: ReadonlySet<string>;
   onToggleSlot: (resourceId: number, resourceName: string, slot: ScheduleTimeSlotDto) => void;
   /** Apply member entitlement discount to schedule unit price before pro-rating (display). */
   adjustSlotUnitPrice?: (unitPrice: number) => number;
@@ -147,10 +151,13 @@ export function ScheduleCalendarView({
   product,
   durationMinutes,
   priceCurrency,
+  membershipGated: membershipGatedProp,
   selectedKeys,
+  reservedSlotKeys,
   onToggleSlot,
   adjustSlotUnitPrice,
 }: Props) {
+  const reserved = reservedSlotKeys ?? EMPTY_SLOT_KEY_SET;
   const [userResourceTabId, setUserResourceTabId] = useState<number | null>(null);
 
   const resourceIds = useMemo(() => schedule.resources.map((r) => r.resource.id), [schedule.resources]);
@@ -161,7 +168,10 @@ export function ScheduleCalendarView({
     return resourceIds[0]!;
   }, [resourceIds, userResourceTabId]);
 
-  const membershipGated = productMembershipGated(product);
+  const membershipGated =
+    membershipGatedProp !== undefined ? membershipGatedProp : productMembershipGated(product);
+
+  const membershipGateNames = useMemo(() => membershipGateProductNames(product), [product]);
 
   const grouped = useMemo(() => {
     const map = new Map<string, typeof schedule.resources>();
@@ -181,9 +191,13 @@ export function ScheduleCalendarView({
     resourceName: string,
     slots: ScheduleTimeSlotDto[]
   ) {
-    const list = slots.filter((s) => s.isAvailable);
-    const peerUnits = list.map((s) => (adjustSlotUnitPrice ? adjustSlotUnitPrice(s.price) : s.price));
-    const distinctPrices = new Set(peerUnits.filter((n) => Number.isFinite(n)));
+    const list = slots.filter((s) => {
+      const sk = slotControlKey(resourceId, s);
+      return s.isAvailable || reserved.has(sk);
+    });
+    /** Tier labels vs peers use raw schedule units so member $0 display does not hide peak/off-peak. */
+    const peerUnitsRaw = list.map((s) => s.price);
+    const distinctPrices = new Set(peerUnitsRaw.filter((n) => Number.isFinite(n)));
     const showPeerTiers = distinctPrices.size >= 2;
     if (list.length === 0) {
       return (
@@ -196,25 +210,37 @@ export function ScheduleCalendarView({
       <ul className="cb-slot-grid">
         {list.map((s, i) => {
           const sk = slotControlKey(resourceId, s);
+          const inCart = reserved.has(sk);
           const picked = selectedKeys.has(sk);
           const unit = adjustSlotUnitPrice ? adjustSlotUnitPrice(s.price) : s.price;
           const total = slotDisplayTotalPrice(unit, product, durationMinutes);
-          const tier = showPeerTiers ? slotPriceTierRelativeToPeers(peerUnits, unit) : "standard";
+          const tier = showPeerTiers ? slotPriceTierRelativeToPeers(peerUnitsRaw, s.price) : "standard";
           return (
             <li key={`${s.startDate}-${s.startTime}-${i}`} className="cb-slot-grid-cell">
               <button
                 type="button"
-                disabled={!s.isAvailable}
+                disabled={!s.isAvailable || inCart}
                 onClick={() => {
-                  if (!s.isAvailable) return;
+                  if (!s.isAvailable || inCart) return;
                   onToggleSlot(resourceId, resourceName, s);
                 }}
-                className={`cb-slot-btn ${picked ? "cb-slot-btn--picked" : ""} ${!s.isAvailable ? "cb-slot-btn--full" : ""} ${tierClass(tier)}`}
+                title={inCart ? "Already in your cart" : undefined}
+                className={`cb-slot-btn ${picked ? "cb-slot-btn--picked" : ""} ${!s.isAvailable ? "cb-slot-btn--full" : ""} ${inCart ? "cb-slot-btn--incart" : ""} ${tierClass(tier)}`}
               >
                 <span className="cb-slot-btn-time">{formatSlotRange12h(s.startTime, s.endTime)}</span>
-                {s.isAvailable && priceCurrency ? (
+                {inCart ? (
+                  <span className="cb-slot-btn-incart mt-0.5 text-[0.65rem] font-bold uppercase tracking-wide text-[var(--cb-text-muted)]">
+                    In cart
+                  </span>
+                ) : null}
+                {s.isAvailable && priceCurrency && !inCart ? (
                   <span className="cb-slot-btn-price">
-                    {formatSlotPriceDisplay(total, priceCurrency, { membershipGated })}
+                    <SlotMemberPriceLabel
+                      amount={total}
+                      currency={priceCurrency}
+                      membershipGated={membershipGated}
+                      membershipGateNames={membershipGateNames}
+                    />
                   </span>
                 ) : null}
                 {s.isAvailable && showPeerTiers && tier === "peak" ? (

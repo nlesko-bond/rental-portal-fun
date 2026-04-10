@@ -37,12 +37,22 @@ export function jwtEmailHint(token: string): string | undefined {
   return undefined;
 }
 
-/** Bond `custom:userId` on the ID token (consumer / org user id for API paths). */
+const BOND_USER_ID_CLAIM_KEYS = [
+  "custom:userId",
+  "custom:user_id",
+  "bondUserId",
+  "userId",
+  "user_id",
+] as const;
+
+/** Bond numeric user id from the ID token (consumer / org user id for API paths). */
 export function bondNumericUserIdFromIdToken(idToken: string): number | null {
   const p = decodeJwtPayload(idToken);
   if (!p) return null;
-  const raw = p["custom:userId"];
-  if (typeof raw === "number" && Number.isFinite(raw)) return raw;
-  if (typeof raw === "string" && /^\d+$/.test(raw)) return Number(raw);
+  for (const key of BOND_USER_ID_CLAIM_KEYS) {
+    const raw = p[key];
+    if (typeof raw === "number" && Number.isFinite(raw) && raw > 0) return raw;
+    if (typeof raw === "string" && /^\d+$/.test(raw)) return Number(raw);
+  }
   return null;
 }

@@ -47,6 +47,20 @@ export function referenceUnitPrice(product: ExtendedProductDto | undefined): num
 }
 
 /**
+ * Bond `POST …/online-booking/create` slot `price` must be a **positive cash unit** when the venue charges
+ * for the slot. Catalog rows can include **$0** (e.g. member list price); `Math.min` of those is wrong — use the
+ * cheapest **positive** tier, else fall back to any finite price.
+ */
+export function cashUnitPriceForBondFallback(product: ExtendedProductDto | undefined): number | null {
+  if (!product?.prices?.length) return null;
+  const rows = product.prices.map((p) => p.price).filter((x) => Number.isFinite(x));
+  if (rows.length === 0) return null;
+  const positive = rows.filter((x) => x > 0);
+  if (positive.length > 0) return Math.min(...positive);
+  return Math.min(...rows);
+}
+
+/**
  * Legacy: compare one slot to catalog minimum price — prefer {@link slotPriceTierRelativeToPeers} for schedule grids.
  */
 export function slotPriceTier(slotUnitPrice: number, reference: number | null): SlotPriceTier {

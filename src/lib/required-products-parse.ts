@@ -3,6 +3,8 @@ export type RequiredProductRow = {
   id: number;
   name?: string;
   productType?: string;
+  /** Bond: `false` when the user already holds this SKU (e.g. active membership). */
+  required?: boolean;
   /** First catalog list price when Bond includes `prices[]` (confirm step / summaries). */
   displayPrice?: { amount: number; currency: string; label?: string };
 };
@@ -36,6 +38,7 @@ export function parseRequiredProductsResponse(raw: unknown): RequiredProductRow[
       id,
       name: typeof o.name === "string" ? o.name : undefined,
       productType: typeof o.productType === "string" ? o.productType : undefined,
+      required: typeof o.required === "boolean" ? o.required : undefined,
       displayPrice: firstDisplayPriceFromRaw(o),
     });
   }
