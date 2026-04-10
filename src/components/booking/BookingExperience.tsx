@@ -1154,7 +1154,7 @@ export function BookingExperience() {
     clearSlotSelection();
     pushState({ ...state, productId });
   };
-  const portalViews = clientScheduleViews(portal.options.views, searchParams);
+  const portalViews = clientScheduleViews(portal.options.views);
   const setScheduleView = (view: OnlineBookingView) => {
     clearSlotSelection();
     if (view === "calendar" || view === "matrix") pushState({ ...state, view });

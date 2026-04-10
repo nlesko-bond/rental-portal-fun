@@ -30,8 +30,6 @@ export const BOOKING_URL_DEV_PARAM_KEYS = [
   "accent",
   "secondary",
   "success",
-  /** `experiment` | `original` — toggles Timeline vs List-only (see `bookingTimelineFeatureEnabled`). */
-  "bookingUi",
 ] as const;
 
 function parseHexColorParam(raw: string | null): string | undefined {
@@ -113,7 +111,7 @@ export function resolveBookingState(
   fromUrl: Partial<BookingUrlState>
 ): BookingUrlState {
   const { options: o } = portal;
-  const views = clientScheduleViews(o.views, null);
+  const views = clientScheduleViews(o.views);
   const facilityIds = new Set(o.facilities.map((f) => f.id));
   let facilityId = fromUrl.facilityId;
   if (facilityId == null || !facilityIds.has(facilityId)) {
