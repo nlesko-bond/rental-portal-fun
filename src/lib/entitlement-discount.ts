@@ -186,6 +186,21 @@ export function describeEntitlementsForDisplay(entitlements: unknown[] | undefin
   return parts.length > 0 ? parts.join(" · ") : undefined;
 }
 
+/** Collapse duplicate segments like `NICOLEROCKS10 (10%) · NICOLEROCKS10 (10%)` (Bond may echo the same discount twice). */
+export function dedupeDiscountCaptionSegments(label: string | undefined): string | undefined {
+  if (label == null || label.trim().length === 0) return undefined;
+  const bits = label.split(" · ").map((s) => s.trim()).filter(Boolean);
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const b of bits) {
+    const k = b.toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(b);
+  }
+  return out.length > 0 ? out.join(" · ") : undefined;
+}
+
 /**
  * One line’s discount caption from Bond `cartItems[]` (and nested `discount` / `discounts[]`).
  */
@@ -224,7 +239,7 @@ export function describeCartItemDiscountLabels(it: Record<string, unknown>): str
     const dup = parts.some((p) => p.toLowerCase().includes(code.toLowerCase()));
     if (!dup) parts.push(`Code ${code}`);
   }
-  return parts.length > 0 ? parts.join(" · ") : undefined;
+  return dedupeDiscountCaptionSegments(parts.length > 0 ? parts.join(" · ") : undefined);
 }
 
 export function applyEntitlementDiscountsToUnitPrice(unitPrice: number, entitlements: unknown[] | undefined): number {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useTranslations } from "next-intl";
 import { useBookingAppearanceClass } from "@/hooks/useBookingAppearanceClass";
 import { RightDrawer } from "@/components/ui/RightDrawer";
 import type { BookingPartyMember } from "@/lib/booking-party-options";
@@ -23,6 +24,7 @@ export function BookingForDrawer({
   onConfirm,
   profileLoading = false,
 }: Props) {
+  const tb = useTranslations("booking");
   const appearanceClass = useBookingAppearanceClass();
   const [sel, setSel] = useState<number | null>(value);
   useEffect(() => {
@@ -36,7 +38,7 @@ export function BookingForDrawer({
       open={open}
       onClose={onClose}
       hideTitle
-      ariaLabel="Who is this booking for?"
+      ariaLabel={tb("bookingForDrawerAria")}
       panelClassName={`consumer-booking ${appearanceClass} cb-booking-for-drawer`.trim()}
     >
       <div className="cb-booking-for-head">
@@ -52,10 +54,8 @@ export function BookingForDrawer({
             />
           </svg>
         </div>
-        <h2 className="cb-booking-for-title">Who is this booking for?</h2>
-        <p className="cb-booking-for-sub">
-          You may select yourself or a family member. Pricing, benefits, and available options may vary for each person.
-        </p>
+        <h2 className="cb-booking-for-title">{tb("bookingForTitle")}</h2>
+        <p className="cb-booking-for-sub">{tb("bookingForSubtitle")}</p>
       </div>
       <form
         className="cb-booking-for-form"
@@ -65,10 +65,10 @@ export function BookingForDrawer({
           onClose();
         }}
       >
-        <div className="cb-booking-for-list" role="radiogroup" aria-label="Booking for">
+        <div className="cb-booking-for-list" role="radiogroup" aria-label={tb("bookingForRadiogroup")}>
           {profileLoading && members.length === 0 ? (
             <p className="cb-muted py-4 text-center text-sm" role="status">
-              Loading your family…
+              {tb("loadingFamily")}
             </p>
           ) : null}
           {members.map((m) => {
@@ -99,17 +99,17 @@ export function BookingForDrawer({
                     {m.hasQualifyingMembershipForProduct ? (
                       <span
                         className="cb-booking-for-tag cb-booking-for-tag--member-access"
-                        title="This person has a qualifying membership for this rental product and can use member pricing."
+                        title={tb("memberAccessTitle")}
                       >
-                        Member access
+                        {tb("memberAccess")}
                       </span>
                     ) : null}
                     {m.needsMembershipForProduct ? (
                       <span
                         className="cb-booking-for-tag cb-booking-for-tag--membership"
-                        title="This person still needs a qualifying membership for this product. You can add it at checkout."
+                        title={tb("needsMembershipTitle")}
                       >
-                        Needs membership
+                        {tb("needsMembership")}
                       </span>
                     ) : null}
                   </span>
@@ -134,14 +134,10 @@ export function BookingForDrawer({
           <span className="cb-booking-for-add-icon" aria-hidden>
             +
           </span>
-          Add a Family Member
+          {tb("addFamilyMember")}
         </button>
-        <button
-          type="submit"
-          className="cb-btn-primary mt-6 w-full"
-          disabled={!canSubmit}
-        >
-          Continue
+        <button type="submit" className="cb-btn-primary mt-6 w-full" disabled={!canSubmit}>
+          {tb("continue")}
         </button>
       </form>
     </RightDrawer>

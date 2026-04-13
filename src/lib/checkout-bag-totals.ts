@@ -1,7 +1,10 @@
 /** Display-only parsing of `OrganizationCartDto` (BFF → Bond). No invented prices — only `coerce` + key fallbacks. */
 import type { OrganizationCartDto } from "@/types/online-booking";
 import type { SessionCartSnapshot } from "@/lib/session-cart-snapshot";
-import { groupSessionCartSnapshotsByLabel } from "@/lib/session-cart-grouping";
+import {
+  groupSessionCartSnapshotsByLabel,
+  type SessionCartGroupedItem,
+} from "@/lib/session-cart-grouping";
 import {
   type CartLineKind,
   classifyCartItemLineKind,
@@ -9,6 +12,9 @@ import {
   receiptBadgeForCartLine,
 } from "@/lib/bond-cart-item-classify";
 import { describeCartItemDiscountLabels, resolveDiscountTriggerName } from "@/lib/entitlement-discount";
+
+/** Minimum absolute amount to show a split bucket row (avoids noisy zero-ish floats). */
+export const BOND_KIND_LINE_MIN = 0.005;
 
 /**
  * Bond may return these on `OrganizationCartDto` (names vary by version; not all in OpenAPI).
@@ -38,9 +44,9 @@ function coerceFiniteNumber(v: unknown): number | null {
   return null;
 }
 
-/** One cart line amount — prefers `subtotal` / line totals, then `unitPrice` × quantity (hourly add-ons, etc.). */
+/** One cart line amount — prefers line totals / `amount` before raw `price` (Bond often keeps list price in `price` and net in `amount`). */
 function getCartItemLineAmount(it: Record<string, unknown>): number | null {
-  for (const k of ["subtotal", "lineSubtotal", "lineTotal", "total", "price", "amount"] as const) {
+  for (const k of ["subtotal", "lineSubtotal", "lineTotal", "total", "amount", "price"] as const) {
     const n = coerceFiniteNumber(it[k]);
     if (n != null && Number.isFinite(n)) return Math.abs(n);
   }
@@ -231,13 +237,95 @@ function sumCartItemsLineAmount(cart: OrganizationCartDto): number | null {
   return any ? sum : null;
 }
 
+/**
+ * Roll up **gross** (pre–line-discount) subtotal, **net** charges, and savings so the footer can show
+ * “Subtotal → Discount → Total” without double-counting (net-only subtotal would duplicate the discount row).
+ */
+function sumCartItemsGrossNetDiscountForTotals(cart: OrganizationCartDto): {
+  lineGross: number | null;
+  lineNet: number | null;
+  lineDiscount: number | null;
+} {
+  const items = cart.cartItems;
+  if (!Array.isArray(items) || items.length === 0) {
+    return { lineGross: null, lineNet: null, lineDiscount: null };
+  }
+  const flat = flattenBondCartItemNodes(items);
+  let grossSum = 0;
+  let netSum = 0;
+  let discSum = 0;
+  let any = false;
+  let anyDisc = false;
+  for (const raw of flat) {
+    if (!raw || typeof raw !== "object") continue;
+    const it = raw as Record<string, unknown>;
+    const kind = classifyCartItemLineKind(it);
+    if (kind === "booking" || kind === "membership") {
+      const fromItem = getCartItemLineAmount(it);
+      if (fromItem == null) continue;
+      const resolved = resolveBondLineDisplayAmounts(it, kind);
+      const priceField = coerceFiniteNumber(it.price);
+      const amountField = coerceFiniteNumber(it.amount);
+      let lineAmount = resolved?.net ?? fromItem;
+      if (
+        resolved == null &&
+        amountField != null &&
+        priceField != null &&
+        priceField > amountField + 0.005
+      ) {
+        lineAmount = Math.abs(amountField);
+      }
+      const listHint =
+        coerceFiniteNumber(it.listPrice) ??
+        coerceFiniteNumber(it.originalPrice) ??
+        coerceFiniteNumber(it.grossPrice) ??
+        coerceFiniteNumber(it.priceBeforeDiscount);
+      let strikeAmount = resolved?.strike ?? computeBondLineStrikeAmount(it, lineAmount);
+      if (strikeAmount == null && listHint != null && listHint > lineAmount + 0.005) {
+        strikeAmount = listHint;
+      }
+      if (
+        strikeAmount == null &&
+        priceField != null &&
+        lineAmount != null &&
+        priceField > lineAmount + 0.005
+      ) {
+        strikeAmount = Math.abs(priceField);
+      }
+      const gross = strikeAmount ?? lineAmount;
+      grossSum += gross;
+      netSum += lineAmount;
+      if (gross > lineAmount + 0.005) {
+        discSum += gross - lineAmount;
+        anyDisc = true;
+      }
+      any = true;
+      continue;
+    }
+    const addonAmt = getCartItemLineAmount(it);
+    if (addonAmt == null) continue;
+    grossSum += addonAmt;
+    netSum += addonAmt;
+    any = true;
+  }
+  return {
+    lineGross: any ? grossSum : null,
+    lineNet: any ? netSum : null,
+    lineDiscount: anyDisc ? discSum : null,
+  };
+}
+
 function lineAmountFromCart(cart: OrganizationCartDto): number | null {
+  const sumLines = sumCartItemsLineAmount(cart);
   const o = cart as Record<string, unknown>;
   const sub = pickNonNegativeNumber(o, SUBTOTAL_KEYS);
+  if (sumLines != null && sub != null && Math.abs(sumLines - sub) > 0.05) {
+    return sumLines;
+  }
   if (sub != null) return sub;
   const p = coerceFiniteNumber(o.price);
   if (p != null && p >= 0) return p;
-  return sumCartItemsLineAmount(cart);
+  return sumLines;
 }
 
 export type AggregatedBagTotals = {
@@ -288,6 +376,23 @@ function sumBondCartDiscountArrayAbs(cart: OrganizationCartDto): number | null {
   return any ? sum : null;
 }
 
+/** Cart-level discount missing but line `discounts[]` / `discount` carry savings (common on `OrganizationCartDto`). */
+function sumCartItemLineDiscountSavings(cart: OrganizationCartDto): number | null {
+  const items = cart.cartItems;
+  if (!Array.isArray(items) || items.length === 0) return null;
+  const flat = flattenBondCartItemNodes(items);
+  let sum = 0;
+  let any = false;
+  for (const it of flat) {
+    const s = sumLineDiscountSavingsFromBond(it);
+    if (s != null && s > 0.0001) {
+      sum += s;
+      any = true;
+    }
+  }
+  return any ? sum : null;
+}
+
 /** Single-cart numeric fields Bond may return (names vary by version). */
 export function getOrganizationCartNumericBreakdown(cart: OrganizationCartDto): {
   line: number | null;
@@ -297,16 +402,27 @@ export function getOrganizationCartNumericBreakdown(cart: OrganizationCartDto): 
   total: number | null;
 } {
   const o = cart as Record<string, unknown>;
+  const rollup = sumCartItemsGrossNetDiscountForTotals(cart);
   const fromArray = sumBondCartDiscountArrayAbs(cart);
   const top = coerceFiniteNumber(o.discountAmount);
+  const fromKeys = pickNonNegativeNumber(o, DISCOUNT_KEYS);
+  const fromLineItems = sumCartItemLineDiscountSavings(cart);
   const discountAgg =
     fromArray != null && fromArray > 0
       ? fromArray
       : top != null
         ? Math.abs(top)
-        : pickNonNegativeNumber(o, DISCOUNT_KEYS);
+        : fromKeys != null
+          ? fromKeys
+          : fromLineItems != null && fromLineItems > 0.0001
+            ? fromLineItems
+            : rollup.lineDiscount != null && rollup.lineDiscount > 0.005
+              ? rollup.lineDiscount
+              : null;
+  const line =
+    rollup.lineGross != null ? rollup.lineGross : lineAmountFromCart(cart);
   return {
-    line: lineAmountFromCart(cart),
+    line,
     discount: discountAgg,
     tax: pickNonNegativeNumber(o, TAX_KEYS) ?? sumTaxesArrayPrice(o),
     fee: pickNonNegativeNumber(o, FEE_KEYS),
@@ -348,14 +464,70 @@ export function getBondCartTotalsSummary(cart: OrganizationCartDto): {
   };
 }
 
-function aggregateCartRecord(cart: OrganizationCartDto): {
+/**
+ * Dollar amount to send as `amountToPay` on `POST …/cart/{id}/finalize`.
+ * Uses **Bond cart fields only** (including cart-level fees), not client-estimated card-processing fees.
+ */
+export function bondCartPayableTotalForFinalize(cart: OrganizationCartDto): number | null {
+  const summary = getBondCartTotalsSummary(cart);
+  if (summary.grandTotal != null && summary.grandTotal > BOND_KIND_LINE_MIN) {
+    return Math.round(summary.grandTotal * 100) / 100;
+  }
+  const b = getOrganizationCartNumericBreakdown(cart);
+  if (b.line == null) return null;
+  const afterDisc = Math.max(0, b.line - (b.discount ?? 0));
+  const withTax = afterDisc + (b.tax ?? 0);
+  const withBondFees = withTax + (b.fee ?? 0);
+  if (withBondFees <= BOND_KIND_LINE_MIN) return null;
+  return Math.round(withBondFees * 100) / 100;
+}
+
+/**
+ * One session row: prefer **display line** strike/net (matches bag line items) over raw cart DTO rollup.
+ */
+export function aggregateSessionCartRowTotals(row: SessionCartSnapshot): {
   line: number | null;
   discount: number | null;
   tax: number | null;
   fee: number | null;
   total: number | null;
 } {
-  return getOrganizationCartNumericBreakdown(cart);
+  const base = getOrganizationCartNumericBreakdown(row.cart);
+  const dl = row.displayLines;
+  if (!dl || dl.length === 0) return base;
+  let gross = 0;
+  let net = 0;
+  let count = 0;
+  for (const l of dl) {
+    if (typeof l.amount !== "number" || !Number.isFinite(l.amount)) continue;
+    count++;
+    net += l.amount;
+    const s =
+      typeof l.strikeAmount === "number" &&
+      Number.isFinite(l.strikeAmount) &&
+      l.strikeAmount > l.amount + 0.005
+        ? l.strikeAmount
+        : l.amount;
+    gross += s;
+  }
+  if (count === 0) return base;
+  const impliedDisc = Math.max(0, gross - net);
+  if (impliedDisc > 0.005) {
+    return {
+      line: gross,
+      discount: impliedDisc,
+      tax: base.tax,
+      fee: base.fee,
+      total: base.total,
+    };
+  }
+  return {
+    line: net,
+    discount: base.discount,
+    tax: base.tax,
+    fee: base.fee,
+    total: base.total,
+  };
 }
 
 /**
@@ -384,7 +556,7 @@ export function aggregateBagSnapshots(rows: SessionCartSnapshot[]): AggregatedBa
   let totalAllPresent = true;
 
   for (const row of rows) {
-    const a = aggregateCartRecord(row.cart);
+    const a = aggregateSessionCartRowTotals(row);
     if (a.line != null) {
       lineSum += a.line;
       lineAny = true;
@@ -410,7 +582,8 @@ export function aggregateBagSnapshots(rows: SessionCartSnapshot[]): AggregatedBa
 
   return {
     lineSubtotal: lineAny ? lineSum : null,
-    discountTotal: discountAny ? discountSum : null,
+    discountTotal:
+      discountAny && discountSum > BOND_KIND_LINE_MIN ? discountSum : null,
     taxTotal: taxAny ? taxSum : null,
     feeTotal: feeAny ? feeSum : null,
     cartGrandTotal: totalAllPresent && rows.length > 0 ? totalSum : null,
@@ -420,15 +593,23 @@ export function aggregateBagSnapshots(rows: SessionCartSnapshot[]): AggregatedBa
 /** Per–family-member aggregates (one Bond cart per “add to cart” submission). */
 export function aggregateBagSnapshotsByLabel(rows: SessionCartSnapshot[]): {
   label: string;
-  items: { index: number; row: SessionCartSnapshot }[];
+  items: SessionCartGroupedItem[];
   totals: AggregatedBagTotals;
 }[] {
   const groups = groupSessionCartSnapshotsByLabel(rows);
-  return groups.map((g) => ({
-    label: g.label,
-    items: g.items,
-    totals: aggregateBagSnapshots(g.items.map((x) => x.row)),
-  }));
+  return groups.map((g) => {
+    const seen = new Set<number>();
+    const uniqueRows = g.items.filter((it) => {
+      if (seen.has(it.index)) return false;
+      seen.add(it.index);
+      return true;
+    });
+    return {
+      label: g.label,
+      items: g.items,
+      totals: aggregateBagSnapshots(uniqueRows.map((x) => x.row)),
+    };
+  });
 }
 
 /**

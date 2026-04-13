@@ -8,7 +8,7 @@ import {
   flattenBondCartItemNodes,
   resolveBondLineDisplayAmounts,
 } from "@/lib/checkout-bag-totals";
-import { describeEntitlementsForDisplay } from "@/lib/entitlement-discount";
+import { dedupeDiscountCaptionSegments, describeEntitlementsForDisplay } from "@/lib/entitlement-discount";
 import type { SessionCartDisplayLine } from "@/lib/session-cart-snapshot";
 import type { PickedSlot } from "@/lib/slot-selection";
 import type { ExtendedProductDto, OrganizationCartDto } from "@/types/online-booking";
@@ -25,7 +25,7 @@ export function membershipGateProductNames(product: ExtendedProductDto | undefin
 
 function mergeDiscountLabels(a: string | undefined, b: string | undefined): string | undefined {
   const parts = [a, b].filter((x): x is string => typeof x === "string" && x.trim().length > 0).map((x) => x.trim());
-  return parts.length > 0 ? parts.join(" · ") : undefined;
+  return dedupeDiscountCaptionSegments(parts.length > 0 ? parts.join(" · ") : undefined);
 }
 
 export function formatScheduleSummaryForBooking(slots: PickedSlot[], bookingForLabel?: string): string {
@@ -77,7 +77,7 @@ export function buildBookingDisplayLinesForCart(opts: {
         const amount = resolved?.net ?? fromItem;
         const strikeAmount = resolved?.strike ?? computeBondLineStrikeAmount(it, amount);
         lines.push({
-          title: `${opts.productName} — reservation`,
+          title: opts.productName.trim() || titleBase,
           meta: schedule,
           amount,
           lineKind: "booking",

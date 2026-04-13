@@ -5,7 +5,7 @@ export type RequiredProductRow = {
   productType?: string;
   /** Bond: `false` when the user already holds this SKU (e.g. active membership). */
   required?: boolean;
-  /** First catalog list price when Bond includes `prices[]` (confirm step / summaries). */
+  /** First catalog list price when Bond includes `prices[]` (checkout / summaries). */
   displayPrice?: { amount: number; currency: string; label?: string };
 };
 

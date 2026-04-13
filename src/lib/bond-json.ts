@@ -76,3 +76,43 @@ export async function bondBffPostJson<T>(
   });
   return bondBffJsonFromResponse<T>(res);
 }
+
+/** DELETE via BFF; Bond may return 204 No Content. */
+export async function bondBffDelete(pathSegments: string[], searchParams?: URLSearchParams): Promise<Response> {
+  return bondBffFetch(pathSegments, { method: "DELETE", searchParams });
+}
+
+export async function bondBffDeleteJson<T>(
+  pathSegments: string[],
+  searchParams?: URLSearchParams
+): Promise<T | null> {
+  const res = await bondBffDelete(pathSegments, searchParams);
+  if (res.status === 204) return null;
+  const raw = await res.text();
+  const text = raw.replace(/^\uFEFF/, "").trim();
+  if (!text) {
+    if (res.ok) return null;
+    throw new BondBffError(res.status, `Request failed (${res.status})`, null);
+  }
+  const contentType = res.headers.get("content-type") ?? "";
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text) as unknown;
+  } catch {
+    throw new BondBffError(
+      res.status,
+      `Response was not JSON (${contentType || "unknown content-type"}).`,
+      previewNonJsonBody(raw)
+    );
+  }
+  if (!res.ok) {
+    let msg = `Request failed (${res.status})`;
+    if (parsed && typeof parsed === "object") {
+      const o = parsed as Record<string, unknown>;
+      if (typeof o.message === "string" && o.message.length > 0) msg = o.message;
+      else if (typeof o.error === "string" && o.error.length > 0) msg = o.error;
+    }
+    throw new BondBffError(res.status, msg, parsed);
+  }
+  return parsed as T;
+}

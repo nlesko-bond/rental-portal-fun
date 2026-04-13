@@ -161,3 +161,26 @@ export function resolveBookingState(
     productPage,
   };
 }
+
+/** True when the URL already reflects canonical `state` (dev params ignored). */
+export function urlCanonicalMatches(sp: URLSearchParams, state: BookingUrlState): boolean {
+  const g = (k: string, expected: string) => (sp.get(k) ?? "") === expected;
+  if (!g("facility", String(state.facilityId))) return false;
+  if (!g("category", String(state.categoryId))) return false;
+  if (!g("activity", state.activity)) return false;
+  if (!g("view", state.view)) return false;
+  if (state.productId != null) {
+    if (!g("product", String(state.productId))) return false;
+  } else if (sp.get("product")) return false;
+  if (state.date) {
+    if (!g("date", state.date)) return false;
+  } else if (sp.get("date")) return false;
+  if (state.duration != null) {
+    if (!g("duration", String(state.duration))) return false;
+  } else if (sp.get("duration")) return false;
+  const p = sp.get("page");
+  if (state.productPage > 1) {
+    if (p !== String(state.productPage)) return false;
+  } else if (p) return false;
+  return true;
+}

@@ -14,11 +14,31 @@
 
 ---
 
+## Pre-main backlog (checklist)
+
+| Item | Status |
+|------|--------|
+| Unit tests (lib + critical hooks) | TBD |
+| E2E / automation test plan | TBD |
+| SSO / full Bond auth beyond BFF cookies | In progress / TBD |
+| Payment methods (fetch + integration) | **Partial** — list via `/api/bond-payment/...`; add-card TBD |
+| Purchase / checkout APIs | **Partial** — `finalizeCart` + `getCart` / `closeCart` |
+| Remove cart line items API | **`removeCartItem` in `bond-cart-api.ts`**; UI uses **`closeCart`** for whole-row bag remove |
+| Mixed category products + divergent rulesets | Design TBD |
+| Runtime config (org/portal/API host without hardcoding for prod) | Admin / host config TBD |
+| Embed in third-party pages | Future |
+| Bond analytics | Future |
+
+**FE technical design (draft for Notion):** `docs/FE_TECH_DESIGN_DRAFT.md`
+
+---
+
 ## Environment variables
 
 | Variable | Where | Purpose |
 |----------|--------|---------|
 | `BOND_API_BASE_URL` | Server | Bond public API base (no trailing slash) |
+| `BOND_PAYMENT_API_BASE_URL` | Server | Optional; defaults to **`BOND_AUTH_BASE_URL`**, then `BOND_API_BASE_URL`, for **`v4/payment/...`** proxy |
 | `BOND_API_KEY` | Server | API key for BFF → Bond |
 | `NEXT_PUBLIC_BOND_ORG_ID` | Client | Default organization id |
 | `NEXT_PUBLIC_BOND_PORTAL_ID` | Client | Default online-booking portal id |
@@ -70,10 +90,10 @@ flowchart LR
 | `OrganizationCartDto` (`cartItems`, `discounts[]`, `subtotal`, `tax`, `total`, …) | Bond response only |
 | Receipt line boxes | `getBondCartReceiptLineItems` → `cartItems[]` (`metadata.description` when Bond sends it — `bond-cart-item-classify.ts`) |
 | Create body vs cart line DTOs | `docs/bond/CART_ITEM_AND_CREATE_BOOKING.md` |
-| Subtotal / discount / tax / total rows on confirm | `getBondCartReceiptSummaryRows`, else `getBondCartPricingDisplayRows` (`checkout-bag-totals.ts`) |
+| Subtotal / discount / tax / total rows (bag / payment) | `getBondCartReceiptSummaryRows`, else `getBondCartPricingDisplayRows` (`checkout-bag-totals.ts`) |
 | Cart line list | `expandSnapshotForPurchaseList` (`cart-purchase-lines.ts`) — `cartItems[]` via `cartItemLineAmountFromDto` |
 
-Preview and add-to-cart use the same endpoint; Bond may return fewer fields on the preview request than after a persisted cart.
+Checkout persists via `POST …/online-booking/create`; Bond may return richer line detail after a successful create than on older preview-only experiments.
 
 ---
 
@@ -137,9 +157,10 @@ Preview and add-to-cart use the same endpoint; Bond may return fewer fields on t
 ### Checkout (implemented — extensions in Roadmap)
 
 - **BFF** to Bond only; `POST .../online-booking/create` via `online-booking-user-api.ts` (`buildOnlineBookingCreateBody` — `segments` + flat `addonProductIds` + optional `answers` per Bond DTO). Hosted OpenAPI may omit `requestBody` for this operation; see `online-booking-create-body.ts`. Optional `cartId` when merge/update is documented.
-- **Flow:** Bottom bar opens checkout → user completes steps → **Add to cart** runs `create`. Each successful add appends a `OrganizationCartDto` to the session bag until an update-cart API exists.
-- **Approval:** create deferred until checkout **Submit request**; then clear session cart + slot selection + invalidate schedule query.
-- **Payment / Pay now / saved cards:** UI placeholders only until Phase 4 (see **Pinned** below).
+- **Flow:** Bottom bar opens checkout → user completes add-ons / membership / forms (if any) → **`POST …/online-booking/create`** (optional `cartId` merge). Parent then **`GET …/cart/{cartId}`** (`src/lib/bond-cart-api.ts`) to refresh authoritative lines/totals; opening the **bag** drawer triggers the same refresh per cart id.
+- **Cart lifecycle:** **`DELETE …/cart/{cartId}`** (`closeCart`) when removing a bag row (server cart abandoned); **`POST …/cart/{cartId}/finalize`** on payment/submit with `paymentMethodId` when Bond returns consumer payment options from **`GET /api/bond-payment/organization/{orgId}/user/{userId}/options`** (proxies Bond **`v4/payment/.../options?platform=consumer`**). The payment proxy defaults **`BOND_PAYMENT_API_BASE_URL`** to **`BOND_AUTH_BASE_URL`** (v4 is not on the trimmed public `v1` gateway). Override when Bond documents a different host.
+- **Approval:** create deferred until checkout **Submit request**; **finalize** completes purchase/submit; then clear session cart + slot selection + invalidate schedule query.
+- **Payment:** Consumer **saved instruments** list from v4 proxy; **deposit / pay-in-full modal** still placeholder when product has down payment (finalize body extensions TBD).
 
 #### Checkout UX & gating (recent)
 
@@ -160,7 +181,7 @@ Preview and add-to-cart use the same endpoint; Bond may return fewer fields on t
 
 | Topic | Notes |
 |--------|--------|
-| **Cart vs reservation** | Today **`POST .../online-booking/create`** builds reservation + cart together. **Client-side price/total math** is best-effort for UX until Bond exposes authoritative line items or a **cart-first** flow. Discuss with Bond whether to create **cart first**, then **reservation** separately, or return priced line items on an existing cart endpoint. |
+| **Cart vs reservation** | **`GET …/cart/{cartId}`** after create and when opening the bag is the authoritative line/total source for the UI. Remaining product questions: per-line **`removeCartItem`** vs whole-cart **`close`** when unmerging a single participant from a merged cart; **finalize** body fields beyond `paymentMethodId`. |
 | **Booking limits & windows** | `GET .../online-booking/user/{userId}/booking-information` + category `settings` — **max bookings per day / consecutive / advance window / active membership** checks: **not** fully wired at slot selection + checkout (see Phase 3 backlog). |
 
 ---
@@ -174,8 +195,8 @@ Preview and add-to-cart use the same endpoint; Bond may return fewer fields on t
 | Topic | Status | Notes |
 |--------|--------|--------|
 | **SSO / enterprise identity** | **Pinned** | Current path: Bond consumer login via `/api/bond-auth/*` + httpOnly cookies. Revisit when org SSO requirements and Bond/OIDC contract are defined. |
-| **Payment methods (list + add)** | **Pinned** | Checkout shows placeholders. Implement list/add + processor when Bond exposes consumer payment APIs and gateway choice is fixed. |
-| **Instant pay (charge at checkout)** | **Blocked on ↑** | Depends on saved instruments + pay endpoints. |
+| **Payment methods (list + add)** | **Partial** | **List:** proxied `GET v4/payment/organization/{orgId}/{userId}/options` via `/api/bond-payment/...`. **Add / tokenize new card:** still depends on Bond/PSP consumer flows. |
+| **Instant pay (charge at checkout)** | **Partial** | **`finalizeCart`** wired for standard pay path; deposit modal +3DS TBD. |
 
 Everything below assumes **hosted Bond public APIs** and existing BFF patterns.
 
@@ -201,8 +222,8 @@ Everything below assumes **hosted Bond public APIs** and existing BFF patterns.
 | # | Track | Status | Work |
 |---|--------|--------|------|
 | 4.1 | **Questionnaires** | **Partial** | `checkout-questionnaires` + form prefill; panel UX. **Remaining:** **`cartId`** on questionnaires when spec requires; separate submit if Bond adds it. |
-| 4.2 | **Cart** | **Open** | Session cart snapshots in **tabStorage**; **authoritative priced lines** TBD — see **Open questions** (cart-first vs combined create). |
-| 4.3 | **Payment** | **Pinned** | **Unpins** payment methods + pay flows; 3DS if applicable; success/failure UI. |
+| 4.2 | **Cart** | **Partial** | Session snapshots + **`getCart`** refresh; **`closeCart`** on bag remove; **`removeCartItem`** available in `bond-cart-api.ts` for future per-line UX. |
+| 4.3 | **Payment** | **Partial** | Payment options + **finalize**; add-card UX + deposit/3DS + failure recovery. |
 
 ---
 
@@ -274,4 +295,4 @@ Everything below assumes **hosted Bond public APIs** and existing BFF patterns.
 
 ---
 
-*Last updated: 2026-03-27 — checkout gating, membership step, cart/payment line display, docs sync; see Open questions for cart/reservation and server totals.*
+*Last updated: 2026-03-27 — i18n (`next-intl`), booking URL hook, persist-via-create cart sync (no separate summary step), checkout primitives, branding DTO/neutral tokens, ESLint overrides for React Compiler hook rules, FE design draft; see Open questions for cart/reservation and server totals.*

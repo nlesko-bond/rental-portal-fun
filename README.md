@@ -8,8 +8,9 @@ Custom **online rental / booking** UI that talks to Bond’s **hosted public HTT
 |-----|--------|
 | **[docs/RENTAL_PORTAL_PLAN.md](docs/RENTAL_PORTAL_PLAN.md)** | Full Phase 1 / Phase 2 plan (migrate your Cursor work around this file). |
 | **[docs/IMPLEMENTATION_AND_ROADMAP.md](docs/IMPLEMENTATION_AND_ROADMAP.md)** | **What’s built, env/URL map, file map, roadmap (Phases 3–7), open questions (e.g. cart vs reservation).** |
-| **[docs/MIGRATION_AND_CURSOR.md](docs/MIGRATION_AND_CURSOR.md)** | How to move Cursor / “the agent” to this folder and attach the plan. |
-| **[docs/bond/](docs/bond/)** | Copied integrator reference; **Swagger is still canonical** for request shapes. |
+| **[docs/MIGRATION_AND_CURSOR.md](docs/MIGRATION_AND_CURSOR.md)** | Cursor workspace / attaching the plan (short). |
+| **[docs/bond/](docs/bond/)** | Short integrator notes; **Swagger** is canonical for URLs and schemas. |
+| **[docs/FE_TECH_DESIGN_DRAFT.md](docs/FE_TECH_DESIGN_DRAFT.md)** | Frontend TD draft (flows, embed, open issues) — copy to Notion when ready. |
 
 ## Stack
 

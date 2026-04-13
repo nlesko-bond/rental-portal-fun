@@ -1,4 +1,4 @@
-import type { NormalizedQuestion, NormalizedQuestionOption } from "@/lib/questionnaire-parse";
+import type { NormalizedQuestionOption } from "@/lib/questionnaire-parse";
 
 /** Map Bond profile gender to a select option value when labels overlap. */
 export function matchGenderToSelectValue(

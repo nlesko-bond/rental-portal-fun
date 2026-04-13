@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { BookingScheduleDto, ExtendedProductDto, ScheduleTimeSlotDto } from "@/types/online-booking";
 import { productMembershipGated, slotDisplayTotalPrice, slotPriceTierRelativeToPeers, type SlotPriceTier } from "@/lib/booking-pricing";
@@ -42,6 +43,7 @@ function ResourceSearchJump({
   activeResourceId: number;
   onPick: (resourceId: number) => void;
 }) {
+  const tb = useTranslations("booking");
   const listId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
   const [q, setQ] = useState("");
@@ -82,7 +84,7 @@ function ResourceSearchJump({
         aria-autocomplete="list"
         className="cb-resource-jump-input cb-input"
         value={q}
-        placeholder="Find resource…"
+        placeholder={tb("findResourcePlaceholder")}
         onChange={(e) => {
           setQ(e.target.value);
           setOpen(true);
@@ -96,7 +98,7 @@ function ResourceSearchJump({
         <ul id={listId} className="cb-resource-jump-list" role="listbox">
           {filtered.length === 0 ? (
             <li className="cb-resource-jump-empty" role="presentation">
-              No matches
+              {tb("resourceJumpNoMatches")}
             </li>
           ) : (
             filtered.slice(0, 24).map((row) => (
@@ -157,6 +159,7 @@ export function ScheduleCalendarView({
   onToggleSlot,
   adjustSlotUnitPrice,
 }: Props) {
+  const ts = useTranslations("schedule");
   const reserved = reservedSlotKeys ?? EMPTY_SLOT_KEY_SET;
   const [userResourceTabId, setUserResourceTabId] = useState<number | null>(null);
 
@@ -202,7 +205,7 @@ export function ScheduleCalendarView({
     if (list.length === 0) {
       return (
         <p className="cb-resource-empty" role="status">
-          This product isn&apos;t available on {resourceName} at this time. Try a different date.
+          {ts("productUnavailableOnResource", { resource: resourceName })}
         </p>
       );
     }
@@ -224,7 +227,7 @@ export function ScheduleCalendarView({
                   if (!s.isAvailable || inCart) return;
                   onToggleSlot(resourceId, resourceName, s);
                 }}
-                title={inCart ? "Already in your cart" : undefined}
+                title={inCart ? ts("alreadyInCart") : undefined}
                 className={`cb-slot-btn ${picked ? "cb-slot-btn--picked" : ""} ${!s.isAvailable ? "cb-slot-btn--full" : ""} ${inCart ? "cb-slot-btn--incart" : ""} ${tierClass(tier)}`}
               >
                 <span className="cb-slot-btn-time">{formatSlotRange12h(s.startTime, s.endTime)}</span>

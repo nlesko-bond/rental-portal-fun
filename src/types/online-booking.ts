@@ -24,6 +24,29 @@ export type ExtendedFacilityDto = {
   linkSEO?: string;
 };
 
+/**
+ * Optional portal white-label tokens from Bond `options.branding`.
+ * Unknown keys are ignored; extend as the public API documents more fields.
+ */
+export type PortalBranding = {
+  primaryColor?: string;
+  primary?: string;
+  accentColor?: string;
+  accent?: string;
+  successColor?: string;
+  success?: string;
+  fontFamily?: string;
+  fontFamilyStack?: string;
+  /** Page / card backgrounds */
+  backgroundColor?: string;
+  surfaceColor?: string;
+  /** Text and chrome */
+  textColor?: string;
+  textPrimaryColor?: string;
+  textMutedColor?: string;
+  borderColor?: string;
+} & Record<string, unknown>;
+
 export type ExtendedOnlineBookingPortalOptionsDto = {
   defaultFacility: ExtendedFacilityDto;
   facilities: ExtendedFacilityDto[];
@@ -35,8 +58,8 @@ export type ExtendedOnlineBookingPortalOptionsDto = {
   views: OnlineBookingView[];
   enableStartTimeSelection?: boolean;
   startTimeIntervals?: number[];
-  /** Optional org theme; same keys supported as `NEXT_PUBLIC_BOOKING_*` (e.g. primaryColor, accentColor, fontFamily). */
-  branding?: Record<string, unknown>;
+  /** Optional org theme; maps to `--cb-*` in `resolveBookingThemeStyle`. */
+  branding?: PortalBranding;
 };
 
 export type PublicOnlineBookingPortalDto = {

@@ -1,11 +1,9 @@
 import type { CSSProperties } from "react";
-import type { PublicOnlineBookingPortalDto } from "@/types/online-booking";
+import type { PortalBranding, PublicOnlineBookingPortalDto } from "@/types/online-booking";
 
-type Branding = Record<string, unknown>;
-
-function readBranding(portal: PublicOnlineBookingPortalDto | undefined): Branding {
-  const opts = portal?.options as { branding?: Branding } | undefined;
-  return opts?.branding && typeof opts.branding === "object" ? opts.branding : {};
+function readBranding(portal: PublicOnlineBookingPortalDto | undefined): PortalBranding {
+  const b = portal?.options?.branding;
+  return b && typeof b === "object" ? b : {};
 }
 
 function str(v: unknown): string | undefined {
@@ -44,6 +42,7 @@ export function resolveBookingThemeStyle(
   const success =
     str(urlOverrides?.success) ??
     str(b.successColor) ??
+    str(b.success) ??
     env("NEXT_PUBLIC_BOOKING_SUCCESS") ??
     "#24c875";
 
@@ -57,12 +56,28 @@ export function resolveBookingThemeStyle(
     else fontSans = "var(--font-montserrat), system-ui, sans-serif";
   }
 
+  const bgPage = str(b.backgroundColor);
+  const bgSurface = str(b.surfaceColor);
+  const text = str(b.textColor) ?? str(b.textPrimaryColor);
+  const textMuted = str(b.textMutedColor);
+  const border = str(b.borderColor);
+
   return {
     "--cb-primary": primary,
     "--cb-accent": accent,
     "--cb-success": success,
     "--cb-font-sans": fontSans,
     fontFamily: fontSans,
+    ...(bgPage != null ? { "--cb-bg-page": bgPage } : {}),
+    ...(bgSurface != null
+      ? {
+          "--cb-bg-surface": bgSurface,
+          "--cb-bg-slot": bgSurface,
+        }
+      : {}),
+    ...(text != null ? { "--cb-text": text } : {}),
+    ...(textMuted != null ? { "--cb-text-muted": textMuted } : {}),
+    ...(border != null ? { "--cb-border": border } : {}),
   } as CSSProperties;
 }
 

@@ -12,7 +12,8 @@ import {
   resolveAddonDisplayPrice,
 } from "@/lib/product-package-addons";
 import { sanitizeBookingDescriptionHtml } from "@/lib/sanitize-html";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useTranslations } from "next-intl";
+import { useMemo, useState, type ReactNode } from "react";
 import {
   productCatalogAllPricesNearZero,
   productHasVariableSchedulePricing,
@@ -104,6 +105,7 @@ function isInstructorResourceType(type: string | undefined): boolean {
 }
 
 function ResourcesNamesList({ items }: { items: PublicResourceDto[] }) {
+  const tb = useTranslations("booking");
   const [expanded, setExpanded] = useState(false);
   const hiddenCount = Math.max(0, items.length - RESOURCE_PREVIEW);
   const shown = expanded ? items : items.slice(0, RESOURCE_PREVIEW);
@@ -118,7 +120,7 @@ function ResourcesNamesList({ items }: { items: PublicResourceDto[] }) {
       </ul>
       {hiddenCount > 0 ? (
         <button type="button" className="cb-detail-resource-more" onClick={() => setExpanded((x) => !x)}>
-          {expanded ? "Show less" : `View more (${hiddenCount} more)`}
+          {expanded ? tb("resourceShowLess") : tb("resourceViewMore", { count: hiddenCount })}
         </button>
       ) : null}
     </>
@@ -132,6 +134,8 @@ function ProductResourcesSection({
   resources: PublicResourceDto[] | undefined;
   loading: boolean;
 }) {
+  const tb = useTranslations("booking");
+  const tc = useTranslations("common");
   const { spaces, instructors } = useMemo(() => {
     const sp: PublicResourceDto[] = [];
     const ins: PublicResourceDto[] = [];
@@ -148,8 +152,8 @@ function ProductResourcesSection({
 
   if (loading && (!resources || resources.length === 0)) {
     return (
-      <DetailRow icon={<ResourceStackIcon className="text-[var(--cb-primary)]" />} label="Availability">
-        <span className="cb-muted text-sm">Loading…</span>
+      <DetailRow icon={<ResourceStackIcon className="text-[var(--cb-primary)]" />} label={tb("productDetailAvailability")}>
+        <span className="cb-muted text-sm">{tc("loading")}</span>
       </DetailRow>
     );
   }
@@ -159,7 +163,7 @@ function ProductResourcesSection({
   return (
     <>
       {spaces.length > 0 ? (
-        <DetailRow key="spaces" icon={<ResourceStackIcon className="text-[var(--cb-primary)]" />} label="Spaces">
+        <DetailRow key="spaces" icon={<ResourceStackIcon className="text-[var(--cb-primary)]" />} label={tb("productDetailSpaces")}>
           <ResourcesNamesList items={spaces} />
         </DetailRow>
       ) : null}
@@ -167,7 +171,7 @@ function ProductResourcesSection({
         <DetailRow
           key="instructors"
           icon={<ResourceStackIcon className="text-[var(--cb-primary)]" />}
-          label="Instructors"
+          label={tb("productDetailInstructors")}
         >
           <ResourcesNamesList items={instructors} />
         </DetailRow>
@@ -180,17 +184,13 @@ function ProductDetailHeroImage({
   product,
   activity,
   showMembersOnly,
-  open,
 }: {
   product: ExtendedProductDto;
   activity: string;
   showMembersOnly: boolean;
-  open: boolean;
 }) {
+  const tb = useTranslations("booking");
   const [failStep, setFailStep] = useState(0);
-  useEffect(() => {
-    setFailStep(0);
-  }, [product.id, open]);
 
   const step = Math.min(2, failStep) as ProductCardImageFallbackStep;
   const hero = resolveProductCardImageAtStep(product, activity, step);
@@ -208,7 +208,7 @@ function ProductDetailHeroImage({
         <div className="cb-product-detail-hero-tags">
           <span className="cb-product-detail-pill">
             <IconLockDetail className="size-3 shrink-0 opacity-95" />
-            Members only
+            {tb("productDetailMembersOnly")}
           </span>
         </div>
       ) : null}
@@ -227,6 +227,9 @@ export function ProductDetailModal({
   scheduleResourcesLoading = false,
   onClose,
 }: Props) {
+  const tb = useTranslations("booking");
+  const tc = useTranslations("checkout");
+  const tcommon = useTranslations("common");
   const descriptionRaw = product?.description ?? "";
   const safeDescription = useMemo(() => {
     if (!open || !descriptionRaw || typeof window === "undefined") return "";
@@ -250,48 +253,45 @@ export function ProductDetailModal({
             product={product}
             activity={activity}
             showMembersOnly={showMembersOnly}
-            open={open}
           />
         </div>
 
         {product.description ? (
           <section className="cb-detail-block">
-            <h3 className="cb-detail-block-title">About this service</h3>
+            <h3 className="cb-detail-block-title">{tb("productDetailAbout")}</h3>
             {safeDescription ? (
               <div
                 className="cb-detail-html cb-detail-block-text"
                 dangerouslySetInnerHTML={{ __html: safeDescription }}
               />
             ) : (
-              <p className="cb-detail-block-text cb-muted text-sm">Description will appear when opened in the browser.</p>
+              <p className="cb-detail-block-text cb-muted text-sm">{tb("productDetailDescriptionFallback")}</p>
             )}
           </section>
         ) : null}
 
         <section className="cb-detail-block">
-          <h3 className="cb-detail-block-title">Details</h3>
+          <h3 className="cb-detail-block-title">{tb("productDetailDetails")}</h3>
           <ul className="cb-detail-row-list">
             {facilityName ? (
-              <DetailRow icon={<IconPinDetail className="text-[var(--cb-primary)]" />} label="Location">
+              <DetailRow icon={<IconPinDetail className="text-[var(--cb-primary)]" />} label={tb("productDetailLocation")}>
                 {facilityName}
               </DetailRow>
             ) : null}
-            <DetailRow icon={<IconClockDetail className="text-[var(--cb-primary)]" />} label="Session duration">
+            <DetailRow icon={<IconClockDetail className="text-[var(--cb-primary)]" />} label={tb("productDetailDuration")}>
               {formatDurationLabel(durationMinutes)}
             </DetailRow>
-            <DetailRow icon={<IconDollarDetail className="text-[var(--cb-primary)]" />} label="Price">
+            <DetailRow icon={<IconDollarDetail className="text-[var(--cb-primary)]" />} label={tb("productDetailPrice")}>
               {productMembershipGated(product) && productCatalogAllPricesNearZero(product) ? (
                 <span className="cb-detail-price-pill">
-                  <span className="cb-detail-price-pill-amount">Free for members</span>
+                  <span className="cb-detail-price-pill-amount">{tb("productDetailFreeForMembers")}</span>
                 </span>
               ) : (
                 <>
                   <span
                     className="cb-detail-price-pill"
                     title={
-                      productHasVariableSchedulePricing(product)
-                        ? "Prices vary by time; peak windows may cost more than the range shown."
-                        : undefined
+                      productHasVariableSchedulePricing(product) ? tc("peakPricingHint") : undefined
                     }
                   >
                     <span className="cb-detail-price-pill-amount">{priceRangeLabel(product)}</span>
@@ -302,15 +302,13 @@ export function ProductDetailModal({
                     ) : null}
                   </span>
                   {productHasVariableSchedulePricing(product) ? (
-                    <span className="sr-only">
-                      Prices vary by time; peak windows may cost more than the range shown.
-                    </span>
+                    <span className="sr-only">{tc("peakPricingHint")}</span>
                   ) : null}
                 </>
               )}
             </DetailRow>
-            <DetailRow icon={<IconCalendarDetail className="text-[var(--cb-primary)]" />} label="Schedule">
-              Times shown are for the facility and product you selected. Pick a date to see open slots.
+            <DetailRow icon={<IconCalendarDetail className="text-[var(--cb-primary)]" />} label={tb("productDetailSchedule")}>
+              {tb("productDetailScheduleBlurb")}
             </DetailRow>
             <ProductResourcesSection
               key={product.id}
@@ -318,28 +316,28 @@ export function ProductDetailModal({
               loading={scheduleResourcesLoading}
             />
             {down != null && Number.isFinite(down) && down > 0 ? (
-              <DetailRow icon={<IconDollarDetail className="text-[var(--cb-primary)]" />} label="Down payment">
+              <DetailRow icon={<IconDollarDetail className="text-[var(--cb-primary)]" />} label={tb("productDetailDownPayment")}>
                 {product.prices[0] ? formatPrice(down, product.prices[0].currency) : String(down)}
               </DetailRow>
             ) : null}
             {showMembersOnly ? (
-              <DetailRow icon={<IconLockDetail className="text-[var(--cb-primary)]" />} label="Access">
-                Members only
+              <DetailRow icon={<IconLockDetail className="text-[var(--cb-primary)]" />} label={tb("productDetailAccess")}>
+                {tb("productDetailMembersOnly")}
                 {addons.length === 1 ? ` — ${addons[0]!.name}` : null}
               </DetailRow>
             ) : null}
             {product.isPunchPass ? (
-              <DetailRow icon={<IconCalendarDetail className="text-[var(--cb-primary)]" />} label="Passes">
-                Pass eligible for this service
+              <DetailRow icon={<IconCalendarDetail className="text-[var(--cb-primary)]" />} label={tb("productDetailPasses")}>
+                {tb("productDetailPassEligible")}
               </DetailRow>
             ) : null}
             {hasMemberBenefit ? (
-              <DetailRow icon={<span className="text-[var(--cb-primary)] font-bold">%</span>} label="Member benefits">
-                Discounts may apply for eligible memberships.
+              <DetailRow icon={<span className="text-[var(--cb-primary)] font-bold">%</span>} label={tb("productDetailMemberBenefits")}>
+                {tb("productDetailMemberBenefitsBlurb")}
               </DetailRow>
             ) : null}
             {addons.length > 0 ? (
-              <DetailRow icon={<span className="text-[var(--cb-primary)] font-bold">+</span>} label="Optional add-ons">
+              <DetailRow icon={<span className="text-[var(--cb-primary)] font-bold">+</span>} label={tb("productDetailAddonsHeading")}>
                 {addons.map((a) => a.name).join(", ")}
               </DetailRow>
             ) : null}
@@ -348,7 +346,7 @@ export function ProductDetailModal({
 
         {addons.length > 0 ? (
           <section className="cb-detail-block">
-            <h3 className="cb-detail-block-title">Available add-ons</h3>
+            <h3 className="cb-detail-block-title">{tb("productDetailAvailableAddons")}</h3>
             <ul className="cb-detail-addon-chips">
               {addons.map((a) => {
                 const resolved = resolveAddonDisplayPrice(a);
@@ -374,7 +372,7 @@ export function ProductDetailModal({
 
         <div className="cb-product-detail-footer">
           <button type="button" className="cb-btn-outline" onClick={onClose}>
-            Close
+            {tcommon("close")}
           </button>
         </div>
       </div>

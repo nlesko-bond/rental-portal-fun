@@ -8,16 +8,18 @@ export type BondApiErrorBody = {
   timestamp?: string;
 };
 
+export type ErrorsTranslator = (key: string, values?: Record<string, string | number>) => string;
+
 export function asBondApiErrorBody(body: unknown): BondApiErrorBody | null {
   if (!body || typeof body !== "object") return null;
   return body as BondApiErrorBody;
 }
 
 /** User-facing line: message plus code when useful. */
-export function formatBondUserMessage(err: BondBffError): string {
+export function formatBondUserMessage(err: BondBffError, t: ErrorsTranslator): string {
   const body = asBondApiErrorBody(err.body);
   const code = body?.code;
-  const base = err.message || "Request failed";
+  const base = err.message || t("requestFailed");
   if (code && !base.includes(code)) {
     return `${base} (${code})`;
   }
@@ -42,30 +44,38 @@ export type ConsumerBookingErrorContext = {
  * cart-level rules, so declared `price` on each segment must match Bond’s engine, not only the matrix cell.
  * Never surface raw ids — use guest + product labels from context.
  */
-export function formatIllegalPriceMessage(message: string, context?: ConsumerBookingErrorContext): string | null {
-  const t = message.trim();
-  if (!t) return null;
-  if (!/illegal\s+price/i.test(t)) return null;
-  const who = context?.customerLabel?.trim() || "this guest";
-  const prod = context?.productName?.trim() || "this service";
-  const base = `Price issue with ${who} on ${prod}. Try different times or add-ons, or contact the venue if this keeps happening.`;
+export function formatIllegalPriceMessage(
+  message: string,
+  t: ErrorsTranslator,
+  context?: ConsumerBookingErrorContext
+): string | null {
+  const tmsg = message.trim();
+  if (!tmsg) return null;
+  if (!/illegal\s+price/i.test(tmsg)) return null;
+  const who = context?.customerLabel?.trim() || t("guestFallback");
+  const prod = context?.productName?.trim() || t("serviceFallback");
+  let base = t("illegalPrice", { who, prod });
   if (context?.mergingIntoExistingCart) {
-    return `${base} Adding to an existing cart can use different unit prices than the schedule; try finishing this booking first or starting a new cart.`;
+    base += t("illegalPriceMerge");
   }
   return base;
 }
 
 /** Map unknown errors (e.g. query failures) to the same friendly copy as {@link formatConsumerBookingError}. */
-export function formatConsumerBookingErrorUnknown(err: unknown, context?: ConsumerBookingErrorContext): string {
-  if (err instanceof BondBffError) return formatConsumerBookingError(err, context);
+export function formatConsumerBookingErrorUnknown(
+  err: unknown,
+  t: ErrorsTranslator,
+  context?: ConsumerBookingErrorContext
+): string {
+  if (err instanceof BondBffError) return formatConsumerBookingError(err, t, context);
   if (err instanceof Error) {
-    const fromMsg = formatIllegalPriceMessage(err.message, context);
+    const fromMsg = formatIllegalPriceMessage(err.message, t, context);
     if (fromMsg) return fromMsg;
     const m = err.message.trim();
     if (m.length > 0 && m.length <= 220) return m;
     if (m.length > 220) return `${m.slice(0, 217)}…`;
   }
-  return "Something went wrong. Please try again.";
+  return t("somethingWrong");
 }
 
 /**
@@ -74,37 +84,39 @@ export function formatConsumerBookingErrorUnknown(err: unknown, context?: Consum
  */
 export function formatConsumerBookingError(
   err: BondBffError,
+  t: ErrorsTranslator,
   context?: ConsumerBookingErrorContext
 ): string {
   if (err.status === 401 || err.status === 403) {
-    return "Something went wrong. Please try again.";
+    return t("somethingWrong");
   }
   const body = asBondApiErrorBody(err.body);
   const code = body?.code;
   const rawMsg = typeof body?.message === "string" ? body.message : "";
 
-  const illegalFromBody = formatIllegalPriceMessage(rawMsg, context);
+  const illegalFromBody = formatIllegalPriceMessage(rawMsg, t, context);
   if (illegalFromBody) return illegalFromBody;
-  const illegalFromErr = formatIllegalPriceMessage(err.message ?? "", context);
+  const illegalFromErr = formatIllegalPriceMessage(err.message ?? "", t, context);
   if (illegalFromErr) return illegalFromErr;
 
+  if (code === "ONLINE_BOOKING.TOO_SOON") {
+    return t("bookingTooSoon");
+  }
   if (code === "ONLINE_BOOKING.INVALID_PRODUCT") {
     const reservedEligibility =
       /reserved|everyone|specific memberships|specific clients/i.test(rawMsg) ||
       /must be reserved/i.test(rawMsg);
     if (reservedEligibility) {
-      const who = context?.customerLabel?.trim() || "This account";
-      const org =
-        context?.orgName?.trim() ||
-        "the venue";
-      return `${who} isn’t eligible for this product. Try a different service or contact ${org} if you believe this is a mistake.`;
+      const who = context?.customerLabel?.trim() || t("thisAccount");
+      const org = context?.orgName?.trim() || t("venueFallback");
+      return t("notEligible", { who, org });
     }
-    return "We couldn’t complete this booking with the selected options. Try different times or remove some add-ons, or contact the venue if this keeps happening.";
+    return t("invalidProductGeneric");
   }
   if (code === "SCHEDULE.MINIMUM_NOTICE_VIOLATION") {
-    return formatBondUserMessage(err);
+    return formatBondUserMessage(err, t);
   }
-  const raw = err.message || "Something went wrong. Please try again.";
+  const raw = err.message || t("somethingWrong");
   if (raw.length > 220) return `${raw.slice(0, 217)}…`;
   return raw;
 }

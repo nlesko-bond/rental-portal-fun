@@ -19,10 +19,11 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 ## Implementation pointers
 
-- **BFF:** `src/app/api/bond/[...path]/route.ts` — forwards `v1/organization/*` with server env `BOND_API_KEY`; reads user JWTs from httpOnly cookies set by `/api/bond-auth/login`.
+- **BFF:** `src/app/api/bond/[...path]/route.ts` — forwards allowlisted `v1/organization/*` (incl. **`cart/{cartId}`** GET + DELETE close, **`cart-item/{id}`** DELETE, **`finalize`** POST) with `BOND_API_KEY` + user cookies → `X-BondUser*` (+ `X-BondUserUsername` when present). **`DELETE` / `PUT` / `PATCH`** supported where Bond needs them.
+- **Payment proxy:** `src/app/api/bond-payment/organization/[orgId]/user/[userId]/options/route.ts` — **`GET`** → Bond **`v4/payment/organization/{orgId}/{userId}/options`**; **`BOND_PAYMENT_API_BASE_URL`** optional (defaults to **`BOND_AUTH_BASE_URL`** so v4 is not called on the public `v1` host).
 - **Auth proxy:** `src/app/api/bond-auth/*` — login/session/logout; env `BOND_AUTH_BASE_URL`.
 - **Client fetch helper:** `src/lib/bond-client.ts` (uses `credentials: "include"` for cookies).
-- **User / checkout APIs:** `src/lib/online-booking-user-api.ts` (`getUser`, booking-information, questionnaires, required products, `POST` create); `src/lib/online-booking-create-body.ts` (create payload — `addons[]` with `productId` + `quantity`; server prices the cart).
+- **User / checkout APIs:** `src/lib/online-booking-user-api.ts` (`getUser`, booking-information, questionnaires, required products, `POST` create); `src/lib/online-booking-create-body.ts` (create payload). **`src/lib/bond-cart-api.ts`** — `getOrganizationCart`, `removeCartItem`, `closeCart`, `finalizeCart`. **`src/lib/bond-payment-api.ts`** — consumer payment options (local BFF URL).
 - **Roadmap / gaps:** `docs/IMPLEMENTATION_AND_ROADMAP.md` — booking-information enforcement, server cart/totals vs client estimates, payment pins.
 - **Server state:** `@tanstack/react-query` via `src/app/providers.tsx`.
 

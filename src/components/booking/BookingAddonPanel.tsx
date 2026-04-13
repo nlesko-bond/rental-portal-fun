@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { getEffectiveAddonSlotKeys } from "@/lib/addon-slot-targeting";
 import type { PackageAddonLine } from "@/lib/product-package-addons";
 import {
@@ -50,6 +51,7 @@ export function BookingAddonPanel({
   pickedSlots,
   formatPrice,
 }: Props) {
+  const ta = useTranslations("addons");
   const allSlotKeys = pickedSlots.map((s) => s.key);
   const slotKeySet = new Set(allSlotKeys);
 
@@ -78,7 +80,7 @@ export function BookingAddonPanel({
         >
           {sel ? (
             <span className="cb-addon-card-selected-pill" aria-hidden>
-              Selected
+              {ta("selectedPill")}
             </span>
           ) : null}
           <span className={levelTagClass(a.level)}>{addonLevelLabel(a.level)}</span>
@@ -91,15 +93,13 @@ export function BookingAddonPanel({
             </span>
           ) : null}
           {a.level === "reservation" ? (
-            <span className="cb-addon-card-hint">
-              One charge for this booking (applies to the times you already selected).
-            </span>
+            <span className="cb-addon-card-hint">{ta("reservationHint")}</span>
           ) : null}
         </button>
         {showSlotUi ? (
           <div className="cb-addon-slot-apply">
             <p className="cb-addon-slot-apply-title">
-              {a.level === "hour" ? "Apply by time slot (price scales with length)" : "Apply to time slots"}
+              {a.level === "hour" ? ta("applyByHour") : ta("applyToSlots")}
             </p>
             <label className="cb-addon-select-all">
               <input
@@ -107,9 +107,13 @@ export function BookingAddonPanel({
                 checked={allSelected}
                 onChange={(e) => onAddonSelectAllSlots(a.id, e.target.checked, allSlotKeys)}
               />
-              <span>Select all time slots</span>
+              <span>{ta("selectAllSlots")}</span>
             </label>
-            <div className="cb-addon-slot-chip-grid" role="group" aria-label={`Slots for ${a.name}`}>
+            <div
+              className="cb-addon-slot-chip-grid"
+              role="group"
+              aria-label={ta("slotsForAddonAria", { name: a.name })}
+            >
               {pickedSlots.map((p) => {
                 const on = eff?.has(p.key) ?? false;
                 return (
@@ -139,14 +143,14 @@ export function BookingAddonPanel({
 
   const reservationBlock = showReservationBlock ? (
     <div className="cb-addon-subsection">
-      <h4 className="cb-addon-subsection-title">With your reservation</h4>
+      <h4 className="cb-addon-subsection-title">{ta("withReservation")}</h4>
       <div className="cb-addon-grid">{visReservation.map(renderCard)}</div>
     </div>
   ) : null;
 
   const slotBlock = showSlotBlock ? (
     <div className="cb-addon-subsection">
-      <h4 className="cb-addon-subsection-title">For your selected times</h4>
+      <h4 className="cb-addon-subsection-title">{ta("forSelectedTimes")}</h4>
       <div className="cb-addon-grid">{visSlotHour.map(renderCard)}</div>
     </div>
   ) : null;
@@ -157,7 +161,7 @@ export function BookingAddonPanel({
       aria-labelledby="addons-heading"
     >
       <h3 id="addons-heading" className="cb-addon-panel-title">
-        Enhance your booking with optional add-ons
+        {ta("panelHeading")}
       </h3>
 
       {mixedAddonLayout ? (
@@ -174,7 +178,7 @@ export function BookingAddonPanel({
 
       {hasMoreAddons ? (
         <button type="button" className="cb-addon-more" onClick={onToggleExpand}>
-          {addonsExpanded ? "Show fewer" : `View more (${moreCount} more)`}
+          {addonsExpanded ? ta("showFewer") : ta("viewMore", { count: moreCount })}
         </button>
       ) : null}
     </section>

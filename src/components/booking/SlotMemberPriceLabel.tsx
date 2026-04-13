@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { formatSlotCurrency } from "@/lib/booking-pricing";
 
 const EPS = 0.005;
@@ -45,12 +46,13 @@ export function SlotMemberPriceLabel({
   membershipGated: boolean;
   membershipGateNames: readonly string[];
 }) {
+  const tp = useTranslations("pricing");
   const showMemberFree =
     membershipGated && Number.isFinite(amount) && Math.abs(amount) < EPS;
   const tip =
     membershipGateNames.length > 0
-      ? `Included with: ${membershipGateNames.join(", ")}`
-      : "Member rate (included with qualifying membership).";
+      ? tp("includedWith", { names: membershipGateNames.join(", ") })
+      : tp("memberRateIncluded");
 
   if (!showMemberFree) {
     return <>{formatSlotCurrency(amount, currency)}</>;
@@ -60,7 +62,7 @@ export function SlotMemberPriceLabel({
     <span className="cb-slot-member-price group relative inline-flex max-w-full flex-col items-center gap-0.5">
       <span className="cb-slot-member-price__row inline-flex items-center gap-1">
         <span className="cb-slot-member-price__free text-[0.6rem] font-bold uppercase tracking-wide text-[var(--cb-primary)]">
-          Free
+          {tp("memberFree")}
         </span>
         <span className="relative inline-flex">
           {/*

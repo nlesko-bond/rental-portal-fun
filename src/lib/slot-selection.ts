@@ -55,6 +55,26 @@ export function slotControlKey(resourceId: number, s: ScheduleTimeSlotDto): stri
   return `${resourceId}-${s.startDate}-${s.startTime}-${s.endTime}`;
 }
 
+/**
+ * Inverse of {@link slotControlKey} when the schedule used ISO `YYYY-MM-DD` dates and `HH:MM:SS` times.
+ * Returns null if the key shape does not match (e.g. legacy or server-generated ids).
+ */
+export function parseSlotControlKey(key: string): {
+  resourceId: number;
+  startDate: string;
+  startTime: string;
+  endTime: string;
+} | null {
+  const m = key.match(/^(\d+)-(\d{4}-\d{2}-\d{2})-(\d{2}:\d{2}:\d{2})-(\d{2}:\d{2}:\d{2})$/);
+  if (!m) return null;
+  return {
+    resourceId: Number(m[1]),
+    startDate: m[2]!,
+    startTime: m[3]!,
+    endTime: m[4]!,
+  };
+}
+
 function timeToMinutes(t: string): number {
   const m = t.slice(0, 8).match(/^(\d{2}):(\d{2}):(\d{2})$/);
   if (!m) return NaN;

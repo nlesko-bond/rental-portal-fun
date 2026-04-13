@@ -201,6 +201,10 @@
       "quantity": {
         "type": "number",
         "description": "addon quantity"
+      },
+      "unitPrice": {
+        "type": "number",
+        "description": "optional explicit unit price when the API validates line amounts (e.g. prorated hour add-ons)"
       }
     }
   },

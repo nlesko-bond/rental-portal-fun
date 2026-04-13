@@ -12,10 +12,18 @@ export type SessionCartDisplayLine = {
   title: string;
   meta?: string;
   amount: number | null;
+  /** Pre-discount list amount when Bond / UI shows strike vs net (promo, member pricing). */
+  strikeAmount?: number;
   /** Drives labels/badges when expanding for bag + payment. */
   lineKind?: "booking" | "membership" | "addon";
   /** Catalog / promo discount — shown under meta on bag & payment (name, %, code). */
   discountNote?: string;
+};
+
+/** One participant’s reservation inside a merged Bond cart (same `cart.id`). */
+export type SessionReservationGroup = {
+  bookingForLabel: string;
+  slotKeys: string[];
 };
 
 export type SessionCartSnapshot = {
@@ -23,6 +31,11 @@ export type SessionCartSnapshot = {
   productName: string;
   /** Who this cart row was created for (snapshot at add-to-cart time). */
   bookingForLabel?: string;
+  /**
+   * When one Bond cart holds multiple adds (merge), each participant’s label + slot keys.
+   * Drives per-person bag sections; line assignment uses booking roots in `cartItems` order.
+   */
+  reservationGroups?: SessionReservationGroup[];
   /** Category required venue approval when this row was added — drives bag labels & line meta. */
   approvalRequired?: boolean;
   /** At add-to-cart time: GET …/required had no unpaid membership for this product (member rate for this rental). */
@@ -60,12 +73,15 @@ function normalizeDisplayLines(raw: unknown): SessionCartDisplayLine[] | undefin
       typeof r.discountNote === "string" && r.discountNote.trim().length > 0
         ? r.discountNote.trim()
         : undefined;
+    const strikeAmount =
+      typeof r.strikeAmount === "number" && Number.isFinite(r.strikeAmount) ? r.strikeAmount : undefined;
     out.push({
       title,
       meta,
       amount,
       ...(lineKind ? { lineKind } : {}),
       ...(discountNote ? { discountNote } : {}),
+      ...(strikeAmount != null ? { strikeAmount } : {}),
     });
   }
   return out.length > 0 ? out : undefined;
@@ -99,6 +115,12 @@ export function coerceCartFromApi(cart: OrganizationCartDto): OrganizationCartDt
   return cart;
 }
 
+/** Real Bond cart id (positive); session rows may use negative placeholders when the API omitted id. */
+export function positiveBondCartId(cart: OrganizationCartDto): number | null {
+  const id = coerceCartFromApi(cart).id;
+  return typeof id === "number" && Number.isFinite(id) && id > 0 ? id : null;
+}
+
 function normalizeRow(x: unknown, rowIndex: number): SessionCartSnapshot | null {
   if (!x || typeof x !== "object") return null;
   const o = x as Record<string, unknown>;
@@ -115,6 +137,26 @@ function normalizeRow(x: unknown, rowIndex: number): SessionCartSnapshot | null 
         ? o.bookingForLabel.trim()
         : undefined;
     const displayLines = normalizeDisplayLines(o.displayLines);
+    const rawRg = o.reservationGroups;
+    let reservationGroups: SessionReservationGroup[] | undefined;
+    if (Array.isArray(rawRg)) {
+      const acc: SessionReservationGroup[] = [];
+      for (const g of rawRg) {
+        if (!g || typeof g !== "object") continue;
+        const go = g as Record<string, unknown>;
+        const lbl =
+          typeof go.bookingForLabel === "string" && go.bookingForLabel.trim().length > 0
+            ? go.bookingForLabel.trim()
+            : "";
+        const sk = go.slotKeys;
+        const slotKeys =
+          Array.isArray(sk) && sk.every((x) => typeof x === "string") ? (sk as string[]) : [];
+        if (lbl.length > 0 || slotKeys.length > 0) {
+          acc.push({ bookingForLabel: lbl.length > 0 ? lbl : "Booking", slotKeys });
+        }
+      }
+      if (acc.length > 0) reservationGroups = acc;
+    }
     const rsk = o.reservedSlotKeys;
     const reservedSlotKeys =
       Array.isArray(rsk) && rsk.length > 0 && rsk.every((x) => typeof x === "string") ? rsk : undefined;
@@ -133,6 +175,7 @@ function normalizeRow(x: unknown, rowIndex: number): SessionCartSnapshot | null 
       ...(participantHasQualifyingMembership === true ? { participantHasQualifyingMembership: true } : {}),
       ...(reservedSlotKeys != null ? { reservedSlotKeys } : {}),
       ...(displayLines != null ? { displayLines } : {}),
+      ...(reservationGroups != null ? { reservationGroups } : {}),
       ...(scheduleSummary != null ? { scheduleSummary } : {}),
     };
   }

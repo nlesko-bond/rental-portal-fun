@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useLayoutEffect, useMemo, useRef } from "react";
 import type { BookingScheduleDto, ExtendedProductDto, ScheduleTimeSlotDto } from "@/types/online-booking";
 import { slotDisplayTotalPrice, slotPriceTierRelativeToPeers, type SlotPriceTier } from "@/lib/booking-pricing";
@@ -126,6 +127,7 @@ export function ScheduleMatrix({
   autoScrollKey,
   preferredStartResolved,
 }: Props) {
+  const ts = useTranslations("schedule");
   const membershipGateNames = useMemo(() => membershipGateProductNames(product), [product]);
   const scrollElRef = useRef<HTMLDivElement | null>(null);
   const anchorColRef = useRef<HTMLTableCellElement | null>(null);
@@ -160,7 +162,7 @@ export function ScheduleMatrix({
         preferredStartResolved,
         firstAvailableColIndex
       ),
-    [timeKeys, schedule.resources, autoScrollKey, preferredStartResolved, firstAvailableColIndex]
+    [timeKeys, schedule, autoScrollKey, preferredStartResolved, firstAvailableColIndex]
   );
 
   useLayoutEffect(() => {
@@ -236,7 +238,7 @@ export function ScheduleMatrix({
                         onClick={() =>
                           slot.isAvailable && !inCart && onToggleSlot(row.resource.id, row.resource.name, slot)
                         }
-                        title={inCart ? "Already in your cart" : slotTitle(slot)}
+                        title={inCart ? ts("alreadyInCart") : slotTitle(slot)}
                         className={`cb-matrix-slot flex min-h-[4.5rem] w-full min-w-[5rem] flex-col items-center justify-center gap-0.5 rounded-lg border px-1.5 py-2 text-center transition-colors sm:min-w-[6rem] sm:px-2 sm:py-2.5 ${
                           !slot.isAvailable
                             ? "cb-matrix-slot--unavailable cursor-not-allowed opacity-50"

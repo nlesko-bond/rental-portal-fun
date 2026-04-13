@@ -104,8 +104,8 @@ export async function fetchUserRequiredProducts(
 
 /**
  * `POST .../online-booking/create` — JWT. Creates **reservation + cart** (`cartReservation` in Swagger).
- * Called after the user finishes add-ons / forms / summary and confirms **Add to cart** (or approval **Submit request**).
- * **Purchase / pay** will use a separate endpoint when Bond publishes it.
+ * Called after add-ons / membership / forms (or the no-extras path) to persist the reservation + cart, with optional `cartId` merge.
+ * Submit-for-approval / pay flows use the returned cart; **finalize** via `finalizeCart` in `bond-cart-api.ts`.
  */
 export async function postOnlineBookingCreate(
   orgId: number,

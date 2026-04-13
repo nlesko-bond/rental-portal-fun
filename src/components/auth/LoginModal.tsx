@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useTranslations } from "next-intl";
 import { useBookingAppearanceClass } from "@/hooks/useBookingAppearanceClass";
 import { RightDrawer } from "@/components/ui/RightDrawer";
 import { useBondAuth } from "./BondAuthContext";
@@ -50,6 +51,7 @@ function IconUserBadge() {
 }
 
 export function LoginModal() {
+  const ta = useTranslations("auth");
   const appearanceClass = useBookingAppearanceClass();
   const { loginOpen, setLoginOpen, login } = useBondAuth();
   const [email, setEmail] = useState("");
@@ -79,23 +81,21 @@ export function LoginModal() {
       open={loginOpen}
       onClose={() => setLoginOpen(false)}
       hideTitle
-      ariaLabel="Sign in or create account"
+      ariaLabel={ta("loginDrawerAria")}
       panelClassName={`consumer-booking ${appearanceClass} cb-login-drawer`.trim()}
     >
       <div className="cb-login-drawer-inner">
         <div className="flex flex-col items-center gap-1">
           <IconUserBadge />
           <h2 id="cb-login-heading" className="mt-4 text-center text-xl font-semibold text-[var(--cb-text)]">
-            Sign In or Create Account
+            {ta("loginTitle")}
           </h2>
-          <p className="text-center text-sm text-[var(--cb-text-muted)]">
-            Sign in or create an account to complete your booking
-          </p>
+          <p className="text-center text-sm text-[var(--cb-text-muted)]">{ta("loginSubtitle")}</p>
         </div>
         <form onSubmit={onSubmit} className="mt-8 flex flex-col gap-4">
           <div>
             <label className="mb-1.5 block text-sm font-semibold text-[var(--cb-text)]" htmlFor="cb-login-email">
-              Email
+              {ta("email")}
             </label>
             <div className="relative">
               <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--cb-text-muted)]">
@@ -115,7 +115,7 @@ export function LoginModal() {
           </div>
           <div>
             <label className="mb-1.5 block text-sm font-semibold text-[var(--cb-text)]" htmlFor="cb-login-password">
-              Password
+              {ta("password")}
             </label>
             <div className="relative">
               <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--cb-text-muted)]">
@@ -143,7 +143,7 @@ export function LoginModal() {
             className="w-full rounded-lg bg-[var(--cb-primary)] px-4 py-3 text-sm font-semibold text-[var(--cb-text-on-primary)] disabled:opacity-50"
             disabled={busy}
           >
-            {busy ? "Signing in…" : "Sign In"}
+            {busy ? ta("signingIn") : ta("signInSubmit")}
           </button>
         </form>
       </div>

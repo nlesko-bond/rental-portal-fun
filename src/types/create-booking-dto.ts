@@ -5,6 +5,8 @@
 export type CreateBookingAddonDto = {
   productId: number;
   quantity: number;
+  /** When Bond validates line amounts (e.g. hour add-ons prorated to slot duration), send catalog-derived unit price. */
+  unitPrice?: number;
 };
 
 export type AddCartItemDtoMinimal = {

@@ -3,6 +3,7 @@
 import { formatActivityLabel } from "@/lib/booking-activity-display";
 import { plainAddonDescription } from "@/lib/product-package-addons";
 import type { ExtendedFacilityDto, ReservationProductCategoryDto } from "@/types/online-booking";
+import { useTranslations } from "next-intl";
 import { useMemo, useState } from "react";
 
 export function IconPin({ className }: { className?: string }) {
@@ -38,16 +39,6 @@ export function IconSearch({ className }: { className?: string }) {
   );
 }
 
-function categorySubtitle(c: ReservationProductCategoryDto): string {
-  const plain = plainAddonDescription(c.description?.trim());
-  if (plain) return plain;
-  const n = (c.name ?? "").toLowerCase();
-  if (n.includes("rental")) return "Book courts, cages, and fields";
-  if (n.includes("lesson")) return "Private coaching sessions";
-  if (n.includes("part") || n.includes("event")) return "Events and celebrations";
-  return "Choose this category";
-}
-
 export function activityEmoji(activity: string): string {
   const a = activity.toLowerCase();
   if (a === "football" || (a.includes("football") && a.includes("american"))) return "🏈";
@@ -71,6 +62,7 @@ type FacilityPickerProps = {
 };
 
 export function FacilityPickerBody({ facilities, selectedId, onSelect, onClose }: FacilityPickerProps) {
+  const tb = useTranslations("booking");
   return (
     <div className="flex flex-col gap-2">
       {facilities.map((f) => {
@@ -92,7 +84,7 @@ export function FacilityPickerBody({ facilities, selectedId, onSelect, onClose }
             </div>
             <div className="min-w-0 flex-1 text-left">
               <div className="font-bold text-[var(--cb-text)]">{f.name}</div>
-              <div className="text-sm cb-muted">{f.timezone ?? "Sports facility"}</div>
+              <div className="text-sm cb-muted">{f.timezone ?? tb("facilityTimezoneFallback")}</div>
             </div>
           </button>
         );
@@ -109,6 +101,16 @@ type CategoryPickerProps = {
 };
 
 export function CategoryPickerBody({ categories, selectedId, onSelect, onClose }: CategoryPickerProps) {
+  const tb = useTranslations("booking");
+  function categorySubtitle(c: ReservationProductCategoryDto): string {
+    const plain = plainAddonDescription(c.description?.trim());
+    if (plain) return plain;
+    const n = (c.name ?? "").toLowerCase();
+    if (n.includes("rental")) return tb("categoryHintRental");
+    if (n.includes("lesson")) return tb("categoryHintLesson");
+    if (n.includes("part") || n.includes("event")) return tb("categoryHintEvent");
+    return tb("categoryHintDefault");
+  }
   return (
     <div className="flex flex-col gap-2">
       {categories.map((c) => {
@@ -147,6 +149,7 @@ type ActivityPickerProps = {
 };
 
 export function ActivityPickerBody({ activities, selected, onSelect, onClose }: ActivityPickerProps) {
+  const tb = useTranslations("booking");
   const [q, setQ] = useState("");
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -163,10 +166,10 @@ export function ActivityPickerBody({ activities, selected, onSelect, onClose }: 
         <input
           type="search"
           className="cb-activity-search"
-          placeholder="Search sports…"
+          placeholder={tb("searchSportsPlaceholder")}
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          aria-label="Search activities"
+          aria-label={tb("searchActivitiesAria")}
         />
       </div>
       <div className="cb-activity-grid">
@@ -194,7 +197,7 @@ export function ActivityPickerBody({ activities, selected, onSelect, onClose }: 
           );
         })}
       </div>
-      {filtered.length === 0 && <p className="cb-muted py-6 text-center text-sm">No matches.</p>}
+      {filtered.length === 0 && <p className="cb-muted py-6 text-center text-sm">{tb("activityNoMatches")}</p>}
     </div>
   );
 }

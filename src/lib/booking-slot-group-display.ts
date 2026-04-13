@@ -12,7 +12,7 @@ function sortKey(a: PickedSlot): string {
 }
 
 /**
- * Groups consecutive slots on the same resource/date (back-to-back) for a single confirm line
+ * Groups consecutive slots on the same resource/date (back-to-back) for display/summary helpers
  * (e.g. 8:00–10:00 across four 30-min slots).
  */
 export function groupContiguousPickedSlotsForConfirm(slots: PickedSlot[]): PickedSlot[][] {

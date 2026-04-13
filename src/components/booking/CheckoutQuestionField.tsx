@@ -1,10 +1,9 @@
 "use client";
 
 import DOMPurify from "dompurify";
+import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { NormalizedQuestion } from "@/lib/questionnaire-parse";
-
-const PREFILL_HINT = "From your profile";
 
 type Props = {
   q: NormalizedQuestion;
@@ -84,6 +83,7 @@ function WaiverBlock({
   onChange: (v: string) => void;
   profileWaiverSignedDate?: string;
 }) {
+  const tc = useTranslations("checkout");
   const scrollRef = useRef<HTMLDivElement>(null);
   const [canAck, setCanAck] = useState(Boolean(profileWaiverSignedDate));
 
@@ -114,7 +114,7 @@ function WaiverBlock({
     <div className="cb-q-waiver">
       {profileWaiverSignedDate ? (
         <p className="cb-q-waiver-profile-note" role="status">
-          Waiver on file from {profileWaiverSignedDate}. Check the box below to confirm it applies to this booking.
+          {tc("waiverOnFile", { date: profileWaiverSignedDate })}
         </p>
       ) : null}
       <span className="cb-checkout-field-label">
@@ -127,15 +127,12 @@ function WaiverBlock({
             ref={scrollRef}
             className="cb-q-waiver-scroll cb-prose-muted"
             onScroll={checkScroll}
-            // eslint-disable-next-line react/no-danger -- sanitized via DOMPurify
             dangerouslySetInnerHTML={{ __html: safeHtml }}
           />
-          {!canAck ? (
-            <p className="cb-q-waiver-hint">Scroll to the bottom to acknowledge.</p>
-          ) : null}
+          {!canAck ? <p className="cb-q-waiver-hint">{tc("waiverScrollHint")}</p> : null}
         </div>
       ) : (
-        <p className="cb-q-waiver-fallback cb-muted text-sm">Review the terms above, then confirm below.</p>
+        <p className="cb-q-waiver-fallback cb-muted text-sm">{tc("waiverFallback")}</p>
       )}
       <label className="cb-q-waiver-ack mt-3 flex cursor-pointer items-start gap-2">
         <input
@@ -147,7 +144,7 @@ function WaiverBlock({
           onChange={(e) => onChange(e.target.checked ? "true" : "false")}
         />
         <span className="text-sm leading-snug text-[var(--cb-text)]">
-          I have read and agree to the terms above
+          {tc("waiverAgree")}
           {mandatory ? <span className="cb-q-req"> *</span> : null}
         </span>
       </label>
@@ -163,12 +160,13 @@ export function CheckoutQuestionField({
   prefilledHint,
   profileWaiverSignedDate,
 }: Props) {
+  const tc = useTranslations("checkout");
   const id = `${namePrefix}-${q.id}`;
   const required = q.mandatory;
 
   const hintRow = prefilledHint ? (
     <p className="cb-q-field-hint" role="status">
-      {PREFILL_HINT}
+      {tc("formsPrefillHint")}
     </p>
   ) : null;
 
@@ -203,7 +201,7 @@ export function CheckoutQuestionField({
               checked={value === "true"}
               onChange={() => onChange("true")}
             />
-            <span>Yes</span>
+            <span>{tc("yes")}</span>
           </label>
           <label className="flex cursor-pointer items-center gap-2">
             <input
@@ -212,7 +210,7 @@ export function CheckoutQuestionField({
               checked={value === "false"}
               onChange={() => onChange("false")}
             />
-            <span>No</span>
+            <span>{tc("no")}</span>
           </label>
         </div>
       </fieldset>
@@ -236,7 +234,7 @@ export function CheckoutQuestionField({
               type="email"
               autoComplete="email"
               className="cb-input cb-q-input-enhanced w-full"
-              placeholder="name@example.com"
+              placeholder={tc("emailPlaceholder")}
               value={value}
               required={required}
               onChange={(e) => onChange(e.target.value)}
@@ -265,7 +263,7 @@ export function CheckoutQuestionField({
               type="tel"
               autoComplete="tel"
               className="cb-input cb-q-input-enhanced w-full"
-              placeholder="Enter phone number"
+              placeholder={tc("phonePlaceholder")}
               value={value}
               required={required}
               onChange={(e) => onChange(e.target.value)}
@@ -294,7 +292,7 @@ export function CheckoutQuestionField({
               type="text"
               autoComplete="street-address"
               className="cb-input cb-q-input-enhanced w-full"
-              placeholder="Street, city, state, ZIP"
+              placeholder={tc("addressPlaceholder")}
               value={value}
               required={required}
               onChange={(e) => onChange(e.target.value)}
@@ -346,7 +344,7 @@ export function CheckoutQuestionField({
         </span>
         {min != null && max != null ? (
           <p className="cb-q-helper mb-1 text-xs text-[var(--cb-text-muted)]">
-            Enter a number between {min} and {max} (inclusive).
+            {tc("numberBetweenHint", { min, max })}
           </p>
         ) : null}
         <input
@@ -382,7 +380,7 @@ export function CheckoutQuestionField({
             required={required}
             onChange={(e) => onChange(e.target.value)}
           >
-            <option value="">{required ? "Choose…" : "Optional"}</option>
+            <option value="">{required ? tc("selectChoose") : tc("selectOptional")}</option>
             {q.options.map((o) => (
               <option key={o.value} value={o.value}>
                 {o.label}
@@ -433,7 +431,7 @@ export function CheckoutQuestionField({
           {q.label}
           {required ? <span className="cb-q-req"> *</span> : null}
         </legend>
-        <p className="cb-q-helper mb-2 text-xs text-[var(--cb-text-muted)]">Pick all that apply.</p>
+        <p className="cb-q-helper mb-2 text-xs text-[var(--cb-text-muted)]">{tc("pickAllThatApply")}</p>
         <div className="flex flex-col gap-2">
           {q.options.map((o) => {
             const checked = selected.includes(o.value);
@@ -469,8 +467,8 @@ export function CheckoutQuestionField({
           <span className="text-2xl" aria-hidden>
             ⬆
           </span>
-          <span className="text-center text-sm text-[var(--cb-text)]">Choose a file</span>
-          <span className="text-center text-xs text-[var(--cb-text-muted)]">Accepts JPG, PNG only</span>
+          <span className="text-center text-sm text-[var(--cb-text)]">{tc("chooseFile")}</span>
+          <span className="text-center text-xs text-[var(--cb-text-muted)]">{tc("fileAcceptsHint")}</span>
           <input
             type="file"
             accept="image/jpeg,image/png,.jpg,.jpeg,.png"
@@ -481,7 +479,11 @@ export function CheckoutQuestionField({
             }}
           />
         </label>
-        {value ? <p className="cb-q-file-name mt-1 text-sm text-[var(--cb-text-muted)]">Selected: {value}</p> : null}
+        {value ? (
+          <p className="cb-q-file-name mt-1 text-sm text-[var(--cb-text-muted)]">
+            {tc("fileSelected", { name: value })}
+          </p>
+        ) : null}
       </div>
     );
   }

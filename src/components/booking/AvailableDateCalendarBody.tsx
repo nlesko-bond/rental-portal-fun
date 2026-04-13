@@ -1,12 +1,11 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useMemo, useState } from "react";
 
 function ymdKey(y: number, m: number, day: number): string {
   return `${y}-${String(m + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
-
-const WEEK = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 
 type Props = {
   availableDates: string[];
@@ -63,6 +62,11 @@ export function AvailableDateCalendarBody({
   className,
   signedIn = false,
 }: Props) {
+  const tb = useTranslations("booking");
+  const weekLabels = useMemo(() => {
+    const raw = tb.raw("calendarWeekdays");
+    return Array.isArray(raw) && raw.length === 7 ? (raw as string[]) : ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+  }, [tb]);
   const available = useMemo(() => new Set(availableDates), [availableDates]);
   const vipEarly = useMemo(() => new Set(vipEarlyAccessDates), [vipEarlyAccessDates]);
 
@@ -108,16 +112,16 @@ export function AvailableDateCalendarBody({
   return (
     <div className={`cb-dp-root${className ? ` ${className}` : ""}`}>
       <div className="cb-dp-nav">
-        <button type="button" className="cb-dp-nav-btn" onClick={prevMonth} aria-label="Previous month">
+        <button type="button" className="cb-dp-nav-btn" onClick={prevMonth} aria-label={tb("calendarPrevMonth")}>
           <span aria-hidden>‹</span>
         </button>
         <span className="cb-dp-month">{monthLabel}</span>
-        <button type="button" className="cb-dp-nav-btn" onClick={nextMonth} aria-label="Next month">
+        <button type="button" className="cb-dp-nav-btn" onClick={nextMonth} aria-label={tb("calendarNextMonth")}>
           <span aria-hidden>›</span>
         </button>
       </div>
       <div className="cb-dp-weekdays">
-        {WEEK.map((w) => (
+        {weekLabels.map((w) => (
           <div key={w} className="cb-dp-wd">
             {w}
           </div>
@@ -142,7 +146,7 @@ export function AvailableDateCalendarBody({
             : isAvail
               ? undefined
               : showVipFrame
-                ? "May be available with VIP early access when you sign in (if eligible)"
+                ? tb("vipEarlyAccessHint")
                 : undefined;
           return (
             <button
@@ -165,7 +169,7 @@ export function AvailableDateCalendarBody({
       </div>
       {!signedIn ? (
         <p className="cb-dp-early-access-hint" role="note">
-          Sign in to see VIP early access (if eligible)
+          {tb("vipEarlyAccessFooter")}
         </p>
       ) : null}
     </div>

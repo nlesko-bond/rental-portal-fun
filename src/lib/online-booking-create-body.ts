@@ -1,7 +1,11 @@
 import { getEffectiveAddonSlotKeys } from "@/lib/addon-slot-targeting";
 import { cashUnitPriceForBondFallback } from "./booking-pricing";
+import {
+  addonEstimatedChargeForSlot,
+  resolveAddonDisplayPrice,
+  type PackageAddonLine,
+} from "./product-package-addons";
 import { slotPriceForBondApi, type PickedSlot } from "./slot-selection";
-import type { PackageAddonLine } from "./product-package-addons";
 import type { AddCartItemDtoMinimal, CreateBookingAddonDto } from "@/types/create-booking-dto";
 import type { ExtendedProductDto } from "@/types/online-booking";
 
@@ -67,6 +71,36 @@ export function addonProductIdsToAddonDtos(ids: readonly number[]): CreateBookin
   }
   return [...m.entries()].map(([productId, quantity]) => ({ productId, quantity }));
 }
+
+function roundMoney(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+/**
+ * Bond may reject “illegal price” when an hour-priced add-on is sent without a prorated amount for short slots,
+ * or when list/catalog unit must be explicit. Attach `unitPrice` from package metadata when we can derive it.
+ */
+export function enrichCreateBookingAddonsWithUnitPrice(
+  dtos: CreateBookingAddonDto[],
+  ctx: { slot: PickedSlot | undefined; packageAddons: PackageAddonLine[] }
+): CreateBookingAddonDto[] {
+  if (dtos.length === 0 || ctx.packageAddons.length === 0) return dtos;
+  const { slot, packageAddons } = ctx;
+  return dtos.map((dto) => {
+    const line = packageAddons.find((a) => a.id === dto.productId);
+    if (!line) return dto;
+    let basis: number | null = null;
+    if (slot != null && (line.level === "hour" || line.level === "slot")) {
+      const est = addonEstimatedChargeForSlot(line, slot);
+      if (est != null && Number.isFinite(est.amount) && est.amount > 0) basis = est.amount;
+    } else {
+      const p = resolveAddonDisplayPrice(line);
+      if (p != null && Number.isFinite(p.price) && p.price > 0) basis = p.price;
+    }
+    if (basis == null) return dto;
+    return { ...dto, unitPrice: roundMoney(basis) };
+  });
+}
 /** Per Swagger `CreateBookingDto` / online-booking create: `answers[]` with `userId` + nested `answers` (questionId + value). */
 export type OnlineBookingCreateAnswerRow = {
   userId: number;
@@ -90,6 +124,8 @@ export function buildOnlineBookingCreateBody(opts: {
   answers?: OnlineBookingCreateAnswerRow[];
   /** Merge this reservation into an existing Bond cart (append line items). */
   cartId?: number;
+  /** Optional add-on catalog lines — used to set `unitPrice` on `addons[]` when Bond requires explicit amounts. */
+  packageAddons?: PackageAddonLine[];
   /**
    * Bond `requiredProducts[]` (`AddCartItemDto`) — include satisfied membership SKUs (`required: false` on GET …/required)
    * plus checkout selections; each line gets `userId` + `quantity: 1` so validation matches member-priced slots.
@@ -121,13 +157,24 @@ export function buildOnlineBookingCreateBody(opts: {
     };
     const segAddons = opts.segmentAddonProductIds?.[i];
     if (segAddons != null && segAddons.length > 0) {
-      seg.addons = addonProductIdsToAddonDtos(segAddons);
+      const rawAddons = addonProductIdsToAddonDtos(segAddons);
+      seg.addons =
+        opts.packageAddons != null && opts.packageAddons.length > 0
+          ? enrichCreateBookingAddonsWithUnitPrice(rawAddons, {
+              slot: opts.slots[i],
+              packageAddons: opts.packageAddons,
+            })
+          : rawAddons;
     }
     return seg;
   });
 
   const rootAddonIds = opts.addonProductIds ?? [];
-  const rootAddonDtos = addonProductIdsToAddonDtos(rootAddonIds);
+  const rawRoot = addonProductIdsToAddonDtos(rootAddonIds);
+  const rootAddonDtos =
+    opts.packageAddons != null && opts.packageAddons.length > 0
+      ? enrichCreateBookingAddonsWithUnitPrice(rawRoot, { slot: undefined, packageAddons: opts.packageAddons })
+      : rawRoot;
 
   const requiredProducts: AddCartItemDtoMinimal[] | undefined =
     opts.requiredProductLineItems && opts.requiredProductLineItems.length > 0

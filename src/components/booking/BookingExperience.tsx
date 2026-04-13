@@ -2,6 +2,7 @@
 
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { formatBondUserMessage } from "@/lib/bond-errors";
@@ -17,12 +18,7 @@ import {
   resolveEffectiveMinimumBookingNoticeMinutes,
 } from "@/lib/category-booking-settings";
 import { formatActivityLabel } from "@/lib/booking-activity-display";
-import {
-  BOOKING_LOADING_TAGLINE,
-  BOOKING_SCHEDULE_SETTINGS_TAGLINE,
-  BOOKING_SLOTS_TAGLINE,
-  pickSportsFact,
-} from "@/lib/booking-loading-copy";
+import { pickSportsFact } from "@/lib/booking-loading-copy";
 import {
   cashUnitPriceForBondFallback,
   formatSlotCurrency,
@@ -55,20 +51,23 @@ import {
 } from "@/lib/required-products-eligibility";
 import { bookingPartyMembersFromProfile } from "@/lib/booking-party-options";
 import { BondBffError } from "@/lib/bond-json";
-import type { ExtendedProductDto, OnlineBookingView, ScheduleTimeSlotDto } from "@/types/online-booking";
+import type { OnlineBookingView, ScheduleTimeSlotDto } from "@/types/online-booking";
 import type { PackageAddonLine } from "@/lib/product-package-addons";
 import { CB_BOOKING_APPEARANCE_EVENT, CB_BOOKING_APPEARANCE_KEY } from "@/lib/booking-appearance";
 import { bookingAppearanceClass, resolveBookingThemeStyle, type BookingThemeUrlOverrides } from "@/lib/booking-theme";
-import { clientScheduleViews, viewUiLabel } from "@/lib/booking-views";
+import { clientScheduleViews } from "@/lib/booking-views";
 import { resolveProductCardImageAtStep, type ProductCardImageFallbackStep } from "@/lib/product-card-image";
 import { bookingOptionalAddons } from "@/lib/product-package-addons";
 import { parseProductFormIds } from "@/lib/product-form-ids";
 import { countSessionCartLineItems } from "@/lib/cart-purchase-lines";
+import { closeCart, getOrganizationCart } from "@/lib/bond-cart-api";
 import {
   coerceCartFromApi,
   loadSessionCartSnapshots,
+  positiveBondCartId,
   saveSessionCartSnapshots,
   type SessionCartSnapshot,
+  type SessionReservationGroup,
 } from "@/lib/session-cart-snapshot";
 import { slotControlKey, validateSlotSelection, type PickedSlot } from "@/lib/slot-selection";
 import {
@@ -97,13 +96,8 @@ import { getEffectiveAddonSlotKeys } from "@/lib/addon-slot-targeting";
 import { BookingAddonPanel, type AddonSlotTargeting } from "./BookingAddonPanel";
 import { ProductDetailModal } from "./ProductDetailModal";
 import { ModalShell } from "./ModalShell";
-import {
-  readBookingDevOverrides,
-  readBookingUrl,
-  resolveBookingState,
-  writeBookingUrl,
-  type BookingUrlState,
-} from "./booking-url";
+import { readBookingDevOverrides } from "./booking-url";
+import { useBookingUrlState } from "./hooks/useBookingUrlState";
 import { useBondAuth } from "@/components/auth/BondAuthContext";
 import { BookingForDrawer } from "@/components/auth/BookingForDrawer";
 import { LoginModal } from "@/components/auth/LoginModal";
@@ -176,10 +170,11 @@ function formatBookingDateShort(isoDate: string): string {
 }
 
 function ScheduleRequestError({ error }: { error: Error }) {
+  const t = useTranslations("errors");
   if (error instanceof BondBffError) {
     return (
       <div role="alert" className="cb-alert">
-        <p>{formatBondUserMessage(error)}</p>
+        <p>{formatBondUserMessage(error, t)}</p>
       </div>
     );
   }
@@ -190,35 +185,22 @@ function ScheduleRequestError({ error }: { error: Error }) {
   );
 }
 
-function urlCanonicalMatches(sp: URLSearchParams, state: BookingUrlState): boolean {
-  const g = (k: string, expected: string) => (sp.get(k) ?? "") === expected;
-  if (!g("facility", String(state.facilityId))) return false;
-  if (!g("category", String(state.categoryId))) return false;
-  if (!g("activity", state.activity)) return false;
-  if (!g("view", state.view)) return false;
-  if (state.productId != null) {
-    if (!g("product", String(state.productId))) return false;
-  } else if (sp.get("product")) return false;
-  if (state.date) {
-    if (!g("date", state.date)) return false;
-  } else if (sp.get("date")) return false;
-  if (state.duration != null) {
-    if (!g("duration", String(state.duration))) return false;
-  } else if (sp.get("duration")) return false;
-  const p = sp.get("page");
-  if (state.productPage > 1) {
-    if (p !== String(state.productPage)) return false;
-  } else if (p) return false;
-  return true;
-}
-
 export function BookingExperience() {
   const queryClient = useQueryClient();
   const hydrated = useHydrated();
   const router = useRouter();
   const searchParams = useSearchParams();
   const env = useBondEnv(searchParams.toString());
+  /** Stable org id for hooks that need `env.orgId` without a complex dependency expression. */
+  const resolvedBondOrgId = env.ok ? env.orgId : null;
   const bondAuth = useBondAuth();
+  const tb = useTranslations("booking");
+  const te = useTranslations("errors");
+  const tc = useTranslations("common");
+  const sportsFacts = useMemo(() => {
+    const raw = tb.raw("sportsFacts");
+    return Array.isArray(raw) ? (raw as string[]) : [];
+  }, [tb]);
   const bondUserId =
     bondAuth.session.status === "authenticated" && bondAuth.session.bondUserId != null
       ? bondAuth.session.bondUserId
@@ -296,7 +278,7 @@ export function BookingExperience() {
       effectiveBookingUserId != null ? partyMembers.find((m) => m.id === effectiveBookingUserId) : undefined,
     [partyMembers, effectiveBookingUserId]
   );
-  const bookingForLabel = bookingForMember?.label ?? "You";
+  const bookingForLabel = bookingForMember?.label ?? tb("you");
   const bookingForBadge = bookingForMember?.badgeLabel;
 
   useEffect(() => {
@@ -315,6 +297,7 @@ export function BookingExperience() {
   const [checkoutDrawerMode, setCheckoutDrawerMode] = useState<"checkout" | "bag">("checkout");
   /** One-shot step when switching from bag → checkout (e.g. open at payment). Cleared by the drawer. */
   const [navigateToCheckoutStep, setNavigateToCheckoutStep] = useState<CheckoutStep | null>(null);
+  const [checkoutBusy, setCheckoutBusy] = useState(false);
   /** Stable — inline functions here retrigger BookingCheckoutDrawer’s open effect and reset step to addons. */
   const clearNavigateToCheckoutStep = useCallback(() => {
     setNavigateToCheckoutStep(null);
@@ -339,11 +322,12 @@ export function BookingExperience() {
       return changed ? next : prev;
     });
   }, []);
-  const [checkoutBusy, setCheckoutBusy] = useState(false);
   /** Checkout drawer locks “booking for” after the addons step so switching users doesn’t invalidate membership/forms. */
   const [lockBookingForParticipant, setLockBookingForParticipant] = useState(false);
   /** Successful `POST .../online-booking/create` carts (persisted in sessionStorage for this tab). */
   const [sessionCartRows, setSessionCartRows] = useState<SessionCartSnapshot[]>([]);
+  const sessionCartRowsRef = useRef<SessionCartSnapshot[]>([]);
+  sessionCartRowsRef.current = sessionCartRows;
   /**
    * First persist effect run happens in the same commit as the rehydrate effect, while state can still be the
    * initial `[]`, so it would overwrite sessionStorage with an empty cart. Skip that write; persist after load.
@@ -402,12 +386,12 @@ export function BookingExperience() {
     const first = typeof bondProfileQuery.data?.firstName === "string" ? bondProfileQuery.data.firstName : "";
     const last = typeof bondProfileQuery.data?.lastName === "string" ? bondProfileQuery.data.lastName : "";
     const name = [first, last].filter(Boolean).join(" ");
-    if (name.length > 0) return `Welcome back, ${name}!`;
+    if (name.length > 0) return tb("welcomeBackName", { name });
     if (bondAuth.session.status === "authenticated" && bondAuth.session.email) {
-      return `Welcome back, ${bondAuth.session.email.split("@")[0]}!`;
+      return tb("welcomeBackEmailUser", { name: bondAuth.session.email.split("@")[0] ?? "" });
     }
-    return "Welcome back!";
-  }, [bondProfileQuery.data, bondAuth.session]);
+    return tb("welcomeBack");
+  }, [bondProfileQuery.data, bondAuth.session, tb]);
 
   const portal = portalQuery.data;
 
@@ -444,24 +428,7 @@ export function BookingExperience() {
     });
   }, []);
 
-  const state = useMemo(() => {
-    if (!portal) return null;
-    return resolveBookingState(portal, readBookingUrl(searchParams));
-  }, [portal, searchParams]);
-
-  const pushState = useCallback(
-    (next: BookingUrlState) => {
-      router.replace(`/?${writeBookingUrl(next, searchParams)}`, { scroll: false });
-    },
-    [router, searchParams]
-  );
-
-  useEffect(() => {
-    if (!portal || !state) return;
-    if (!urlCanonicalMatches(searchParams, state)) {
-      pushState(state);
-    }
-  }, [portal, state, searchParams, pushState]);
+  const { state, pushBookingState } = useBookingUrlState(portal, searchParams, router);
 
   const productsQuery = useQuery({
     queryKey: [
@@ -492,9 +459,9 @@ export function BookingExperience() {
     const ids = productsQuery.data.data.map((p) => p.id);
     if (ids.length === 0) return;
     if (state.productId == null || !ids.includes(state.productId)) {
-      pushState({ ...state, productId: ids[0] });
+      pushBookingState({ ...state, productId: ids[0] });
     }
-  }, [productsQuery.data, state, pushState]);
+  }, [productsQuery.data, state, pushBookingState]);
 
   const categoryRules = useMemo(() => {
     if (!portal || !state) return null;
@@ -803,9 +770,9 @@ export function BookingExperience() {
     const dates = filteredScheduleDates.map((x) => x.date);
     if (dates.length === 0) return;
     if (!state.date || !dates.includes(state.date)) {
-      pushState({ ...state, date: dates[0] });
+      pushBookingState({ ...state, date: dates[0] });
     }
-  }, [scheduleSettingsQuery.data, filteredScheduleDates, state, pushState]);
+  }, [scheduleSettingsQuery.data, filteredScheduleDates, state, pushBookingState]);
 
   const scheduleQuery = useQuery({
     queryKey: ["bond", "schedule", env.ok ? env.orgId : 0, scheduleContext, scheduleDateParamForSlots],
@@ -855,14 +822,14 @@ export function BookingExperience() {
         next.set(key, picked);
         const v = validateSlotSelection([...next.values()], slotRules);
         if (!v.ok) {
-          setSlotBarError(v.message ?? "That selection isn't allowed.");
+          setSlotBarError(v.message ?? tb("slotNotAllowed"));
           return prev;
         }
         setSlotBarError(null);
         return next;
       });
     },
-    [slotRules, entitlementAdjust, reservedSlotKeysInCart, productsQuery.data, state?.productId]
+    [slotRules, entitlementAdjust, reservedSlotKeysInCart, productsQuery.data, state?.productId, tb]
   );
 
   const packageAddons = useMemo(() => {
@@ -964,10 +931,41 @@ export function BookingExperience() {
     setCheckoutDrawerOpen(true);
   }, [sessionCartRows.length]);
 
+  /** When opening the bag drawer, refresh each Bond cart from `getCart` so lines/totals match the server. */
+  const bagDrawerOpenedForRefreshRef = useRef(false);
+  useEffect(() => {
+    const showBag = checkoutDrawerOpen && checkoutDrawerMode === "bag";
+    if (!showBag) {
+      bagDrawerOpenedForRefreshRef.current = false;
+      return;
+    }
+    if (bagDrawerOpenedForRefreshRef.current) return;
+    bagDrawerOpenedForRefreshRef.current = true;
+    if (resolvedBondOrgId == null) return;
+    const orgId = resolvedBondOrgId;
+    const ids = new Set<number>();
+    for (const row of sessionCartRowsRef.current) {
+      const id = positiveBondCartId(row.cart);
+      if (id != null) ids.add(id);
+    }
+    void (async () => {
+      for (const cid of ids) {
+        try {
+          const fresh = await getOrganizationCart(orgId, cid);
+          const coerced = coerceCartFromApi(fresh);
+          setSessionCartRows((prev) =>
+            prev.map((row) => (positiveBondCartId(row.cart) === cid ? { ...row, cart: coerced } : row))
+          );
+        } catch {
+          /* keep cached cart */
+        }
+      }
+    })();
+  }, [checkoutDrawerOpen, checkoutDrawerMode, resolvedBondOrgId]);
+
   /* Prune per-slot add-on targets when slot selection shrinks (no external subscription). */
   useEffect(() => {
     const slotKeys = new Set(selectedSlots.keys());
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- derived cleanup from selectedSlots; avoids duplicating slot map logic in every toggle path
     setAddonSlotTargeting((prev) => {
       const next: AddonSlotTargeting = {};
       for (const [ks, v] of Object.entries(prev)) {
@@ -986,7 +984,6 @@ export function BookingExperience() {
 
   useEffect(() => {
     const slotKeys = new Set(selectedSlots.keys());
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- drop slot/hour add-ons with no remaining targeted slots
     setSelectedAddonIds((prev) => {
       const next = new Set(prev);
       for (const id of [...prev]) {
@@ -1055,17 +1052,14 @@ export function BookingExperience() {
   if (!env.ok) {
     return (
       <main className="mx-auto max-w-2xl flex-1 px-6 py-16">
-        <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-100">Configuration</h1>
+        <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-100">{tb("configurationTitle")}</h1>
         <p className="mt-2 text-zinc-600 dark:text-zinc-400">
-          Set <code className="rounded bg-zinc-100 px-1 dark:bg-zinc-800">NEXT_PUBLIC_BOND_ORG_ID</code> and{" "}
-          <code className="rounded bg-zinc-100 px-1 dark:bg-zinc-800">NEXT_PUBLIC_BOND_PORTAL_ID</code> in{" "}
-          <code className="rounded bg-zinc-100 px-1 dark:bg-zinc-800">.env.local</code>, or open with{" "}
-          <code className="rounded bg-zinc-100 px-1 dark:bg-zinc-800">?orgId=…&amp;portalId=…</code> in the URL.
-          Optional theme:{" "}
-          <code className="rounded bg-zinc-100 px-1 dark:bg-zinc-800">
-            &amp;primary=%230d4774&amp;accent=%23f7b500&amp;success=%2324c875
-          </code>
-          .
+          {tb("envMissingLine1", {
+            orgKey: tb("envMissingOrg"),
+            portalKey: tb("envMissingPortal"),
+            envFile: tb("envFile"),
+          })}{" "}
+          <code className="rounded bg-zinc-100 px-1 dark:bg-zinc-800">{tb("envMissingLine2")}</code>.
         </p>
       </main>
     );
@@ -1084,8 +1078,8 @@ export function BookingExperience() {
       >
         <BookingDelayedFunLoader
           active
-          line={BOOKING_LOADING_TAGLINE}
-          subline={pickSportsFact(`portal-${env.orgId}-${env.portalId}`)}
+          line={tb("loadingPortal")}
+          subline={pickSportsFact(`portal-${env.orgId}-${env.portalId}`, sportsFacts)}
           showFunCopy={hydrated}
           className="flex justify-center"
         />
@@ -1097,17 +1091,16 @@ export function BookingExperience() {
     const err = portalQuery.error;
     const detail =
       err instanceof BondBffError
-        ? `${formatBondUserMessage(err)} (HTTP ${err.status})`
+        ? `${formatBondUserMessage(err, te)} (HTTP ${err.status})`
         : err instanceof Error
           ? err.message
-          : "Unknown error";
+          : te("unknownError");
     return (
       <main className="mx-auto max-w-2xl flex-1 px-6 py-16">
-        <h1 className="text-xl font-semibold text-red-700 dark:text-red-400">Could not load portal</h1>
+        <h1 className="text-xl font-semibold text-red-700 dark:text-red-400">{tb("portalLoadFailed")}</h1>
         <p className="mt-2 text-zinc-600 dark:text-zinc-400">{detail}</p>
         <p className="mt-4 text-sm text-zinc-500">
-          Confirm <code className="rounded bg-zinc-100 px-1 dark:bg-zinc-800">BOND_API_KEY</code> and IDs in{" "}
-          <code className="rounded bg-zinc-100 px-1 dark:bg-zinc-800">.env.local</code>.
+          {tb("confirmApiKey", { key: tb("bondApiKey"), envFile: tb("envFile") })}
         </p>
       </main>
     );
@@ -1137,36 +1130,36 @@ export function BookingExperience() {
   const setFacility = (facilityId: number) => {
     setPreferredStartTime(null);
     clearSlotSelection();
-    pushState({ ...state, facilityId, productId: null, productPage: 1 });
+    pushBookingState({ ...state, facilityId, productId: null, productPage: 1 });
   };
   const setCategory = (categoryId: number) => {
     setPreferredStartTime(null);
     clearSlotSelection();
-    pushState({ ...state, categoryId, productId: null, productPage: 1 });
+    pushBookingState({ ...state, categoryId, productId: null, productPage: 1 });
   };
   const setActivity = (activity: string) => {
     setPreferredStartTime(null);
     clearSlotSelection();
-    pushState({ ...state, activity, productId: null, productPage: 1 });
+    pushBookingState({ ...state, activity, productId: null, productPage: 1 });
   };
   const setProduct = (productId: number) => {
     setPreferredStartTime(null);
     clearSlotSelection();
-    pushState({ ...state, productId });
+    pushBookingState({ ...state, productId });
   };
   const portalViews = clientScheduleViews(portal.options.views);
   const setScheduleView = (view: OnlineBookingView) => {
     clearSlotSelection();
-    if (view === "calendar" || view === "matrix") pushState({ ...state, view });
+    if (view === "calendar" || view === "matrix") pushBookingState({ ...state, view });
   };
   const setDate = (date: string) => {
     setPreferredStartTime(null);
     clearSlotSelection();
-    pushState({ ...state, date });
+    pushBookingState({ ...state, date });
   };
   const setDuration = (duration: number) => {
     clearSlotSelection();
-    pushState({ ...state, duration });
+    pushBookingState({ ...state, duration });
   };
 
   const meta = productsQuery.data?.meta;
@@ -1188,8 +1181,14 @@ export function BookingExperience() {
             type="button"
             className="cb-appearance-cycle"
             onClick={cycleAppearance}
-            aria-label={`Theme: ${appearanceMode === "system" ? "auto" : appearanceMode}. Click to change.`}
-            title={`Appearance: ${appearanceMode}`}
+            aria-label={
+              appearanceMode === "system"
+                ? tb("themeAuto")
+                : appearanceMode === "light"
+                  ? tb("themeLight")
+                  : tb("themeDark")
+            }
+            title={tb("appearance", { mode: appearanceMode })}
           >
             {appearanceMode === "light" ? "☀" : appearanceMode === "dark" ? "☾" : "A"}
           </button>
@@ -1201,16 +1200,12 @@ export function BookingExperience() {
               className={`cb-header-booking-for-trigger group max-w-[min(100vw-8rem,22rem)]${lockBookingForParticipant ? " opacity-55" : ""}`}
               onClick={() => setBookingForModalOpen(true)}
               disabled={lockBookingForParticipant}
-              title={
-                lockBookingForParticipant
-                  ? "Participant can’t be changed after you continue past the first checkout step."
-                  : undefined
-              }
+              title={lockBookingForParticipant ? tb("participantLockedTitle") : undefined}
               aria-haspopup="dialog"
               aria-expanded={bookingForModalOpen}
             >
               <span className="block text-[0.65rem] font-semibold uppercase tracking-wide text-[var(--cb-text-muted)]">
-                Booking for
+                {tb("bookingFor")}
               </span>
               <span className="mt-0.5 flex items-center justify-center gap-1">
                 <span className="truncate text-base font-bold text-[var(--cb-primary)] sm:text-lg">{bookingForLabel}</span>
@@ -1221,7 +1216,7 @@ export function BookingExperience() {
             </button>
           ) : (
             <>
-              <h1 className="text-lg font-semibold text-[var(--cb-primary)] sm:text-xl">Book Your Session</h1>
+              <h1 className="text-lg font-semibold text-[var(--cb-primary)] sm:text-xl">{tb("bookYourSession")}</h1>
               <p className="sr-only">{portal.name}</p>
             </>
           )}
@@ -1240,9 +1235,9 @@ export function BookingExperience() {
                 type="button"
                 className="cb-header-signin"
                 onClick={() => void bondAuth.logout()}
-                aria-label="Sign out"
+                aria-label={tb("signOut")}
               >
-                <span className="px-1 text-xs font-semibold">Out</span>
+                <span className="px-1 text-xs font-semibold">{tb("signOutShort")}</span>
               </button>
             </>
           ) : (
@@ -1250,7 +1245,7 @@ export function BookingExperience() {
               type="button"
               className="cb-header-signin"
               onClick={() => bondAuth.setLoginOpen(true)}
-              aria-label="Sign in"
+              aria-label={tb("signInAria")}
             >
               <IconUserCircle />
             </button>
@@ -1260,7 +1255,7 @@ export function BookingExperience() {
       </header>
 
       <div className="cb-booking-nav-band -mx-4 px-4 sm:mx-0 sm:px-0">
-        <div className="cb-breadcrumb-bar cb-breadcrumb-bar--fit" aria-label="Booking context">
+        <div className="cb-breadcrumb-bar cb-breadcrumb-bar--fit" aria-label={tb("breadcrumbLabel")}>
           <button type="button" className="cb-breadcrumb-trigger" onClick={() => setPicker("facility")}>
             <IconPin className="size-3.5 shrink-0 text-[var(--cb-primary)]" />
             <span className="truncate">{facilityName}</span>
@@ -1304,7 +1299,7 @@ export function BookingExperience() {
         <div className="flex flex-col gap-3">
         <section aria-labelledby="products-heading" className="text-left">
           <h2 id="products-heading" className="cb-section-title">
-            Select a service
+            {tb("selectService")}
             {productListTotal != null && productListTotal > 0 ? (
               <span className="cb-section-title-count"> ({productListTotal})</span>
             ) : null}
@@ -1312,8 +1307,8 @@ export function BookingExperience() {
           {productsQuery.isPending ? (
             <BookingDelayedFunLoader
               active
-              line={BOOKING_LOADING_TAGLINE}
-              subline={pickSportsFact(`products-${state.activity}-${state.productPage}`)}
+              line={tb("loadingPortal")}
+              subline={pickSportsFact(`products-${state.activity}-${state.productPage}`, sportsFacts)}
               showFunCopy={hydrated}
               className="mt-4"
             />
@@ -1321,14 +1316,14 @@ export function BookingExperience() {
           {productsQuery.isError && (
             <p className="cb-alert cb-alert--error mt-2 text-sm">
               {productsQuery.error instanceof BondBffError
-                ? formatBondUserMessage(productsQuery.error)
+                ? formatBondUserMessage(productsQuery.error, te)
                 : productsQuery.error instanceof Error
                   ? productsQuery.error.message
-                  : "Failed to load products"}
+                  : te("failedLoadProducts")}
             </p>
           )}
           {productsQuery.data && productsQuery.data.data.length === 0 && (
-            <p className="cb-muted mt-2 text-sm">No products for this filter.</p>
+            <p className="cb-muted mt-2 text-sm">{tb("noProductsFilter")}</p>
           )}
           <div className="cb-services-rail cb-hide-scrollbar mt-4">
             {productsQuery.data?.data.map((p) => {
@@ -1377,7 +1372,7 @@ export function BookingExperience() {
                       >
                         <span className="cb-product-chip-price-row">
                           {memberFreeChip ? (
-                            <span className="cb-product-chip-price-amount">Free for members</span>
+                            <span className="cb-product-chip-price-amount">{tb("freeForMembers")}</span>
                           ) : catalogMin ? (
                             <>
                               <span className="cb-product-chip-price-amount">
@@ -1398,23 +1393,23 @@ export function BookingExperience() {
                         {hasMemberBenefit ? (
                           <span className="cb-product-tag">
                             <IconPercentBadge className="shrink-0 opacity-95" />
-                            Member benefits
+                            {tb("memberBenefits")}
                           </span>
                         ) : null}
                         {p.isPunchPass ? (
                           <span className="cb-product-tag">
                             <IconPassTicket className="shrink-0 opacity-95" />
-                            Pass
+                            {tb("passTag")}
                           </span>
                         ) : null}
                         {productMembershipGated(p) ? (
                           <span className="cb-product-tag">
                             <IconLockDetail className="size-3.5 shrink-0 opacity-95" />
-                            Members only
+                            {tb("membersOnly")}
                           </span>
                         ) : null}
                         {bookingOptionalAddons(p).length > 0 ? (
-                          <span className="cb-product-tag cb-product-tag--addon">Optional add-ons</span>
+                          <span className="cb-product-tag cb-product-tag--addon">{tb("optionalAddonsTag")}</span>
                         ) : null}
                       </div>
                     </div>
@@ -1427,7 +1422,7 @@ export function BookingExperience() {
                     <button
                       type="button"
                       className="cb-product-info-btn"
-                      aria-label={`More about ${p.name}`}
+                      aria-label={tb("moreAboutProduct", { name: p.name })}
                       onClick={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
@@ -1447,20 +1442,20 @@ export function BookingExperience() {
                 type="button"
                 className="cb-btn-ghost"
                 disabled={state.productPage <= 1}
-                onClick={() => pushState({ ...state, productPage: state.productPage - 1, productId: null })}
+                onClick={() => pushBookingState({ ...state, productPage: state.productPage - 1, productId: null })}
               >
-                Previous
+                {tc("previous")}
               </button>
               <span>
-                Page {state.productPage} of {totalPages}
+                {tc("pageOf", { page: state.productPage, total: totalPages })}
               </span>
               <button
                 type="button"
                 className="cb-btn-ghost"
                 disabled={state.productPage >= totalPages}
-                onClick={() => pushState({ ...state, productPage: state.productPage + 1, productId: null })}
+                onClick={() => pushBookingState({ ...state, productPage: state.productPage + 1, productId: null })}
               >
-                Next
+                {tc("next")}
               </button>
             </div>
           )}
@@ -1473,9 +1468,9 @@ export function BookingExperience() {
             </span>
             <p className="cb-signin-hint-text">
               <button type="button" className="cb-signin-hint-cta" onClick={() => bondAuth.setLoginOpen(true)}>
-                Sign in now
+                {tb("signInNow")}
               </button>{" "}
-              to see availability, pricing, and eligibility based on your membership.
+              {tb("signInHintTail")}
             </p>
           </div>
         ) : null}
@@ -1492,14 +1487,14 @@ export function BookingExperience() {
           {state.productId != null && (
             <div className="cb-booking-schedule-shell-left flex min-w-0 flex-col gap-4">
               <div className="cb-schedule-when-band -mx-4 px-4 py-5 sm:mx-0 sm:rounded-xl sm:px-5">
-                <section className="text-left" aria-label="Date, duration, and preferred start time">
+                <section className="text-left" aria-label={tb("whenSectionLabel")}>
               {/* min-[1068px]: calendar left; duration (wrap) + preferred start on the right — matches split grid breakpoint */}
               <div className="cb-schedule-when-wide hidden min-[1068px]:block">
                 {filteredScheduleDates.length > 0 ? (
                   <div className="cb-schedule-when-wide-grid">
                     <div className="cb-schedule-when-wide-cal">
                       <h3 id="pick-date-heading-wide" className="cb-schedule-step-title cb-schedule-step-title--first">
-                        Select a date
+                        {tb("selectDate")}
                       </h3>
                       <div className="cb-schedule-inline-cal mt-3 max-w-[calc(100vw-2rem)] sm:max-w-[20rem]">
                         <AvailableDateCalendarBody
@@ -1516,7 +1511,7 @@ export function BookingExperience() {
                     </div>
                     <div className="cb-schedule-when-wide-timing">
                       <h3 id="pick-duration-heading-wide" className="cb-schedule-step-title">
-                        Select duration
+                        {tb("selectDuration")}
                       </h3>
                       <div
                         className="cb-duration-chips-wrap mt-2 flex flex-wrap gap-2"
@@ -1545,8 +1540,8 @@ export function BookingExperience() {
                             id="pick-start-heading-wide"
                             className="cb-schedule-step-title mt-6"
                           >
-                            Preferred start time{" "}
-                            <span className="cb-schedule-step-optional">(optional)</span>
+                            {tb("preferredStartTitle")}{" "}
+                            <span className="cb-schedule-step-optional">{tb("optional")}</span>
                           </h3>
                           <button
                             type="button"
@@ -1559,7 +1554,7 @@ export function BookingExperience() {
                             <IconClockDetail className="cb-preferred-start-field-icon h-5 w-5 shrink-0 text-[var(--cb-primary)]" />
                             <span className="cb-preferred-start-field-value min-w-0 flex-1 truncate text-left">
                               {preferredStartTime == null
-                                ? "Any time"
+                                ? tb("anyTime")
                                 : formatPreferredStartOptionLabel(preferredStartTime)}
                             </span>
                             <span className="cb-faint shrink-0 text-[0.65rem]" aria-hidden>
@@ -1573,60 +1568,46 @@ export function BookingExperience() {
                 ) : null}
               </div>
 
-              {/* Below split breakpoint: stacked — narrow: chips + calendar button; md..1067: inline calendar only (no duplicate pills) */}
+              {/* Below split breakpoint: single column — pills + calendar button only; full grid opens in modal (no inline calendar). */}
               <div className="cb-schedule-when-stacked flex flex-col gap-0 min-[1068px]:hidden">
                 <h3 id="pick-date-heading" className="cb-schedule-step-title cb-schedule-step-title--first">
-                  Select a date
+                  {tb("selectDate")}
                 </h3>
                 {filteredScheduleDates.length > 0 ? (
-                  <>
-                    <div className="cb-date-strip-row mt-3 md:hidden">
-                      <div className="cb-date-strip-cluster">
-                        <button
-                          type="button"
-                          className="cb-cal-open-btn"
-                          aria-label="Open calendar to pick an available date"
-                          onClick={() => setPicker("date")}
-                        >
-                          <IconCalendar className="size-7 shrink-0" />
-                        </button>
-                        <div
-                          className="cb-date-strip cb-hide-scrollbar"
-                          role="tablist"
-                          aria-labelledby="pick-date-heading"
-                        >
-                          {filteredScheduleDates.map((d) => (
-                            <button
-                              key={d.date}
-                              type="button"
-                              role="tab"
-                              aria-selected={state.date === d.date}
-                              className={`cb-date-chip ${state.date === d.date ? "cb-date-chip--active" : ""}`}
-                              onClick={() => setDate(d.date)}
-                            >
-                              {formatBookingDateShort(d.date)}
-                            </button>
-                          ))}
-                        </div>
+                  <div className="cb-date-strip-row mt-3">
+                    <div className="cb-date-strip-cluster">
+                      <button
+                        type="button"
+                        className="cb-cal-open-btn"
+                        aria-label={tb("openCalendarPickDate")}
+                        onClick={() => setPicker("date")}
+                      >
+                        <IconCalendar className="size-7 shrink-0" />
+                      </button>
+                      <div
+                        className="cb-date-strip cb-hide-scrollbar"
+                        role="tablist"
+                        aria-labelledby="pick-date-heading"
+                      >
+                        {filteredScheduleDates.map((d) => (
+                          <button
+                            key={d.date}
+                            type="button"
+                            role="tab"
+                            aria-selected={state.date === d.date}
+                            className={`cb-date-chip ${state.date === d.date ? "cb-date-chip--active" : ""}`}
+                            onClick={() => setDate(d.date)}
+                          >
+                            {formatBookingDateShort(d.date)}
+                          </button>
+                        ))}
                       </div>
                     </div>
-                    <div className="cb-schedule-inline-cal mt-3 hidden md:block">
-                      <AvailableDateCalendarBody
-                        availableDates={filteredScheduleDates.map((d) => d.date)}
-                        vipEarlyAccessDates={vipEarlyAccessDates}
-                        selectedDate={state.date}
-                        onSelect={(d) => setDate(d)}
-                        onClose={() => {}}
-                        closeOnSelect={false}
-                        className="cb-dp-root--inline"
-                        signedIn={bondAuth.session.status === "authenticated"}
-                      />
-                    </div>
-                  </>
+                  </div>
                 ) : null}
 
                 <h3 id="pick-duration-heading" className="cb-schedule-step-title">
-                  Select duration
+                  {tb("selectDuration")}
                 </h3>
                 <div
                   className="cb-duration-chips-wrap mt-3 flex flex-wrap gap-2"
@@ -1653,8 +1634,8 @@ export function BookingExperience() {
                 {showPreferredStart ? (
                   <>
                     <h3 id="pick-start-heading" className="cb-schedule-step-title">
-                      Preferred start time{" "}
-                      <span className="cb-schedule-step-optional">(optional)</span>
+                      {tb("preferredStartTitle")}{" "}
+                      <span className="cb-schedule-step-optional">{tb("optional")}</span>
                     </h3>
                     <button
                       type="button"
@@ -1667,7 +1648,7 @@ export function BookingExperience() {
                       <IconClockDetail className="cb-preferred-start-field-icon h-5 w-5 shrink-0 text-[var(--cb-primary)]" />
                       <span className="cb-preferred-start-field-value min-w-0 flex-1 truncate text-left">
                         {preferredStartTime == null
-                          ? "Any time"
+                          ? tb("anyTime")
                           : formatPreferredStartOptionLabel(preferredStartTime)}
                       </span>
                       <span className="cb-faint shrink-0 text-[0.65rem]" aria-hidden>
@@ -1693,10 +1674,10 @@ export function BookingExperience() {
                 scheduleTimezoneLabel && state.productId != null ? "schedule-timezone-note" : undefined
               }
             >
-              Available times
+              {tb("availableTimes")}
             </h2>
             {state.productId != null && portalViews.length > 1 ? (
-              <div className="cb-segment shrink-0" role="group" aria-label="List or Timeline">
+              <div className="cb-segment shrink-0" role="group" aria-label={tb("listOrTimeline")}>
                 {portalViews.map((v) => (
                   <button
                     key={v}
@@ -1704,7 +1685,7 @@ export function BookingExperience() {
                     onClick={() => setScheduleView(v)}
                     aria-pressed={state.view === v}
                   >
-                    {viewUiLabel(v)}
+                    {v === "matrix" ? tb("viewTimeline") : tb("viewList")}
                   </button>
                 ))}
               </div>
@@ -1712,7 +1693,7 @@ export function BookingExperience() {
           </div>
           {scheduleTimezoneLabel && state.productId != null ? (
             <p id="schedule-timezone-note" className="cb-muted mt-1.5 text-xs">
-              Times shown in {scheduleTimezoneLabel}
+              {tb("timesInTimezone", { tz: scheduleTimezoneLabel })}
             </p>
           ) : null}
           {slotBarError && state.productId != null ? (
@@ -1723,7 +1704,7 @@ export function BookingExperience() {
           {scheduleSettingsQuery.isPending && !scheduleQuery.isPending ? (
             <BookingDelayedFunLoader
               active
-              line={BOOKING_SCHEDULE_SETTINGS_TAGLINE}
+              line={tb("loadingScheduleSettings")}
               showFunCopy={hydrated}
               className="mt-3"
             />
@@ -1735,8 +1716,8 @@ export function BookingExperience() {
           {scheduleQuery.isPending ? (
             <BookingDelayedFunLoader
               active
-              line={BOOKING_SLOTS_TAGLINE}
-              subline={pickSportsFact(`slots-${state.date}-${state.productId}`)}
+              line={tb("loadingSlots")}
+              subline={pickSportsFact(`slots-${state.date}-${state.productId}`, sportsFacts)}
               showFunCopy={hydrated}
               delayMs={0}
               className="mt-3"
@@ -1749,7 +1730,7 @@ export function BookingExperience() {
           {slotsRefetching ? (
             <p className="cb-slots-refetch-status" role="status">
               <span className="cb-slots-refetch-spinner" aria-hidden />
-              <span>{BOOKING_SLOTS_TAGLINE}</span>
+              <span>{tb("loadingSlots")}</span>
             </p>
           ) : null}
 
@@ -1826,7 +1807,7 @@ export function BookingExperience() {
           </ModalShell>
           <ModalShell
             open={picker === "category"}
-            title="What would you like to book?"
+            title={tb("whatToBook")}
             titleIcon={<IconCalendar className="h-6 w-6" />}
             onClose={() => setPicker(null)}
           >
@@ -1837,7 +1818,7 @@ export function BookingExperience() {
               onClose={() => setPicker(null)}
             />
           </ModalShell>
-          <ModalShell open={picker === "activity"} title="Select Sport" onClose={() => setPicker(null)}>
+          <ModalShell open={picker === "activity"} title={tb("selectSport")} onClose={() => setPicker(null)}>
             <ActivityPickerBody
               activities={portal.options.activities}
               selected={state.activity}
@@ -1847,9 +1828,9 @@ export function BookingExperience() {
           </ModalShell>
           <ModalShell
             open={picker === "date"}
-            title="Select date"
+            title={tb("selectDateTitle")}
             hideTitle
-            ariaLabel="Choose an available date"
+            ariaLabel={tb("chooseAvailableDateAria")}
             panelClassName="cb-modal-panel--datepicker"
             closeLayout="datepicker"
             onClose={() => setPicker(null)}
@@ -1863,10 +1844,10 @@ export function BookingExperience() {
               signedIn={bondAuth.session.status === "authenticated"}
             />
           </ModalShell>
-          <ModalShell open={picker === "start"} title="Preferred start time" onClose={() => setPicker(null)}>
+          <ModalShell open={picker === "start"} title={tb("preferredStartTitle")} onClose={() => setPicker(null)}>
             <ListPickerBody
               items={[
-                { value: START_TIME_AUTO, label: "Any time" },
+                { value: START_TIME_AUTO, label: tb("anyTime") },
                 ...eligiblePreferredStarts.map((t) => ({
                   value: t,
                   label: formatPreferredStartOptionLabel(t),
@@ -1910,7 +1891,7 @@ export function BookingExperience() {
       <WelcomeToast
         open={welcomeToastOpen}
         title={welcomeToastTitle}
-        subtitle="You are now signed in."
+        subtitle={tb("welcomeSignedIn")}
         duration={3000}
         onDismiss={() => setWelcomeToastOpen(false)}
       />
@@ -1941,7 +1922,7 @@ export function BookingExperience() {
           facilityId={state.facilityId}
           categoryId={state.categoryId}
           productId={state.productId ?? 0}
-          productName={selectedProduct?.name ?? "Service"}
+          productName={selectedProduct?.name ?? tb("serviceDefault")}
           activity={state.activity}
           product={selectedProduct}
           userId={effectiveBookingUserId}
@@ -1951,40 +1932,140 @@ export function BookingExperience() {
           onSubmittingChange={setCheckoutBusy}
           mode={checkoutDrawerMode}
           bagSnapshots={sessionCartRows}
-          onRemoveBagLine={(index) => {
+          onRemoveBagLine={async (index) => {
+            const row = sessionCartRowsRef.current[index];
+            const cid = row ? positiveBondCartId(row.cart) : null;
+            if (cid != null && env.ok) {
+              try {
+                await closeCart(env.orgId, cid);
+              } catch {
+                return;
+              }
+            }
             setSessionCartRows((prev) => prev.filter((_, i) => i !== index));
           }}
           onSuccess={(cart) => {
-            const name = selectedProduct?.name ?? "Service";
+            const name = selectedProduct?.name ?? tb("serviceDefault");
             const normalizedCart = coerceCartFromApi(cart);
+            const mergedBondId = positiveBondCartId(normalizedCart);
             const raw = memberRequiredQueryForSelected?.data;
             const participantHasQualifyingMembership =
               raw != null &&
               membershipRequiredForProductFromResponse(raw) &&
               !userNeedsMembershipFromRequiredResponse(raw);
-            flushSync(() => {
-              setSessionCartRows((prev) => [
-                ...prev,
-                {
-                  cart: normalizedCart,
+            const newSlotKeys = pickedSlotsOrdered.map((s) => s.key);
+            /** Prefer Bond `cartItems` for bag/payment lines; client `displayLines` only match the last add’s slots and hide merged bookings. */
+            const bondCartItems = normalizedCart.cartItems;
+            const useBondLineItems =
+              Array.isArray(bondCartItems) && bondCartItems.length > 0;
+            const displayLines = useBondLineItems
+              ? undefined
+              : buildBookingDisplayLinesForCart({
                   productName: name,
+                  slots: pickedSlotsOrdered,
+                  cart: normalizedCart,
+                  product: selectedProduct,
                   bookingForLabel,
-                  approvalRequired: categoryApprovalRequired,
-                  reservedSlotKeys: pickedSlotsOrdered.map((s) => s.key),
-                  participantHasQualifyingMembership,
-                  displayLines: buildBookingDisplayLinesForCart({
-                    productName: name,
-                    slots: pickedSlotsOrdered,
+                });
+            flushSync(() => {
+              setSessionCartRows((prev) => {
+                const mergeReservationGroups = (
+                  siblings: SessionCartSnapshot[],
+                  currentLabel: string,
+                  currentSlotKeys: string[]
+                ): SessionReservationGroup[] | undefined => {
+                  const groupsFromPrior: SessionReservationGroup[] = [];
+                  for (const row of siblings) {
+                    if (row.reservationGroups != null && row.reservationGroups.length > 0) {
+                      for (const g of row.reservationGroups) {
+                        groupsFromPrior.push({
+                          bookingForLabel: g.bookingForLabel,
+                          slotKeys: [...g.slotKeys],
+                        });
+                      }
+                    } else {
+                      groupsFromPrior.push({
+                        bookingForLabel: row.bookingForLabel?.trim() || "Booking",
+                        slotKeys: [...(row.reservedSlotKeys ?? [])],
+                      });
+                    }
+                  }
+                  const all: SessionReservationGroup[] = [
+                    ...groupsFromPrior,
+                    {
+                      bookingForLabel: currentLabel.trim() || "Booking",
+                      slotKeys: [...currentSlotKeys],
+                    },
+                  ];
+                  return all.length > 1 ? all : undefined;
+                };
+
+                if (mergedBondId != null) {
+                  const mergedKeys = new Set<string>(newSlotKeys);
+                  const siblings: SessionCartSnapshot[] = [];
+                  const rest = prev.filter((row) => {
+                    const rid = positiveBondCartId(row.cart);
+                    if (rid === mergedBondId) {
+                      siblings.push(row);
+                      for (const k of row.reservedSlotKeys ?? []) mergedKeys.add(k);
+                      return false;
+                    }
+                    return true;
+                  });
+                  const reservationGroups = mergeReservationGroups(siblings, bookingForLabel, newSlotKeys);
+                  return [
+                    ...rest,
+                    {
+                      cart: normalizedCart,
+                      productName: name,
+                      bookingForLabel,
+                      approvalRequired: categoryApprovalRequired,
+                      reservedSlotKeys: [...mergedKeys],
+                      participantHasQualifyingMembership,
+                      ...(displayLines != null ? { displayLines } : {}),
+                      ...(reservationGroups != null ? { reservationGroups } : {}),
+                    },
+                  ];
+                }
+                return [
+                  ...prev,
+                  {
                     cart: normalizedCart,
-                    product: selectedProduct,
+                    productName: name,
                     bookingForLabel,
-                  }),
-                },
-              ]);
+                    approvalRequired: categoryApprovalRequired,
+                    reservedSlotKeys: newSlotKeys,
+                    participantHasQualifyingMembership,
+                    ...(displayLines != null ? { displayLines } : {}),
+                  },
+                ];
+              });
             });
             clearSlotSelection();
+            const refreshCartId = mergedBondId;
+            if (env.ok && refreshCartId != null) {
+              const orgIdForRefresh = env.orgId;
+              void (async () => {
+                try {
+                  const fresh = await getOrganizationCart(orgIdForRefresh, refreshCartId);
+                  const coerced = coerceCartFromApi(fresh);
+                  setSessionCartRows((prev) =>
+                    prev.map((row) =>
+                      positiveBondCartId(row.cart) === refreshCartId ? { ...row, cart: coerced } : row
+                    )
+                  );
+                } catch {
+                  /* keep create response */
+                }
+              })();
+            }
           }}
           onAddedToCart={onCheckoutAddedToCart}
+          onBookAnotherRental={() => {
+            setCheckoutDrawerOpen(false);
+            setNavigateToCheckoutStep(null);
+            setCheckoutDrawerMode("checkout");
+          }}
           onBackFromPayment={() => {
             setCheckoutDrawerMode("bag");
           }}
@@ -2011,6 +2092,7 @@ export function BookingExperience() {
           approvalRequired={categoryApprovalRequired}
           orgDisplayName={portal?.name}
           mergeCartId={mergeCartId}
+          productCatalogPending={Boolean(state?.productId && productsQuery.isPending)}
           requiredMembershipAlreadySatisfied={!participantNeedsMembershipForCheckout}
           onParticipantLockChange={setLockBookingForParticipant}
           onPruneSatisfiedAddonProductIds={pruneSatisfiedAddonProductIds}

@@ -1,4 +1,10 @@
-import { classifyCartItemLineKind, type CartLineKind } from "@/lib/bond-cart-item-classify";
+import { formatSlotKeysScheduleSummary } from "@/components/booking/booking-slot-labels";
+import {
+  classifyCartItemLineKind,
+  getCartItemMetadataDescription,
+  receiptBadgeForCartLine,
+  type CartLineKind,
+} from "@/lib/bond-cart-item-classify";
 import {
   cartItemLineAmountFromDto,
   computeBondLineStrikeAmount,
@@ -7,8 +13,10 @@ import {
   getBondCartReceiptLineItems,
   resolveBondLineDisplayAmounts,
 } from "@/lib/checkout-bag-totals";
-import type { OrganizationCartDto } from "@/types/online-booking";
+import { dedupeDiscountCaptionSegments } from "@/lib/entitlement-discount";
 import type { SessionCartSnapshot } from "@/lib/session-cart-snapshot";
+import { flatLineIndexSegmentsForMergedBookings } from "@/lib/session-cart-grouping";
+import type { OrganizationCartDto } from "@/types/online-booking";
 
 export type BagApprovalPolicy = "all_submission" | "all_pay" | "mixed";
 
@@ -26,6 +34,8 @@ export type CartPurchaseDisplayLine = {
   discountNote?: string;
   /** Pre-discount list price (rental line only) when Bond sends strike vs net. */
   strikeAmount?: number;
+  /** Reservation vs slot add-on — from Bond `metadata.description` when present. */
+  badge?: string;
 };
 
 /** How checkout/payment applies across bag rows (per-category approval at add time). */
@@ -39,47 +49,84 @@ export function bagApprovalPolicy(rows: SessionCartSnapshot[]): BagApprovalPolic
   return "mixed";
 }
 
-function bookingBitForMeta(row: SessionCartSnapshot, omitBookingLabelInMeta: boolean): string {
+function bookingBitForMeta(
+  row: SessionCartSnapshot,
+  omitBookingLabelInMeta: boolean,
+  bookingForOverride?: string
+): string {
   if (omitBookingLabelInMeta) return "";
-  return typeof row.bookingForLabel === "string" && row.bookingForLabel.length > 0
-    ? ` · ${row.bookingForLabel}`
-    : "";
+  const label =
+    (typeof bookingForOverride === "string" && bookingForOverride.trim().length > 0
+      ? bookingForOverride.trim()
+      : undefined) ??
+    (typeof row.bookingForLabel === "string" && row.bookingForLabel.trim().length > 0
+      ? row.bookingForLabel.trim()
+      : "");
+  return label.length > 0 ? ` · ${label}` : "";
 }
 
-/** Line meta only — venue approval for rentals & add-ons is explained once at order level when `approvalRequired`. */
+function flatIndexToSegmentMap(cart: OrganizationCartDto): Map<number, number> {
+  const segments = flatLineIndexSegmentsForMergedBookings(cart);
+  const m = new Map<number, number>();
+  if (segments != null) {
+    for (let s = 0; s < segments.length; s++) {
+      for (const idx of segments[s]!) m.set(idx, s);
+    }
+  }
+  return m;
+}
+
+/** Slot day/time for one flattened cart line from session `reservationGroups` / `reservedSlotKeys`. */
+function lineScheduleSummaryForSegment(
+  row: SessionCartSnapshot,
+  kind: CartLineKind,
+  segmentIndex: number
+): string | undefined {
+  if (kind === "membership") return undefined;
+  const rg = row.reservationGroups;
+  if (rg != null && rg.length > 0) {
+    const g = rg[segmentIndex];
+    if (g == null || g.slotKeys.length === 0) return undefined;
+    const s = formatSlotKeysScheduleSummary(g.slotKeys);
+    return s.length > 0 ? s : undefined;
+  }
+  if (row.reservedSlotKeys != null && row.reservedSlotKeys.length > 0) {
+    const s = formatSlotKeysScheduleSummary(row.reservedSlotKeys);
+    return s.length > 0 ? s : undefined;
+  }
+  return undefined;
+}
+
+/** Line meta — venue approval is explained once at order level when `approvalRequired`. */
 function buildLineMeta(opts: {
-  cartId: number;
   bookingBit: string;
   kind: CartLineKind;
   scheduleSummary?: string;
+  /** Parsed from `slotControlKey` rows for this cart line’s reservation segment. */
+  lineScheduleSummary?: string;
 }): string {
   const bb = opts.bookingBit;
+  const lineSched = opts.lineScheduleSummary?.trim();
   const sched = opts.scheduleSummary?.trim();
+  const primary = lineSched && lineSched.length > 0 ? lineSched : sched;
   if (opts.kind === "membership") {
     return `Membership charge${bb}`;
   }
-  if (opts.cartId <= 0) {
-    if (sched) return `${sched}${bb}`;
-    return `In your order${bb}`;
-  }
-  return `In your order${bb}`;
+  if (primary && primary.length > 0) return `${primary}${bb}`;
+  return `Reservation details${bb}`;
 }
 
 function savedLineMetaOrFallback(
   lineMeta: string | undefined,
-  row: SessionCartSnapshot,
   opts: {
-    cartId: number;
     bookingBit: string;
     kind: CartLineKind;
     scheduleSummary?: string;
+    lineScheduleSummary?: string;
   }
 ): string {
   if (typeof lineMeta === "string" && lineMeta.trim().length > 0) return lineMeta;
-  const name = row.productName?.trim() ?? "Booking";
-  const bit = opts.bookingBit;
-  const glue = bit.length > 0 ? `${name}${bit}` : name;
-  return glue.length > 0 ? glue : buildLineMeta(opts);
+  return buildLineMeta(opts);
 }
 
 function checkoutNoteForMixedLine(
@@ -98,7 +145,7 @@ function mergeDiscountNotes(...parts: (string | undefined)[]): string | undefine
   const s = parts
     .filter((x): x is string => typeof x === "string" && x.trim().length > 0)
     .map((x) => x.trim());
-  return s.length > 0 ? s.join(" · ") : undefined;
+  return dedupeDiscountCaptionSegments(s.length > 0 ? s.join(" · ") : undefined);
 }
 
 /** When the cart groups by person, strip trailing ` · For {name}` from saved slot summaries (heading already names them). */
@@ -133,16 +180,23 @@ export function expandSnapshotForPurchaseList(
     bagPolicy?: BagApprovalPolicy;
     /** When true and category uses venue approval, omit per-line “Submits for venue approval” (order-level notice). */
     hideVenueApprovalLineNotes?: boolean;
+    /** Merged cart: only include these flattened `cartItems` indices. */
+    cartFlatLineIndexFilter?: ReadonlySet<number>;
+    /** Merged cart subsection: use this label for “For {name}” meta instead of `row.bookingForLabel`. */
+    subsectionBookingForLabel?: string;
   }
 ): CartPurchaseDisplayLine[] {
   const c = row.cart as OrganizationCartDto;
   const cartId = c.id;
   const omit = options?.omitBookingLabelInMeta === true;
   const policy = options?.bagPolicy;
-  const bookingBit = bookingBitForMeta(row, omit);
+  const metaBookingFor = options?.subsectionBookingForLabel ?? row.bookingForLabel;
+  const bookingBit = bookingBitForMeta(row, omit, options?.subsectionBookingForLabel);
   const rowApproval = row.approvalRequired === true;
   const hideVenueNotes = options?.hideVenueApprovalLineNotes === true;
-  const scheduleForMeta = scheduleSummaryForLineMeta(row.scheduleSummary, row.bookingForLabel, omit);
+  const scheduleForMeta = scheduleSummaryForLineMeta(row.scheduleSummary, metaBookingFor, omit);
+  const idxFilter = options?.cartFlatLineIndexFilter;
+  const segByFlat = flatIndexToSegmentMap(c);
 
   const saved = row.displayLines;
   const flatForDiscount =
@@ -161,23 +215,25 @@ export function expandSnapshotForPurchaseList(
       const kind = line.lineKind ?? "booking";
       const kindMeta: CartLineKind =
         kind === "membership" ? "membership" : kind === "addon" ? "addon" : "booking";
+      const segIdx = segByFlat.get(j) ?? 0;
+      const lineSchedSeg = lineScheduleSummaryForSegment(row, kindMeta, segIdx);
       const metaFallback = buildLineMeta({
-        cartId,
         bookingBit,
         kind: kindMeta,
         scheduleSummary: scheduleForMeta,
+        lineScheduleSummary: lineSchedSeg,
       });
       const metaRaw =
         typeof line.meta === "string" && line.meta.trim().length > 0
           ? line.meta
-            : savedLineMetaOrFallback(undefined, row, {
-              cartId,
+            : savedLineMetaOrFallback(undefined, {
               bookingBit,
               kind: kindMeta,
               scheduleSummary: scheduleForMeta,
+              lineScheduleSummary: lineSchedSeg,
             });
       const metaJoined = metaRaw.trim().length > 0 ? metaRaw : metaFallback;
-      const meta = stripBookingForFromMeta(metaJoined, row.bookingForLabel, omit);
+      const meta = stripBookingForFromMeta(metaJoined, metaBookingFor, omit);
       const coKind: CartLineKind =
         kind === "membership" ? "membership" : kind === "addon" ? "addon" : "booking";
       const amt = line.amount;
@@ -199,6 +255,15 @@ export function expandSnapshotForPurchaseList(
         line.discountNote,
         bondZipOk ? bondLine?.discountNote ?? bondItemLabels : bondItemLabels
       );
+      const descForBadge =
+        bondItem && typeof bondItem === "object"
+          ? getCartItemMetadataDescription(bondItem as Record<string, unknown>)
+          : undefined;
+      const badge =
+        bondLine?.badge ??
+        (bondItem && typeof bondItem === "object"
+          ? receiptBadgeForCartLine(kindMeta, descForBadge)
+          : undefined);
       const netFromBond =
         bondItem && typeof bondItem === "object"
           ? cartItemLineAmountFromDto(bondItem)
@@ -233,6 +298,7 @@ export function expandSnapshotForPurchaseList(
         memberAccessNote,
         ...(discountNote ? { discountNote } : {}),
         ...(strikeAmount != null ? { strikeAmount } : {}),
+        ...(badge ? { badge } : {}),
       };
     });
   }
@@ -242,19 +308,22 @@ export function expandSnapshotForPurchaseList(
     const flat = flattenBondCartItemNodes(items);
     const lines: CartPurchaseDisplayLine[] = [];
     flat.forEach((o, i) => {
+      if (idxFilter != null && !idxFilter.has(i)) return;
       const fromItem = cartItemLineAmountFromDto(o);
       if (fromItem == null) return;
       const it = o as Record<string, unknown>;
       const kind = classifyCartItemLineKind(it);
       const title =
-        kind === "booking" && typeof row.productName === "string" && row.productName.length > 0
-          ? `${row.productName} — reservation`
+        kind === "booking" && typeof row.productName === "string" && row.productName.trim().length > 0
+          ? row.productName.trim()
           : titleFromCartItem(it);
+      const segIdx = segByFlat.get(i) ?? 0;
+      const lineSchedSeg = lineScheduleSummaryForSegment(row, kind, segIdx);
       const meta = buildLineMeta({
-        cartId,
         bookingBit,
         kind,
         scheduleSummary: scheduleForMeta,
+        lineScheduleSummary: lineSchedSeg,
       });
       const note = checkoutNoteForMixedLine(policy, kind, rowApproval, hideVenueNotes);
       const memberAccessNote =
@@ -267,6 +336,8 @@ export function expandSnapshotForPurchaseList(
         kind === "booking" || kind === "membership"
           ? describeCartItemDiscountLabels(it)
           : undefined;
+      const descForBadge = getCartItemMetadataDescription(it);
+      const badge = receiptBadgeForCartLine(kind, descForBadge);
       const resolved = kind === "booking" || kind === "membership" ? resolveBondLineDisplayAmounts(it, kind) : null;
       const lineAmount = resolved?.net ?? fromItem;
       const strikeAmount =
@@ -284,6 +355,7 @@ export function expandSnapshotForPurchaseList(
         memberAccessNote,
         ...(discountNote ? { discountNote } : {}),
         ...(strikeAmount != null ? { strikeAmount } : {}),
+        ...(badge ? { badge } : {}),
       });
     });
     if (lines.length > 0) return lines;
@@ -301,10 +373,10 @@ export function expandSnapshotForPurchaseList(
       key: `snap-${rowIndex}-main-${cartId}`,
       title: row.productName,
       meta: buildLineMeta({
-        cartId,
         bookingBit,
         kind: "booking",
         scheduleSummary: scheduleForMeta,
+        lineScheduleSummary: lineScheduleSummaryForSegment(row, "booking", 0),
       }),
       checkoutNote: checkoutNoteForMixedLine(policy, "booking", rowApproval, hideVenueNotes),
       amount: lineTotal,
