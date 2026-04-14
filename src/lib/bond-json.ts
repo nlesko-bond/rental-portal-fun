@@ -18,6 +18,25 @@ function previewNonJsonBody(text: string, max = 180): string {
   return oneLine.length > max ? `${oneLine.slice(0, max)}…` : oneLine;
 }
 
+function bondErrorMessageFromParsed(parsed: unknown): string | null {
+  if (!parsed || typeof parsed !== "object") return null;
+  const o = parsed as Record<string, unknown>;
+  const m = o.message;
+  if (typeof m === "string" && m.length > 0) return m;
+  if (Array.isArray(m) && m.length > 0) {
+    const lines = m.filter((x): x is string => typeof x === "string");
+    if (lines.length > 0) return lines.join("; ");
+  }
+  if (m != null && typeof m === "object" && !Array.isArray(m)) {
+    const nested = m as Record<string, unknown>;
+    if (typeof nested.message === "string" && nested.message.length > 0) return nested.message;
+    const serialized = JSON.stringify(m);
+    if (serialized !== "{}" && serialized !== "null") return serialized;
+  }
+  if (typeof o.error === "string" && o.error.length > 0) return o.error;
+  return null;
+}
+
 async function bondBffJsonFromResponse<T>(res: Response): Promise<T> {
   const raw = await res.text();
   const text = raw.replace(/^\uFEFF/, "").trim();
@@ -38,15 +57,8 @@ async function bondBffJsonFromResponse<T>(res: Response): Promise<T> {
     );
   }
   if (!res.ok) {
-    let msg = `Request failed (${res.status})`;
-    if (parsed && typeof parsed === "object") {
-      const o = parsed as Record<string, unknown>;
-      if (typeof o.message === "string" && o.message.length > 0) {
-        msg = o.message;
-      } else if (typeof o.error === "string" && o.error.length > 0) {
-        msg = o.error;
-      }
-    }
+    const extracted = bondErrorMessageFromParsed(parsed);
+    const msg = extracted ?? `Request failed (${res.status})`;
     throw new BondBffError(res.status, msg, parsed);
   }
   return parsed as T;
@@ -106,12 +118,8 @@ export async function bondBffDeleteJson<T>(
     );
   }
   if (!res.ok) {
-    let msg = `Request failed (${res.status})`;
-    if (parsed && typeof parsed === "object") {
-      const o = parsed as Record<string, unknown>;
-      if (typeof o.message === "string" && o.message.length > 0) msg = o.message;
-      else if (typeof o.error === "string" && o.error.length > 0) msg = o.error;
-    }
+    const extracted = bondErrorMessageFromParsed(parsed);
+    const msg = extracted ?? `Request failed (${res.status})`;
     throw new BondBffError(res.status, msg, parsed);
   }
   return parsed as T;

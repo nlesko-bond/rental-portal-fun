@@ -81,11 +81,36 @@ function timeToMinutes(t: string): number {
   return Number(m[1]) * 60 + Number(m[2]);
 }
 
-export function slotDurationMinutes(s: Pick<ScheduleTimeSlotDto, "startTime" | "endTime">): number {
-  const a = timeToMinutes(s.startTime);
-  const b = timeToMinutes(s.endTime);
-  if (!Number.isFinite(a) || !Number.isFinite(b)) return 0;
-  return Math.max(0, b - a);
+/** Unix seconds at `YYYY-MM-DD`00:00:00 UTC for that calendar day (Bond schedule dates are plain dates). */
+function utcMidnightSeconds(isoDate: string): number | null {
+  const [y, mo, d] = isoDate.split("-").map((x) => Number(x));
+  if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d)) return null;
+  return Math.floor(Date.UTC(y, mo - 1, d) / 1000);
+}
+
+function wallClockToUnixSeconds(isoDate: string, time: string): number | null {
+  const base = utcMidnightSeconds(isoDate);
+  if (base == null) return null;
+  const m = time.trim().match(/^(\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  const sec = m[3] != null ? Number(m[3]) : 0;
+  if (![h, min, sec].every((n) => Number.isFinite(n))) return null;
+  return base + h * 3600 + min * 60 + sec;
+}
+
+/**
+ * Length of the slot in minutes using **startDate/startTime → endDate/endTime**.
+ * Same-calendar-day slots behave like the old time-only diff; midnight-crossing rows (e.g. 23:00 → next day 00:00) are correct.
+ */
+export function slotDurationMinutes(
+  s: Pick<ScheduleTimeSlotDto, "startDate" | "endDate" | "startTime" | "endTime">
+): number {
+  const a = wallClockToUnixSeconds(s.startDate, s.startTime);
+  const b = wallClockToUnixSeconds(s.endDate, s.endTime);
+  if (a == null || b == null) return 0;
+  return Math.max(0, (b - a) / 60);
 }
 
 /** Longest contiguous block length in minutes (same resource, same calendar day, back-to-back slots). */

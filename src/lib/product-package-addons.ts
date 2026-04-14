@@ -93,7 +93,7 @@ export function resolveAddonDisplayPrice(a: PackageAddonLine): { price: number; 
  */
 export function addonEstimatedChargeForSlot(
   addon: PackageAddonLine,
-  slot: { startTime: string; endTime: string }
+  slot: { startDate: string; endDate: string; startTime: string; endTime: string }
 ): { amount: number; currency: string } | null {
   const base = resolveAddonDisplayPrice(addon);
   if (!base) return null;

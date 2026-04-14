@@ -1,4 +1,4 @@
-import { classifyCartItemLineKind } from "@/lib/bond-cart-item-classify";
+import { classifyCartItemLineKind, getCartItemMetadataDescription } from "@/lib/bond-cart-item-classify";
 import { flattenBondCartItemNodes } from "@/lib/checkout-bag-totals";
 import type { SessionCartSnapshot } from "@/lib/session-cart-snapshot";
 import type { OrganizationCartDto } from "@/types/online-booking";
@@ -13,14 +13,16 @@ function indexRange(start: number, end: number): number[] {
  * Splits flattened `cartItems` into one index list per top-level **booking** line (depth-first pre-order).
  * Preamble lines before the first booking (e.g. cart-level membership) attach to the first segment only.
  */
-export function flatLineIndexSegmentsForMergedBookings(cart: OrganizationCartDto): number[][] | null {
-  const items = cart.cartItems;
-  if (!Array.isArray(items) || items.length === 0) return null;
-  const flat = flattenBondCartItemNodes(items);
-  const bookingStarts: number[] = [];
-  for (let i = 0; i < flat.length; i++) {
-    if (classifyCartItemLineKind(flat[i]!) === "booking") bookingStarts.push(i);
-  }
+const RENTAL_SEGMENT_ROOT_DESCRIPTIONS = new Set([
+  "reservation_type_rental",
+  "reservation_type_lesson",
+  "league_registration",
+]);
+
+function buildSegmentsFromBookingStarts(
+  flat: Record<string, unknown>[],
+  bookingStarts: number[]
+): number[][] | null {
   if (bookingStarts.length === 0) return null;
   const segments: number[][] = [];
   const first = bookingStarts[0]!;
@@ -32,6 +34,40 @@ export function flatLineIndexSegmentsForMergedBookings(cart: OrganizationCartDto
     segments.push(g === 0 && preamble.length > 0 ? [...preamble, ...core] : core);
   }
   return segments;
+}
+
+export function flatLineIndexSegmentsForMergedBookings(cart: OrganizationCartDto): number[][] | null {
+  const items = cart.cartItems;
+  if (!Array.isArray(items) || items.length === 0) return null;
+  const flat = flattenBondCartItemNodes(items);
+  /** Prefer Bond line `metadata.description` so wrapper rows don’t inflate “booking” starts (fixes merged multi-guest carts grouping under the last person). */
+  const rentalRoots: number[] = [];
+  for (let i = 0; i < flat.length; i++) {
+    const desc = getCartItemMetadataDescription(flat[i]!);
+    if (desc != null && RENTAL_SEGMENT_ROOT_DESCRIPTIONS.has(desc)) {
+      rentalRoots.push(i);
+    }
+  }
+  if (rentalRoots.length > 0) {
+    return buildSegmentsFromBookingStarts(flat, rentalRoots);
+  }
+  const legacyStarts: number[] = [];
+  for (let i = 0; i < flat.length; i++) {
+    if (classifyCartItemLineKind(flat[i]!) === "booking") legacyStarts.push(i);
+  }
+  return buildSegmentsFromBookingStarts(flat, legacyStarts);
+}
+
+/** Classifier-only segment starts (original behavior) — used when rental-root segments don’t match `reservationGroups` length. */
+function flatLineIndexSegmentsForMergedBookingsLegacy(cart: OrganizationCartDto): number[][] | null {
+  const items = cart.cartItems;
+  if (!Array.isArray(items) || items.length === 0) return null;
+  const flat = flattenBondCartItemNodes(items);
+  const legacyStarts: number[] = [];
+  for (let i = 0; i < flat.length; i++) {
+    if (classifyCartItemLineKind(flat[i]!) === "booking") legacyStarts.push(i);
+  }
+  return buildSegmentsFromBookingStarts(flat, legacyStarts);
 }
 
 export type SessionCartGroupedItem = {
@@ -69,7 +105,10 @@ export function groupSessionCartSnapshotsByLabel(rows: SessionCartSnapshot[]): S
     const row = rows[index]!;
     const rg = row.reservationGroups;
     if (rg && rg.length > 1) {
-      const segments = flatLineIndexSegmentsForMergedBookings(row.cart);
+      let segments = flatLineIndexSegmentsForMergedBookings(row.cart);
+      if (segments == null || segments.length !== rg.length) {
+        segments = flatLineIndexSegmentsForMergedBookingsLegacy(row.cart);
+      }
       if (segments == null || segments.length !== rg.length) {
         append(row.bookingForLabel?.trim() || "Booking", { index, row });
         continue;

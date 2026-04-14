@@ -1,22 +1,20 @@
 import { getEffectiveAddonSlotKeys } from "@/lib/addon-slot-targeting";
-import { cashUnitPriceForBondFallback } from "./booking-pricing";
-import {
-  addonEstimatedChargeForSlot,
-  resolveAddonDisplayPrice,
-  type PackageAddonLine,
-} from "./product-package-addons";
-import { slotPriceForBondApi, type PickedSlot } from "./slot-selection";
+import type { PackageAddonLine } from "./product-package-addons";
+import type { PickedSlot } from "./slot-selection";
 import type { AddCartItemDtoMinimal, CreateBookingAddonDto } from "@/types/create-booking-dto";
 import type { ExtendedProductDto } from "@/types/online-booking";
 
 /**
- * `POST /v1/organization/{organizationId}/online-booking/create` (operation `cartReservation`)
+ * `POST /v1/organization/{organizationId}/online-booking/create` (`cartReservation`)
  *
- * **Authoritative schema (until Swagger lists requestBody):** `docs/bond/create-booking-dto.schema.json`
- * — `CreateBookingDto` uses **`addons[]`** (`productId` + `quantity`) at root and per segment, not flat `addonProductIds`.
+ * Wire JSON matches hosted OpenAPI
+ * https://public.api.squad-c.bondsports.co/public-api/bond-public-api.json :
+ * - `CreateBookingDto`: `userId`, `segments`, optional `addons`, `cartId`, `answers`, `requiredProducts`, `name`
+ *   — **not** `onlineBookingPortalId` / `categoryId` (those are not in the schema).
+ * - `CreateBookingTimeSlotDto`: **only** `startDate`, `startTime`, `endDate`, `endTime` (no `resourceId`, `price`, `timezone`).
+ * - `CreateBookingAddonDto`: **only** `productId`, `quantity` (no `unitPrice`; `AddCartItemDto` for `requiredProducts` may still include `unitPrice`).
  *
- * Bond expects **segments** each with `spaceId`, `activity`, `facilityId`, `productId`, and a non-empty **`slots`**
- * array (nested slot rows with `resourceId`, dates/times, `price`, `timezone`).
+ * Extra fields can cause Bond to throw **500** with an empty `message` if their DTO layer rejects the payload.
  */
 
 export type AddonSlotTargetingInput = Record<number, { all: boolean; keys: string[] }>;
@@ -72,35 +70,11 @@ export function addonProductIdsToAddonDtos(ids: readonly number[]): CreateBookin
   return [...m.entries()].map(([productId, quantity]) => ({ productId, quantity }));
 }
 
-function roundMoney(n: number): number {
-  return Math.round(n * 100) / 100;
+/** OpenAPI `CreateBookingAddonDto`: only these two properties. */
+function wireAddonsForCreate(dtos: CreateBookingAddonDto[]): Array<{ productId: number; quantity: number }> {
+  return dtos.map(({ productId, quantity }) => ({ productId, quantity }));
 }
 
-/**
- * Bond may reject “illegal price” when an hour-priced add-on is sent without a prorated amount for short slots,
- * or when list/catalog unit must be explicit. Attach `unitPrice` from package metadata when we can derive it.
- */
-export function enrichCreateBookingAddonsWithUnitPrice(
-  dtos: CreateBookingAddonDto[],
-  ctx: { slot: PickedSlot | undefined; packageAddons: PackageAddonLine[] }
-): CreateBookingAddonDto[] {
-  if (dtos.length === 0 || ctx.packageAddons.length === 0) return dtos;
-  const { slot, packageAddons } = ctx;
-  return dtos.map((dto) => {
-    const line = packageAddons.find((a) => a.id === dto.productId);
-    if (!line) return dto;
-    let basis: number | null = null;
-    if (slot != null && (line.level === "hour" || line.level === "slot")) {
-      const est = addonEstimatedChargeForSlot(line, slot);
-      if (est != null && Number.isFinite(est.amount) && est.amount > 0) basis = est.amount;
-    } else {
-      const p = resolveAddonDisplayPrice(line);
-      if (p != null && Number.isFinite(p.price) && p.price > 0) basis = p.price;
-    }
-    if (basis == null) return dto;
-    return { ...dto, unitPrice: roundMoney(basis) };
-  });
-}
 /** Per Swagger `CreateBookingDto` / online-booking create: `answers[]` with `userId` + nested `answers` (questionId + value). */
 export type OnlineBookingCreateAnswerRow = {
   userId: number;
@@ -124,18 +98,22 @@ export function buildOnlineBookingCreateBody(opts: {
   answers?: OnlineBookingCreateAnswerRow[];
   /** Merge this reservation into an existing Bond cart (append line items). */
   cartId?: number;
-  /** Optional add-on catalog lines — used to set `unitPrice` on `addons[]` when Bond requires explicit amounts. */
+  /** Catalog lines for add-on resolution in {@link splitAddonPayloadForCreate} only; not sent on `addons[]`. */
   packageAddons?: PackageAddonLine[];
   /**
    * Bond `requiredProducts[]` (`AddCartItemDto`) — include satisfied membership SKUs (`required: false` on GET …/required)
    * plus checkout selections; each line gets `userId` + `quantity: 1` so validation matches member-priced slots.
    */
   requiredProductLineItems?: Array<{ productId: number; unitPrice?: number }>;
-  /** Used when schedule slot `price` is 0 (member display) — Bond create still needs a positive cash unit. */
+  /** Retained for call-site compatibility; pricing is not sent on slot rows per OpenAPI. */
   product?: ExtendedProductDto;
 }): Record<string, unknown> {
+  void opts.portalId;
+  void opts.categoryId;
+  void opts.packageAddons;
+  void opts.product;
+
   const activity = normalizeActivityForApi(opts.activity);
-  const catalogFallback = cashUnitPriceForBondFallback(opts.product);
 
   const segments = opts.slots.map((s, i) => {
     const seg: Record<string, unknown> = {
@@ -145,36 +123,22 @@ export function buildOnlineBookingCreateBody(opts: {
       productId: opts.productId,
       slots: [
         {
-          resourceId: s.resourceId,
           startDate: s.startDate,
           endDate: s.endDate,
-          startTime: s.startTime,
-          endTime: s.endTime,
-          price: slotPriceForBondApi(s, catalogFallback),
-          timezone: s.timezone,
+          startTime: bondSlotTimeWithSeconds(s.startTime),
+          endTime: bondSlotTimeWithSeconds(s.endTime),
         },
       ],
     };
     const segAddons = opts.segmentAddonProductIds?.[i];
     if (segAddons != null && segAddons.length > 0) {
-      const rawAddons = addonProductIdsToAddonDtos(segAddons);
-      seg.addons =
-        opts.packageAddons != null && opts.packageAddons.length > 0
-          ? enrichCreateBookingAddonsWithUnitPrice(rawAddons, {
-              slot: opts.slots[i],
-              packageAddons: opts.packageAddons,
-            })
-          : rawAddons;
+      seg.addons = wireAddonsForCreate(addonProductIdsToAddonDtos(segAddons));
     }
     return seg;
   });
 
   const rootAddonIds = opts.addonProductIds ?? [];
-  const rawRoot = addonProductIdsToAddonDtos(rootAddonIds);
-  const rootAddonDtos =
-    opts.packageAddons != null && opts.packageAddons.length > 0
-      ? enrichCreateBookingAddonsWithUnitPrice(rawRoot, { slot: undefined, packageAddons: opts.packageAddons })
-      : rawRoot;
+  const rootAddonDtos = wireAddonsForCreate(addonProductIdsToAddonDtos(rootAddonIds));
 
   const requiredProducts: AddCartItemDtoMinimal[] | undefined =
     opts.requiredProductLineItems && opts.requiredProductLineItems.length > 0
@@ -188,8 +152,6 @@ export function buildOnlineBookingCreateBody(opts: {
 
   return {
     userId: opts.userId,
-    onlineBookingPortalId: opts.portalId,
-    categoryId: opts.categoryId,
     segments,
     ...(rootAddonDtos.length > 0 ? { addons: rootAddonDtos } : {}),
     ...(requiredProducts != null && requiredProducts.length > 0 ? { requiredProducts } : {}),
@@ -198,9 +160,21 @@ export function buildOnlineBookingCreateBody(opts: {
   };
 }
 
-/** Bond activity enum is often lowercase slug matching portal `activities` values */
+/**
+ * Portal sport key for `segments[].activity` — must stay aligned with `sports` query on products/schedule
+ * (lowercase slug, spaces → underscores). See `SportNameEnum` in hosted OpenAPI.
+ */
 function normalizeActivityForApi(raw: string): string {
   const t = raw.trim();
   if (!t) return "general";
   return t.toLowerCase().replace(/\s+/g, "_");
+}
+
+/** Hosted API uses `HH:mm:ss` on slot rows. */
+function bondSlotTimeWithSeconds(time: string): string {
+  const t = time.trim();
+  const m = t.match(/^(\d{2}):(\d{2})(?::(\d{2}))?$/);
+  if (!m) return t;
+  const sec = m[3] ?? "00";
+  return `${m[1]}:${m[2]}:${sec}`;
 }

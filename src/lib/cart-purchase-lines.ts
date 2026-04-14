@@ -210,7 +210,58 @@ export function expandSnapshotForPurchaseList(
     bondReceiptLines.length > 0 &&
     bondReceiptLines.length === saved.length;
 
+  /** Pending checkout rows (`cart.id === 0`) use client `displayLines` only — ignore empty Bond `cartItems` so add-on lines aren’t dropped. */
+  const isPendingPricePreview =
+    typeof cartId === "number" && Number.isFinite(cartId) && cartId === 0;
+
   if (Array.isArray(saved) && saved.length > 0) {
+    if (isPendingPricePreview) {
+      return saved.map((line, j) => {
+        const kind = line.lineKind ?? "booking";
+        const kindMeta: CartLineKind =
+          kind === "membership" ? "membership" : kind === "addon" ? "addon" : "booking";
+        const lineSchedSeg = lineScheduleSummaryForSegment(row, kindMeta, 0);
+        const metaRaw =
+          typeof line.meta === "string" && line.meta.trim().length > 0
+            ? line.meta.trim()
+            : buildLineMeta({
+                bookingBit,
+                kind: kindMeta,
+                scheduleSummary: scheduleForMeta,
+                lineScheduleSummary: lineSchedSeg,
+              });
+        const meta = stripBookingForFromMeta(metaRaw, metaBookingFor, omit);
+        const coKind: CartLineKind =
+          kind === "membership" ? "membership" : kind === "addon" ? "addon" : "booking";
+        const amt =
+          typeof line.amount === "number" && Number.isFinite(line.amount)
+            ? line.amount
+            : typeof c.subtotal === "number" && Number.isFinite(c.subtotal)
+              ? c.subtotal
+              : null;
+        const memberAccessNote =
+          row.participantHasQualifyingMembership === true &&
+          kind === "booking" &&
+          amt != null &&
+          amt <= 0.0001
+            ? "Qualifying membership — reservation at member rate ($0)"
+            : undefined;
+        const pendingBadge =
+          kindMeta === "addon" ? receiptBadgeForCartLine("addon", undefined) : undefined;
+        return {
+          key: `snap-${rowIndex}-pending-${j}-${cartId}`,
+          title: line.title,
+          meta,
+          checkoutNote: checkoutNoteForMixedLine(policy, coKind, rowApproval, hideVenueNotes),
+          amount: amt,
+          lineKind: line.lineKind,
+          memberAccessNote,
+          ...(pendingBadge ? { badge: pendingBadge } : {}),
+          ...(line.discountNote ? { discountNote: line.discountNote } : {}),
+          ...(line.strikeAmount != null ? { strikeAmount: line.strikeAmount } : {}),
+        };
+      });
+    }
     return saved.map((line, j) => {
       const kind = line.lineKind ?? "booking";
       const kindMeta: CartLineKind =

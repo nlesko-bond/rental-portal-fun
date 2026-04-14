@@ -3,7 +3,7 @@ import { BondBffError } from "./bond-json";
 export type BondApiErrorBody = {
   statusCode?: number;
   code?: string;
-  message?: string;
+  message?: string | string[] | Record<string, unknown>;
   path?: string;
   timestamp?: string;
 };
@@ -13,6 +13,22 @@ export type ErrorsTranslator = (key: string, values?: Record<string, string | nu
 export function asBondApiErrorBody(body: unknown): BondApiErrorBody | null {
   if (!body || typeof body !== "object") return null;
   return body as BondApiErrorBody;
+}
+
+function bondApiMessageString(body: BondApiErrorBody | null): string {
+  const m = body?.message;
+  if (typeof m === "string") return m;
+  if (Array.isArray(m) && m.length > 0) {
+    const lines = m.filter((x): x is string => typeof x === "string");
+    if (lines.length > 0) return lines.join("; ");
+  }
+  if (m != null && typeof m === "object" && !Array.isArray(m)) {
+    const o = m as Record<string, unknown>;
+    if (typeof o.message === "string" && o.message.length > 0) return o.message;
+    const s = JSON.stringify(m);
+    if (s !== "{}" && s !== "null") return s;
+  }
+  return "";
 }
 
 /** User-facing line: message plus code when useful. */
@@ -92,7 +108,7 @@ export function formatConsumerBookingError(
   }
   const body = asBondApiErrorBody(err.body);
   const code = body?.code;
-  const rawMsg = typeof body?.message === "string" ? body.message : "";
+  const rawMsg = bondApiMessageString(body);
 
   const illegalFromBody = formatIllegalPriceMessage(rawMsg, t, context);
   if (illegalFromBody) return illegalFromBody;
@@ -101,6 +117,10 @@ export function formatConsumerBookingError(
 
   if (code === "ONLINE_BOOKING.TOO_SOON") {
     return t("bookingTooSoon");
+  }
+  if (code === "ONLINE_BOOKING.MAX_HOURS_EXCEEDED") {
+    const who = context?.customerLabel?.trim() || t("guestFallback");
+    return t("maxBookableHoursForDay", { who });
   }
   if (code === "ONLINE_BOOKING.INVALID_PRODUCT") {
     const reservedEligibility =

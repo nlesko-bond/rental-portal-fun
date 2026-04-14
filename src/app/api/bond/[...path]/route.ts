@@ -33,6 +33,14 @@ function isAllowedBondPath(segments: string[]): boolean {
   return true;
 }
 
+function safeDecodeURIComponent(raw: string): string {
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
 function userHeadersFrom(request: NextRequest): Record<string, string> {
   const out: Record<string, string> = {};
   const access =
@@ -43,7 +51,7 @@ function userHeadersFrom(request: NextRequest): Record<string, string> {
     request.cookies.get(BOND_COOKIE_USERNAME)?.value;
   if (access) out["X-BondUserAccessToken"] = access;
   if (id) out["X-BondUserIdToken"] = id;
-  if (username) out["X-BondUserUsername"] = decodeURIComponent(username);
+  if (username) out["X-BondUserUsername"] = safeDecodeURIComponent(username);
   return out;
 }
 
