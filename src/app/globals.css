@@ -3850,13 +3850,14 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 2.75rem;
-  height: 2.75rem;
-  margin-bottom: 0.65rem;
+  width: 3rem;
+  height: 3rem;
+  margin-bottom: 0.75rem;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--cb-primary) 12%, var(--cb-surface));
-  border: 1px solid color-mix(in srgb, var(--cb-primary) 22%, var(--cb-border));
-  color: var(--cb-primary);
+  background: var(--cb-primary);
+  border: none;
+  color: #fff;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--cb-primary) 35%, transparent);
 }
 
 .consumer-booking .cb-booking-confirmed-title {
@@ -3874,11 +3875,11 @@ body {
 
 .consumer-booking .cb-booking-confirmed-details {
   text-align: left;
-  margin: 0 0 1rem;
-  padding: 0.75rem 0.85rem;
-  border-radius: 0.65rem;
-  background: color-mix(in srgb, var(--cb-primary) 6%, var(--cb-bg-field));
-  border: 1px solid var(--cb-border);
+  margin: 0 0 1.1rem;
+  padding: 0.9rem 1rem;
+  border-radius: 0.75rem;
+  background: color-mix(in srgb, var(--cb-primary) 8%, var(--cb-bg-field));
+  border: 1px solid color-mix(in srgb, var(--cb-primary) 12%, var(--cb-border));
 }
 
 .consumer-booking .cb-booking-confirmed-detail-row {
@@ -3906,6 +3907,36 @@ body {
   word-break: break-all;
 }
 
+.consumer-booking .cb-booking-confirmed-detail-row--invoice .cb-booking-confirmed-detail-label {
+  font-size: 0.8125rem;
+  letter-spacing: 0.02em;
+}
+
+.consumer-booking .cb-booking-confirmed-invoice-id {
+  grid-column: 1 / -1;
+  margin: 0.15rem 0 0.1rem;
+  font-size: 1.35rem;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--cb-primary);
+  text-decoration: none;
+  word-break: break-all;
+}
+
+.consumer-booking .cb-booking-confirmed-invoice-id:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.consumer-booking .cb-booking-confirmed-invoice-id--plain {
+  display: block;
+  cursor: default;
+}
+
+.consumer-booking .cb-booking-confirmed-invoice-id--plain:hover {
+  text-decoration: none;
+}
+
 .consumer-booking .cb-booking-confirmed-detail-row-actions {
   grid-column: 1 / -1;
   display: flex;
@@ -3913,19 +3944,6 @@ body {
   gap: 0.75rem 1rem;
   align-items: center;
   justify-content: flex-end;
-}
-
-.consumer-booking .cb-booking-confirmed-portal-link {
-  margin-right: auto;
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--cb-primary);
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
-.consumer-booking .cb-booking-confirmed-portal-link:hover {
-  color: color-mix(in srgb, var(--cb-primary) 85%, var(--cb-text));
 }
 
 .consumer-booking .cb-booking-confirmed-copy {

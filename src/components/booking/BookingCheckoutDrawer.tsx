@@ -301,6 +301,8 @@ export function BookingCheckoutDrawer({
   onParticipantLockChange,
   onPruneSatisfiedAddonProductIds,
 }: Props) {
+  const onCheckoutCompleteRef = useRef(onCheckoutComplete);
+  onCheckoutCompleteRef.current = onCheckoutComplete;
   const tx = useTranslations("checkout");
   const te = useTranslations("errors");
   const tc = useTranslations("common");
@@ -941,9 +943,8 @@ export function BookingCheckoutDrawer({
   const dismissBookingConfirmed = useCallback(() => {
     setFinalizeSuccess(null);
     setFinalizeCopyFlash(null);
-    onCheckoutComplete?.();
     onClose();
-  }, [onCheckoutComplete, onClose]);
+  }, [onClose]);
 
   const copyFinalizeId = useCallback(async (kind: "invoice" | "reservation", value: string) => {
     try {
@@ -1013,6 +1014,7 @@ export function BookingCheckoutDrawer({
     },
     onSuccess: (data) => {
       setFinalizeSuccess(parseFinalizeCartResponse(data));
+      onCheckoutCompleteRef.current?.();
     },
   });
 
@@ -1192,8 +1194,13 @@ export function BookingCheckoutDrawer({
       lineName: string,
       amount: number,
       cur: string,
-      opts?: { approvalRequired?: boolean; scheduleSummary?: string }
+      opts?: {
+        approvalRequired?: boolean;
+        scheduleSummary?: string;
+        lineKind?: "booking" | "membership" | "addon";
+      }
     ) => {
+      const lk = opts?.lineKind ?? "booking";
       rows.push({
         cart: {
           id: 0,
@@ -1204,6 +1211,14 @@ export function BookingCheckoutDrawer({
         } as OrganizationCartDto,
         productName: lineName,
         bookingForLabel,
+        displayLines: [
+          {
+            title: lineName,
+            amount,
+            lineKind: lk,
+            ...(opts?.scheduleSummary ? { meta: opts.scheduleSummary } : {}),
+          },
+        ],
         ...(opts?.scheduleSummary ? { scheduleSummary: opts.scheduleSummary } : {}),
         ...(opts?.approvalRequired === true ? { approvalRequired: true as const } : {}),
         ...(opts?.approvalRequired === false ? { approvalRequired: false as const } : {}),
@@ -1223,31 +1238,36 @@ export function BookingCheckoutDrawer({
         pushSynthetic(r.name ?? `Product ${r.id}`, r.displayPrice.amount, r.displayPrice.currency, {
           approvalRequired: snapshotRowExpectsVenueApproval(r, extendedRequiredList),
           scheduleSummary,
+          lineKind: membershipRequiredFromExtendedTree(r.id, extendedRequiredList) ? "membership" : "booking",
         });
       }
       for (const a of packageAddons) {
         if (!selectedAddonIds.has(a.id)) continue;
         const p = resolveAddonDisplayPrice(a);
-        if (!p || p.currency !== currency) continue;
+        if (!p) continue;
+        const addonCurrency =
+          typeof p.currency === "string" && p.currency.length > 0 ? p.currency : currency;
         let amt = 0;
         if (a.level === "reservation") {
           amt = p.price;
         } else {
           const eff = getEffectiveAddonSlotKeys(addonSlotTargeting[a.id], slotKeySet);
-          if (eff.size === 0) continue;
+          const slotCount = eff.size > 0 ? eff.size : slotKeySet.size;
+          if (slotCount === 0) continue;
           if (a.level === "slot") {
-            amt = p.price * eff.size;
+            amt = p.price * slotCount;
           } else {
             for (const s of pickedSlots) {
-              if (!eff.has(s.key)) continue;
+              if (eff.size > 0 && !eff.has(s.key)) continue;
               amt += p.price * (slotDurationMinutes(s) / 60);
             }
           }
         }
         if (amt > 0) {
-          pushSynthetic(a.name, amt, currency, {
+          pushSynthetic(a.name, amt, addonCurrency, {
             approvalRequired: approvalRequired === true,
             scheduleSummary,
+            lineKind: "addon",
           });
         }
       }
@@ -1302,25 +1322,42 @@ export function BookingCheckoutDrawer({
   );
 
   /**
-   * While adding another booking with items already in the bag, only the **tail** rows (in-progress synthetics)
-   * should appear in the presummary line list — otherwise the bag rows repeat and line items look doubled.
-   * Totals still use full {@link paymentLines} via `bagAggregates`.
+   * Rows that drive the **add-to-cart / presummary** line list and its subtotal/tax/total (tail-only when
+   * merging another booking so totals match the on-screen lines, not the whole bag).
    */
-  const groupedPresummaryLineSections = useMemo(() => {
+  const presummaryLineTotalsRows = useMemo((): SessionCartSnapshot[] => {
     const useTailOnly =
       bagSnapshots.length > 0 &&
       pickedSlots.length > 0 &&
       !lastCart &&
       tailExtraPaymentLines.length > 0;
-    return useTailOnly ? groupedTailPaymentSections : groupedFullCheckoutSummary;
+    return useTailOnly ? tailExtraPaymentLines : paymentLines;
   }, [
     bagSnapshots.length,
     pickedSlots.length,
     lastCart,
-    tailExtraPaymentLines.length,
-    groupedTailPaymentSections,
-    groupedFullCheckoutSummary,
+    tailExtraPaymentLines,
+    paymentLines,
   ]);
+
+  const groupedPresummaryLineSections = useMemo(
+    () => aggregateBagSnapshotsByLabel(presummaryLineTotalsRows),
+    [presummaryLineTotalsRows]
+  );
+
+  const presummaryAggregates = useMemo(
+    () => aggregateBagSnapshots(presummaryLineTotalsRows),
+    [presummaryLineTotalsRows]
+  );
+
+  const presummaryOnlySynthetics = useMemo(
+    () =>
+      presummaryLineTotalsRows.length > 0 &&
+      presummaryLineTotalsRows.every(
+        (r) => !(typeof r.cart?.id === "number" && Number.isFinite(r.cart.id) && r.cart.id > 0)
+      ),
+    [presummaryLineTotalsRows]
+  );
 
   const paymentSectionCount = groupedBagWithTotals.length + groupedTailPaymentSections.length;
 
@@ -1372,6 +1409,35 @@ export function BookingCheckoutDrawer({
     return sum > 0.005 ? sum : null;
   }, [groupedFullCheckoutSummary, bagPolicyCheckout, approvalRequired]);
 
+  const promoDiscountFromPresummaryLines = useMemo(() => {
+    let sum = 0;
+    for (const section of groupedPresummaryLineSections) {
+      for (const item of section.items) {
+        const lines = expandSnapshotForPurchaseList(item.row, item.index, {
+          bagPolicy: bagPolicyCheckout,
+          omitBookingLabelInMeta: true,
+          hideVenueApprovalLineNotes: approvalRequired,
+          ...(item.cartFlatLineIndices != null
+            ? { cartFlatLineIndexFilter: new Set(item.cartFlatLineIndices) }
+            : {}),
+          ...(item.subsectionBookingForLabel != null
+            ? { subsectionBookingForLabel: item.subsectionBookingForLabel }
+            : {}),
+        });
+        for (const line of lines) {
+          if (
+            line.strikeAmount != null &&
+            line.amount != null &&
+            line.strikeAmount > line.amount + 0.005
+          ) {
+            sum += line.strikeAmount - line.amount;
+          }
+        }
+      }
+    }
+    return sum > 0.005 ? sum : null;
+  }, [groupedPresummaryLineSections, bagPolicyCheckout, approvalRequired]);
+
   const title = useMemo(() => {
     if (mode === "bag") return tx("savedBookings");
     switch (step) {
@@ -1410,6 +1476,58 @@ export function BookingCheckoutDrawer({
     if (paymentLinesHaveBondCart) return null;
     return Math.max(0, estimatedOriginalSubtotal - subtotal);
   }, [entitlements, estimatedOriginalSubtotal, showMemberPricing, paymentLinesHaveBondCart, subtotal]);
+
+  /** Member “savings” for presummary when it’s only client-priced rows (2nd booking) — not suppressed by an unrelated bag Bond cart. */
+  const singleLineMemberSavingsPresummary = useMemo(() => {
+    if (!presummaryOnlySynthetics) return singleLineMemberSavings;
+    if (!Array.isArray(entitlements) || entitlements.length === 0) return null;
+    if (estimatedOriginalSubtotal == null) return null;
+    if (!showMemberPricing) return null;
+    return Math.max(0, estimatedOriginalSubtotal - subtotal);
+  }, [
+    presummaryOnlySynthetics,
+    singleLineMemberSavings,
+    entitlements,
+    estimatedOriginalSubtotal,
+    showMemberPricing,
+    subtotal,
+  ]);
+
+  const presummaryAggregatesForEstimate = useMemo(() => {
+    const bondDisc =
+      presummaryAggregates.discountTotal != null && presummaryAggregates.discountTotal > 0.005
+        ? presummaryAggregates.discountTotal
+        : null;
+    const member =
+      singleLineMemberSavingsPresummary != null && singleLineMemberSavingsPresummary > 0.005
+        ? singleLineMemberSavingsPresummary
+        : null;
+    const promo = promoDiscountFromPresummaryLines;
+    const merged = bondDisc ?? member ?? promo ?? null;
+    if (merged == null) return { ...presummaryAggregates, discountTotal: null };
+    return { ...presummaryAggregates, discountTotal: merged };
+  }, [presummaryAggregates, singleLineMemberSavingsPresummary, promoDiscountFromPresummaryLines]);
+
+  const presummaryDisplayDiscount = useMemo(() => {
+    const bondDisc =
+      presummaryAggregates.discountTotal != null && presummaryAggregates.discountTotal > 0.005
+        ? presummaryAggregates.discountTotal
+        : null;
+    const member =
+      singleLineMemberSavingsPresummary != null && singleLineMemberSavingsPresummary > 0.005
+        ? singleLineMemberSavingsPresummary
+        : null;
+    return bondDisc ?? member ?? promoDiscountFromPresummaryLines ?? null;
+  }, [
+    presummaryAggregates.discountTotal,
+    singleLineMemberSavingsPresummary,
+    promoDiscountFromPresummaryLines,
+  ]);
+
+  const presummaryPrecheckoutAmountDue = useMemo(
+    () => estimateAmountDue(presummaryAggregatesForEstimate, { includeProvisionalFees: false }),
+    [presummaryAggregatesForEstimate]
+  );
 
   /** Merge member savings and line-implied promo when Bond omits or zeroes cart discount. */
   const bagAggregatesForEstimate = useMemo(() => {
@@ -1542,6 +1660,23 @@ export function BookingCheckoutDrawer({
     return typeof e === "string" && e.includes("@") ? e.trim() : null;
   }, [bondProfile]);
 
+  const finalizeInvoiceDisplay = useMemo(() => {
+    if (finalizeSuccess == null) return null;
+    if (finalizeSuccess.invoiceNumericId != null) return String(finalizeSuccess.invoiceNumericId);
+    return finalizeSuccess.invoiceRef ?? null;
+  }, [finalizeSuccess]);
+
+  const finalizeInvoicePortalUrl = useMemo(() => {
+    if (
+      finalizeSuccess?.invoiceNumericId == null ||
+      orgId <= 0 ||
+      primaryAccountUserId <= 0
+    ) {
+      return null;
+    }
+    return buildSquadCInvoicePortalUrl(orgId, primaryAccountUserId, finalizeSuccess.invoiceNumericId);
+  }, [finalizeSuccess, orgId, primaryAccountUserId]);
+
   const openCalendarTemplate = useCallback(() => {
     const title = encodeURIComponent(`${productName} — ${orgDisplayName ?? "Bond"}`);
     window.open(
@@ -1632,32 +1767,34 @@ export function BookingCheckoutDrawer({
           <div className="cb-checkout-total-row cb-checkout-total-row--muted">
             <span>{tx("subtotal")}</span>
             <span>
-              {bagAggregates.lineSubtotal != null
-                ? formatPrice(bagAggregates.lineSubtotal, bagCurrency)
-                : bagGrandTotal != null
-                  ? formatPrice(bagGrandTotal, bagCurrency)
+              {presummaryAggregates.lineSubtotal != null
+                ? formatPrice(presummaryAggregates.lineSubtotal, bagCurrency)
+                : presummaryAggregates.cartGrandTotal != null
+                  ? formatPrice(presummaryAggregates.cartGrandTotal, bagCurrency)
                   : "—"}
             </span>
           </div>
-          {displayDiscountTotal != null && displayDiscountTotal > 0.005 ? (
+          {presummaryDisplayDiscount != null && presummaryDisplayDiscount > 0.005 ? (
             <div className="cb-checkout-total-row cb-checkout-total-row--discount">
               <span>{tc("discountsAndSavings")}</span>
-              <span>−{formatPrice(displayDiscountTotal, bagCurrency)}</span>
+              <span>−{formatPrice(presummaryDisplayDiscount, bagCurrency)}</span>
             </div>
           ) : null}
           <div className="cb-checkout-total-row cb-checkout-total-row--muted">
             <span>{tx("tax")}</span>
             <span>
-              {bagAggregates.taxTotal != null ? formatPrice(bagAggregates.taxTotal, bagCurrency) : "—"}
+              {presummaryAggregates.taxTotal != null
+                ? formatPrice(presummaryAggregates.taxTotal, bagCurrency)
+                : "—"}
             </span>
           </div>
           <div className="cb-checkout-total-row cb-checkout-total-row--grand">
             <span>{tx("estimatedTotal")}</span>
             <strong>
-              {precheckoutAmountDue != null
-                ? formatPrice(precheckoutAmountDue, bagCurrency)
-                : bagAggregates.cartGrandTotal != null
-                  ? formatPrice(bagAggregates.cartGrandTotal, bagCurrency)
+              {presummaryPrecheckoutAmountDue != null
+                ? formatPrice(presummaryPrecheckoutAmountDue, bagCurrency)
+                : presummaryAggregates.cartGrandTotal != null
+                  ? formatPrice(presummaryAggregates.cartGrandTotal, bagCurrency)
                   : "—"}
             </strong>
           </div>
@@ -2706,7 +2843,7 @@ export function BookingCheckoutDrawer({
                 <path
                   d="M20 6L9 17l-5-5"
                   stroke="currentColor"
-                  strokeWidth="2.2"
+                  strokeWidth="2.4"
                   strokeLinecap="round"
                   strokeLinejoin="round"
                 />
@@ -2715,11 +2852,9 @@ export function BookingCheckoutDrawer({
             <h2 className="cb-booking-confirmed-title">{tx("bookingConfirmedTitle")}</h2>
             <p className="cb-booking-confirmed-sub cb-muted">{tx("bookingConfirmedSubtitle")}</p>
           </div>
-          {finalizeSuccess?.reservationRef != null ||
-          finalizeSuccess?.invoiceRef != null ||
-          finalizeSuccess?.invoiceNumericId != null ? (
+          {finalizeSuccess?.reservationRef != null || finalizeInvoiceDisplay != null ? (
             <div className="cb-booking-confirmed-details">
-              {finalizeSuccess.reservationRef != null ? (
+              {finalizeSuccess != null && finalizeSuccess.reservationRef != null ? (
                 <div className="cb-booking-confirmed-detail-row">
                   <span className="cb-booking-confirmed-detail-label">{tx("reservationLabel")}</span>
                   <span className="cb-booking-confirmed-detail-value">{finalizeSuccess.reservationRef}</span>
@@ -2732,42 +2867,29 @@ export function BookingCheckoutDrawer({
                   </button>
                 </div>
               ) : null}
-              {finalizeSuccess.invoiceRef != null || finalizeSuccess.invoiceNumericId != null ? (
-                <div className="cb-booking-confirmed-detail-row">
+              {finalizeInvoiceDisplay != null ? (
+                <div className="cb-booking-confirmed-detail-row cb-booking-confirmed-detail-row--invoice">
                   <span className="cb-booking-confirmed-detail-label">{tx("invoiceLabel")}</span>
-                  <span className="cb-booking-confirmed-detail-value">
-                    {finalizeSuccess.invoiceNumericId != null
-                      ? String(finalizeSuccess.invoiceNumericId)
-                      : finalizeSuccess.invoiceRef}
-                  </span>
+                  {finalizeInvoicePortalUrl != null ? (
+                    <a
+                      className="cb-booking-confirmed-invoice-id"
+                      href={finalizeInvoicePortalUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label={`${tx("invoiceLabel")}: ${finalizeInvoiceDisplay}`}
+                    >
+                      {finalizeInvoiceDisplay}
+                    </a>
+                  ) : (
+                    <span className="cb-booking-confirmed-invoice-id cb-booking-confirmed-invoice-id--plain">
+                      {finalizeInvoiceDisplay}
+                    </span>
+                  )}
                   <div className="cb-booking-confirmed-detail-row-actions">
-                    {finalizeSuccess.invoiceNumericId != null &&
-                    orgId > 0 &&
-                    primaryAccountUserId > 0 ? (
-                      <a
-                        href={buildSquadCInvoicePortalUrl(
-                          orgId,
-                          primaryAccountUserId,
-                          finalizeSuccess.invoiceNumericId
-                        )}
-                        className="cb-booking-confirmed-portal-link"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        {tx("viewInvoice")}
-                      </a>
-                    ) : null}
                     <button
                       type="button"
                       className="cb-booking-confirmed-copy"
-                      onClick={() =>
-                        copyFinalizeId(
-                          "invoice",
-                          finalizeSuccess.invoiceNumericId != null
-                            ? String(finalizeSuccess.invoiceNumericId)
-                            : finalizeSuccess.invoiceRef!
-                        )
-                      }
+                      onClick={() => copyFinalizeId("invoice", finalizeInvoiceDisplay)}
                     >
                       {finalizeCopyFlash === "invoice" ? tx("copied") : tx("copyId")}
                     </button>
