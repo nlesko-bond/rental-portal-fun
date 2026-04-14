@@ -13,6 +13,11 @@ import {
   getBondCartReceiptLineItems,
   resolveBondLineDisplayAmounts,
 } from "@/lib/checkout-bag-totals";
+import {
+  type BagRemovePolicy,
+  bagRemovePolicyForBondItem,
+  bondCartItemIdFromRecord,
+} from "@/lib/bond-cart-removal";
 import { dedupeDiscountCaptionSegments } from "@/lib/entitlement-discount";
 import type { SessionCartSnapshot } from "@/lib/session-cart-snapshot";
 import { flatLineIndexSegmentsForMergedBookings } from "@/lib/session-cart-grouping";
@@ -36,6 +41,8 @@ export type CartPurchaseDisplayLine = {
   strikeAmount?: number;
   /** Reservation vs slot add-on — from Bond `metadata.description` when present. */
   badge?: string;
+  /** Bag remove: one line vs whole reservation subsection (add-ons + rental root). */
+  bagRemove?: BagRemovePolicy;
 };
 
 /** How checkout/payment applies across bag rows (per-category approval at add time). */
@@ -339,6 +346,13 @@ export function expandSnapshotForPurchaseList(
           : undefined);
       const amount =
         bondLine != null && Number.isFinite(bondLine.amount) ? bondLine.amount : resolved?.net ?? displayBase;
+      const bondRec =
+        bondItem && typeof bondItem === "object" ? (bondItem as Record<string, unknown>) : null;
+      const bondId = bondRec != null ? bondCartItemIdFromRecord(bondRec) : null;
+      const bagRemove =
+        typeof cartId === "number" && Number.isFinite(cartId) && cartId > 0 && bondRec != null
+          ? bagRemovePolicyForBondItem(bondRec, kindMeta, bondId)
+          : undefined;
       return {
         key: `snap-${rowIndex}-saved-${j}-${cartId}`,
         title: line.title,
@@ -350,6 +364,7 @@ export function expandSnapshotForPurchaseList(
         ...(discountNote ? { discountNote } : {}),
         ...(strikeAmount != null ? { strikeAmount } : {}),
         ...(badge ? { badge } : {}),
+        ...(bagRemove ? { bagRemove } : {}),
       };
     });
   }
@@ -396,6 +411,11 @@ export function expandSnapshotForPurchaseList(
         (kind === "booking" || kind === "membership"
           ? computeBondLineStrikeAmount(it, lineAmount)
           : undefined);
+      const lineCartId = bondCartItemIdFromRecord(it);
+      const bagRemove =
+        typeof cartId === "number" && Number.isFinite(cartId) && cartId > 0
+          ? bagRemovePolicyForBondItem(it, kind, lineCartId)
+          : undefined;
       lines.push({
         key: `snap-${rowIndex}-item-${i}-${cartId}`,
         title,
@@ -407,6 +427,7 @@ export function expandSnapshotForPurchaseList(
         ...(discountNote ? { discountNote } : {}),
         ...(strikeAmount != null ? { strikeAmount } : {}),
         ...(badge ? { badge } : {}),
+        ...(bagRemove ? { bagRemove } : {}),
       });
     });
     if (lines.length > 0) return lines;

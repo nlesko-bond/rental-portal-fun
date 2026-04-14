@@ -21,6 +21,9 @@ function previewNonJsonBody(text: string, max = 180): string {
 function bondErrorMessageFromParsed(parsed: unknown): string | null {
   if (!parsed || typeof parsed !== "object") return null;
   const o = parsed as Record<string, unknown>;
+  /** AWS API Gateway often uses capital `Message` (not Nest `message`). */
+  const cap = o.Message;
+  if (typeof cap === "string" && cap.length > 0) return cap;
   const m = o.message;
   if (typeof m === "string" && m.length > 0) return m;
   if (Array.isArray(m) && m.length > 0) {
@@ -91,7 +94,11 @@ export async function bondBffPostJson<T>(
 
 /** DELETE via BFF; Bond may return 204 No Content. */
 export async function bondBffDelete(pathSegments: string[], searchParams?: URLSearchParams): Promise<Response> {
-  return bondBffFetch(pathSegments, { method: "DELETE", searchParams });
+  return bondBffFetch(pathSegments, {
+    method: "DELETE",
+    headers: { Accept: "application/json" },
+    searchParams,
+  });
 }
 
 export async function bondBffDeleteJson<T>(

@@ -51,7 +51,7 @@ import {
 } from "@/lib/required-products-eligibility";
 import { bookingPartyMembersFromProfile } from "@/lib/booking-party-options";
 import { BondBffError } from "@/lib/bond-json";
-import type { OnlineBookingView, ScheduleTimeSlotDto } from "@/types/online-booking";
+import type { OnlineBookingView, OrganizationCartDto, ScheduleTimeSlotDto } from "@/types/online-booking";
 import type { PackageAddonLine } from "@/lib/product-package-addons";
 import { CB_BOOKING_APPEARANCE_EVENT, CB_BOOKING_APPEARANCE_KEY } from "@/lib/booking-appearance";
 import { bookingAppearanceClass, resolveBookingThemeStyle, type BookingThemeUrlOverrides } from "@/lib/booking-theme";
@@ -60,7 +60,14 @@ import { resolveProductCardImageAtStep, type ProductCardImageFallbackStep } from
 import { bookingOptionalAddons } from "@/lib/product-package-addons";
 import { parseProductFormIds } from "@/lib/product-form-ids";
 import { countSessionCartLineItems } from "@/lib/cart-purchase-lines";
-import { closeCart, getOrganizationCart } from "@/lib/bond-cart-api";
+import {
+  allBondFlatLineIndices,
+  bondRemovableCartItemIdsForIndices,
+  bondRootCartItemIdForRemoval,
+} from "@/lib/bond-cart-removal";
+import { closeCart, getOrganizationCart, removeCartItem } from "@/lib/bond-cart-api";
+import { flattenBondCartItemNodes } from "@/lib/checkout-bag-totals";
+import { flatLineIndexSegmentsForMergedBookings } from "@/lib/session-cart-grouping";
 import {
   coerceCartFromApi,
   loadSessionCartSnapshots,
@@ -1932,17 +1939,79 @@ export function BookingExperience() {
           onSubmittingChange={setCheckoutBusy}
           mode={checkoutDrawerMode}
           bagSnapshots={sessionCartRows}
-          onRemoveBagLine={async (index) => {
+          onRemoveBagLine={async ({ index, cartFlatLineIndices, remove }) => {
             const row = sessionCartRowsRef.current[index];
-            const cid = row ? positiveBondCartId(row.cart) : null;
-            if (cid != null && env.ok) {
-              try {
-                await closeCart(env.orgId, cid);
-              } catch {
+            if (row == null) return;
+            const cid = positiveBondCartId(row.cart);
+            if (cid == null || !env.ok) {
+              setSessionCartRows((prev) => prev.filter((_, i) => i !== index));
+              return;
+            }
+
+            const settleAfterDeletes = async (updated: OrganizationCartDto | null) => {
+              let coerced = updated ? coerceCartFromApi(updated) : null;
+              if (coerced == null) {
+                try {
+                  coerced = coerceCartFromApi(await getOrganizationCart(env.orgId, cid));
+                } catch {
+                  coerced = null;
+                }
+              }
+              const items = coerced?.cartItems;
+              const stillHasLines =
+                Array.isArray(items) &&
+                items.length > 0 &&
+                flattenBondCartItemNodes(items).length > 0;
+              if (!stillHasLines || coerced == null) {
+                setSessionCartRows((prev) => prev.filter((_, i) => i !== index));
                 return;
               }
+              const segs = flatLineIndexSegmentsForMergedBookings(coerced);
+              const bondHasItems = Array.isArray(coerced.cartItems) && coerced.cartItems.length > 0;
+              setSessionCartRows((prev) =>
+                prev.map((r, i) =>
+                  i === index
+                    ? {
+                        ...r,
+                        cart: coerced!,
+                        ...(bondHasItems ? { displayLines: undefined } : {}),
+                        ...(segs == null || segs.length <= 1 ? { reservationGroups: undefined } : {}),
+                      }
+                    : r
+                )
+              );
+            };
+
+            try {
+              if (remove.kind === "line") {
+                const updated = await removeCartItem(env.orgId, cid, remove.cartItemId);
+                await settleAfterDeletes(updated);
+                return;
+              }
+              const indices =
+                cartFlatLineIndices != null && cartFlatLineIndices.length > 0
+                  ? cartFlatLineIndices
+                  : allBondFlatLineIndices(row.cart);
+              const ids = bondRemovableCartItemIdsForIndices(row.cart, indices);
+              if (ids.length === 0) {
+                const fallback = bondRootCartItemIdForRemoval(row.cart, cartFlatLineIndices);
+                if (fallback == null) {
+                  await closeCart(env.orgId, cid);
+                  setSessionCartRows((prev) => prev.filter((_, i) => i !== index));
+                  return;
+                }
+                const updated = await removeCartItem(env.orgId, cid, fallback);
+                await settleAfterDeletes(updated);
+                return;
+              }
+              let updated: OrganizationCartDto | null = null;
+              for (const id of ids) {
+                updated = await removeCartItem(env.orgId, cid, id);
+              }
+              await settleAfterDeletes(updated);
+            } catch {
+              return;
             }
-            setSessionCartRows((prev) => prev.filter((_, i) => i !== index));
           }}
           onSuccess={(cart) => {
             const name = selectedProduct?.name ?? tb("serviceDefault");

@@ -1,7 +1,18 @@
 import { bondBffDeleteJson, bondBffGetJson, bondBffPostJson } from "@/lib/bond-json";
 import type { OrganizationCartDto } from "@/types/online-booking";
 
-/** Path prefix: `v1/organization/{orgId}/cart/{cartId}` (singular `cart` per hosted OpenAPI). */
+/**
+ * Hosted OpenAPI (`bond-public-api.json`, `carts-public-api`):
+ *
+ * - **GET** `…/cart/{cartId}` — `getCart`
+ * - **DELETE** `…/cart/{cartId}` — `closeCart` (no body; path + JWT + API key only)
+ * - **DELETE** `…/cart/{cartId}/cart-item/{cartItemId}` — `removeCartItem` (no body)
+ *
+ * There is **no requestBody** on these DELETE operations. Wrong paths or extra JSON will not fix
+ * `{"Message":"…execute-api:Invoke…"}` — that response is **AWS API Gateway** (wrong `BOND_API_BASE_URL`,
+ * IAM-only execute-api URL, or API key policy missing **DELETE** on that route). Match the same base URL
+ * devs use (e.g. `https://public.api.squad-c.bondsports.co` with **no** `/public-api` suffix).
+ */
 function cartPath(orgId: number, cartId: number): string[] {
   return ["v1", "organization", String(orgId), "cart", String(cartId)];
 }
@@ -10,20 +21,16 @@ export async function getOrganizationCart(orgId: number, cartId: number): Promis
   return bondBffGetJson<OrganizationCartDto>(cartPath(orgId, cartId));
 }
 
+/** OpenAPI `removeCartItem` returns updated `OrganizationCartDto` on 200. */
 export async function removeCartItem(
   orgId: number,
   cartId: number,
   cartItemId: number
-): Promise<unknown | null> {
-  return bondBffDeleteJson<unknown>([...cartPath(orgId, cartId), "cart-item", String(cartItemId)]);
+): Promise<OrganizationCartDto | null> {
+  return bondBffDeleteJson<OrganizationCartDto>([...cartPath(orgId, cartId), "cart-item", String(cartItemId)]);
 }
 
-/**
- * Close / abandon cart (`DELETE …/cart/{cartId}` per hosted OpenAPI).
- *
- * If Bond’s API Gateway returns **403** / `execute-api:Invoke` denied, DELETE is not enabled for this
- * consumer route on the deployed stage — that is a **Bond/AWS** policy fix, not this app.
- */
+/** Close / abandon cart — see module docblock for OpenAPI + AWS troubleshooting. */
 export async function closeCart(orgId: number, cartId: number): Promise<unknown | null> {
   return bondBffDeleteJson<unknown>([...cartPath(orgId, cartId)]);
 }

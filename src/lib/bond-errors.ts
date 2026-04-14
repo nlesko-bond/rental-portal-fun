@@ -16,6 +16,10 @@ export function asBondApiErrorBody(body: unknown): BondApiErrorBody | null {
 }
 
 function bondApiMessageString(body: BondApiErrorBody | null): string {
+  if (body && typeof body === "object" && "Message" in body) {
+    const cap = (body as { Message?: unknown }).Message;
+    if (typeof cap === "string" && cap.length > 0) return cap;
+  }
   const m = body?.message;
   if (typeof m === "string") return m;
   if (Array.isArray(m) && m.length > 0) {

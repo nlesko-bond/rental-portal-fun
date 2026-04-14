@@ -79,6 +79,7 @@ import {
   countSessionCartLineItems,
   expandSnapshotForPurchaseList,
 } from "@/lib/cart-purchase-lines";
+import type { BagRemovePolicy } from "@/lib/bond-cart-removal";
 
 function resolveFinalizeCartId(
   snapshots: SessionCartSnapshot[],
@@ -215,8 +216,15 @@ type Props = {
   mode?: "checkout" | "bag";
   /** When `mode === "bag"`, rows to show (from parent session state). */
   bagSnapshots?: SessionCartSnapshot[];
-  /** Remove a cart row; parent should call Bond `closeCart` / `removeCartItem` then update session. */
-  onRemoveBagLine?: (index: number) => void | Promise<void>;
+  /**
+   * Remove one bag line (`line`) or a whole reservation subsection (`subsection` — rental + its add-ons).
+   * Required membership lines do not receive `bagRemove` in the UI.
+   */
+  onRemoveBagLine?: (ctx: {
+    index: number;
+    cartFlatLineIndices?: number[];
+    remove: BagRemovePolicy;
+  }) => void | Promise<void>;
   /** Portal category `settings.approvalRequired` — checkout step shows Submit request vs Pay now. */
   approvalRequired?: boolean;
   /**
@@ -1908,16 +1916,26 @@ export function BookingCheckoutDrawer({
                                   ) : (
                                     <span className="cb-muted text-sm">—</span>
                                   )}
-                                  {lineIdx === 0 && onRemoveBagLine ? (
+                                  {line.bagRemove && onRemoveBagLine ? (
                                     <button
                                       type="button"
                                       className="cb-cart-bag-remove"
-                                      aria-label={`Remove ${row.productName}`}
-                                      onClick={() => onRemoveBagLine(index)}
+                                      aria-label={
+                                        line.bagRemove.kind === "subsection"
+                                          ? `Remove reservation and add-ons: ${row.productName}`
+                                          : `Remove ${line.title}`
+                                      }
+                                      onClick={() =>
+                                        onRemoveBagLine({
+                                          index,
+                                          cartFlatLineIndices,
+                                          remove: line.bagRemove!,
+                                        })
+                                      }
                                     >
                                       <span aria-hidden>🗑</span>
                                     </button>
-                                  ) : null}
+                                                                   ) : null}
                                 </div>
                               </div>
                             ))}
