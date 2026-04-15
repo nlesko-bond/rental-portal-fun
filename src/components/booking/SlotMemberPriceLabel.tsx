@@ -6,7 +6,7 @@ import { formatSlotCurrency } from "@/lib/booking-pricing";
 const EPS = 0.005;
 
 /** Identification card icon — reads as “membership / pass” more clearly than a generic doc glyph. */
-function IconMembershipCard({ className }: { className?: string }) {
+export function IconMembershipCard({ className }: { className?: string }) {
   return (
     <svg
       className={className}

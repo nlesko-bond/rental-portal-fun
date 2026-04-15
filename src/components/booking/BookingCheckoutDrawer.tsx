@@ -253,6 +253,15 @@ type Props = {
   onBackFromPayment?: () => void;
   /** Bag footer: continue to payment inside checkout flow. */
   onRequestBagCheckout?: () => void;
+  /** From “Review & add to cart” when the tab already has saved cart rows — open bag view without closing the drawer. */
+  onGoToCart?: () => void;
+  /**
+   * When true, sync step shows “Go to cart” (e.g. user returned here via Back from payment). Hidden on a fresh
+   * “add another booking” flow so primary actions stay Back + Add to cart only.
+   */
+  showGoToCartOnSyncStep?: boolean;
+  /** After the user dismisses the post-payment confirmation — parent may clear any leftover session cart (safety net). */
+  onBookingConfirmedDismiss?: () => void;
   /** When opening checkout at a specific step (e.g. `payment` after bag “Checkout”). Cleared after apply. */
   navigateToCheckoutStep?: CheckoutStep | null;
   onClearNavigateToCheckoutStep?: () => void;
@@ -310,6 +319,9 @@ export function BookingCheckoutDrawer({
   onBookAnotherRental,
   onBackFromPayment,
   onRequestBagCheckout,
+  onGoToCart,
+  showGoToCartOnSyncStep = false,
+  onBookingConfirmedDismiss,
   navigateToCheckoutStep,
   onClearNavigateToCheckoutStep,
   requiredMembershipAlreadySatisfied = false,
@@ -922,8 +934,14 @@ export function BookingCheckoutDrawer({
           : undefined,
       cartId:
         includeCartMerge && mergeCartId != null && mergeCartId > 0 ? mergeCartId : undefined,
+      /**
+       * Merging into `cartId`: omit `requiredProducts`. Bond already holds membership / required SKUs from the
+       * first reservation; resending them reprices duplicate lines and often yields ILLEGAL_PRICE or similar.
+       */
       requiredProductLineItems:
-        requiredProductLineItemsForBond.length > 0 ? requiredProductLineItemsForBond : undefined,
+        includeCartMerge || requiredProductLineItemsForBond.length === 0
+          ? undefined
+          : requiredProductLineItemsForBond,
     });
   }, [
     answers,
@@ -967,8 +985,9 @@ export function BookingCheckoutDrawer({
     setFinalizeSuccess(null);
     setFinalizeCheckoutKind(null);
     setFinalizeCopyFlash(null);
+    onBookingConfirmedDismiss?.();
     onClose();
-  }, [onClose]);
+  }, [onBookingConfirmedDismiss, onClose]);
 
   const copyFinalizeClipboard = useCallback(async (value: string, kind: "invoice" | "reservations") => {
     try {
@@ -2535,7 +2554,7 @@ export function BookingCheckoutDrawer({
               ) : null}
             </div>
 
-            {step !== "forms" ? (
+            {step === "addons" ? (
               <p className="cb-checkout-product">
                 <span className="cb-checkout-product-label">{tx("serviceShort")}</span>
                 <span className="cb-checkout-product-name">{productName}</span>
@@ -2573,14 +2592,7 @@ export function BookingCheckoutDrawer({
                   </ul>
                 </div>
               ) : null
-            ) : step === "forms" ? null : (
-              renderPresummaryCard({
-                headingId: "cb-presummary-heading",
-                keyPrefix: "pre",
-                showFootnote: true,
-                showReviewHint: isLastStepBeforeSync,
-              })
-            )}
+            ) : null}
           </>
         ) : null}
 
@@ -3149,6 +3161,12 @@ export function BookingCheckoutDrawer({
             ) : (
               <p className="cb-muted text-sm">No membership options required. Continue to proceed.</p>
             )}
+            {renderPresummaryCard({
+              headingId: "cb-presummary-heading-membership",
+              keyPrefix: "pre-mem",
+              showFootnote: true,
+              showReviewHint: isLastStepBeforeSync,
+            })}
             <div className="cb-checkout-actions">
               <button
                 type="button"
@@ -3234,6 +3252,14 @@ export function BookingCheckoutDrawer({
                 {tx("mergeBlocked")}
               </p>
             ) : null}
+            {!cannotMergeSessionCart
+              ? renderPresummaryCard({
+                  headingId: "cb-presummary-heading-sync",
+                  keyPrefix: "pre-sync",
+                  showFootnote: true,
+                  showReviewHint: false,
+                })
+              : null}
             {persistCartMutation.isPending ? (
               <div className="cb-checkout-bond-receipt mb-4" aria-busy="true" aria-live="polite">
                 <p className="cb-muted text-sm">{tx("loadingPricing")}</p>
@@ -3267,6 +3293,11 @@ export function BookingCheckoutDrawer({
                 >
                   {tc("back")}
                 </button>
+                {showGoToCartOnSyncStep && bagSnapshots.length > 0 && onGoToCart ? (
+                  <button type="button" className="cb-btn-outline" onClick={() => onGoToCart()}>
+                    {tc("goToCart")}
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   className="cb-btn-primary"

@@ -15,6 +15,18 @@ export function asBondApiErrorBody(body: unknown): BondApiErrorBody | null {
   return body as BondApiErrorBody;
 }
 
+/**
+ * Bond may return 400 with `Illegal price: …` when a cart line DELETE leaves repriced lines
+ * that fail validation (e.g. bundled fees). Callers can retry removing the reservation root.
+ */
+export function isBondIllegalPriceError(err: unknown): boolean {
+  if (!(err instanceof BondBffError)) return false;
+  const body = asBondApiErrorBody(err.body);
+  const fromBody = bondApiMessageString(body);
+  const combined = `${fromBody}\n${err.message ?? ""}`;
+  return /illegal\s+price/i.test(combined);
+}
+
 function bondApiMessageString(body: BondApiErrorBody | null): string {
   if (body && typeof body === "object" && "Message" in body) {
     const cap = (body as { Message?: unknown }).Message;

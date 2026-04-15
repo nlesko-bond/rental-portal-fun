@@ -315,18 +315,21 @@ body {
   padding: 0;
 }
 
-/* lg+: experiment — calendar column + timing column; duration chips wrap (no horizontal scroll) */
+/* lg+: calendar column + timing column — schedule split breakpoint = 1068px (keep aligned with BookingExperience min-[1068px]). */
 .consumer-booking .cb-schedule-when-wide-grid {
   display: grid;
-  grid-template-columns: minmax(0, min(20rem, 100%)) minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr);
   gap: 1.25rem 1.75rem;
   align-items: start;
 }
 
-@media (min-width: 1280px) {
-  .consumer-booking .cb-schedule-when-wide-grid {
-    grid-template-columns: minmax(0, 22rem) minmax(0, 1fr);
-    gap: 1.5rem 2rem;
+@media (min-width: 1068px) {
+  .consumer-booking .cb-booking-schedule-shell-left {
+    position: sticky;
+    top: 4rem;
+    align-self: start;
+    max-height: calc(100vh - 4rem - 1rem);
+    overflow-y: auto;
   }
 }
 
@@ -349,7 +352,8 @@ body {
 /* Do not set display on .cb-schedule-when-stacked — it breaks Tailwind min-[1068px]:hidden (lower specificity). */
 
 .consumer-booking .cb-schedule-inline-cal {
-  width: 100%;
+  width: fit-content;
+  max-width: 20rem;
 }
 
 .consumer-booking .cb-dp-root--inline {
@@ -4419,6 +4423,44 @@ body {
   flex-direction: column;
   gap: 1rem;
   text-align: left;
+}
+
+.consumer-booking .cb-membership-modal-hero {
+  text-align: center;
+}
+
+.consumer-booking .cb-membership-modal-hero-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.25rem;
+  height: 3.25rem;
+  margin: 0 auto;
+  border-radius: 999px;
+  background: linear-gradient(145deg, #f59e0b 0%, #d97706 100%);
+  color: #fff;
+  box-shadow: 0 4px 14px color-mix(in srgb, #d97706 35%, transparent);
+}
+
+.consumer-booking .cb-membership-modal-hero-icon svg {
+  width: 1.35rem;
+  height: 1.35rem;
+}
+
+.consumer-booking .cb-membership-modal-hero-title {
+  margin: 0.85rem 0 0;
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--cb-primary);
+  letter-spacing: -0.02em;
+}
+
+.consumer-booking .cb-membership-modal + .cb-checkout-presummary {
+  margin-top: 1.25rem;
+}
+
+.consumer-booking .cb-checkout-step > .cb-checkout-presummary + .cb-checkout-bond-receipt {
+  margin-top: 0.75rem;
 }
 
 .consumer-booking .cb-membership-modal-lead {

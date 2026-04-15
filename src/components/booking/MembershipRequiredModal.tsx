@@ -2,6 +2,7 @@
 
 import { useTranslations } from "next-intl";
 import { ModalShell } from "@/components/booking/ModalShell";
+import { IconMembershipCard } from "@/components/booking/SlotMemberPriceLabel";
 import type { ExtendedRequiredProductNode } from "@/lib/required-products-extended";
 import {
   collectProductAndNestedIds,
@@ -36,6 +37,12 @@ export function MembershipRequiredPanel({
 
   return (
     <div className="cb-membership-modal">
+      <div className="cb-membership-modal-hero">
+        <div className="cb-membership-modal-hero-icon" aria-hidden>
+          <IconMembershipCard className="h-6 w-6 text-white" />
+        </div>
+        <p className="cb-membership-modal-hero-title">{tc("membershipPanelHeroTitle")}</p>
+      </div>
       {bookingForLabel ? (
         <p className="cb-membership-modal-booking-for">
           {tc("bookingForInline")} <strong>{bookingForLabel}</strong>

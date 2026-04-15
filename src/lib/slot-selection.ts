@@ -100,6 +100,35 @@ function wallClockToUnixSeconds(isoDate: string, time: string): number | null {
   return base + h * 3600 + min * 60 + sec;
 }
 
+/** True when two schedule rows overlap in wall-clock time (half-open intervals as Unix instants). */
+export function schedulingIntervalsOverlap(
+  a: Pick<ScheduleTimeSlotDto, "startDate" | "endDate" | "startTime" | "endTime">,
+  b: Pick<ScheduleTimeSlotDto, "startDate" | "endDate" | "startTime" | "endTime">
+): boolean {
+  const a0 = wallClockToUnixSeconds(a.startDate, a.startTime);
+  const a1 = wallClockToUnixSeconds(a.endDate, a.endTime);
+  const b0 = wallClockToUnixSeconds(b.startDate, b.startTime);
+  const b1 = wallClockToUnixSeconds(b.endDate, b.endTime);
+  if (a0 == null || a1 == null || b0 == null || b1 == null) return false;
+  return a0 < b1 && b0 < a1;
+}
+
+/**
+ * Whether a slot the user is selecting overlaps an existing reservation for the same facility resource / space
+ * (from booking-information). Ignores slices with non-positive resource ids (parser fallbacks).
+ */
+export function pickedSlotConflictsWithBookedSlices(
+  picked: Pick<PickedSlot, "resourceId" | "spaceId" | "startDate" | "endDate" | "startTime" | "endTime">,
+  existing: Array<Pick<PickedSlot, "resourceId" | "startDate" | "endDate" | "startTime" | "endTime">>
+): boolean {
+  for (const e of existing) {
+    if (e.resourceId <= 0) continue;
+    if (e.resourceId !== picked.resourceId && e.resourceId !== picked.spaceId) continue;
+    if (schedulingIntervalsOverlap(picked, e)) return true;
+  }
+  return false;
+}
+
 /**
  * Length of the slot in minutes using **startDate/startTime → endDate/endTime**.
  * Same-calendar-day slots behave like the old time-only diff; midnight-crossing rows (e.g. 23:00 → next day 00:00) are correct.

@@ -1,3 +1,5 @@
+import { isBondIllegalPriceError } from "@/lib/bond-errors";
+import { bondRootCartItemIdForRemoval } from "@/lib/bond-cart-removal";
 import { bondBffDeleteJson, bondBffGetJson, bondBffPostJson } from "@/lib/bond-json";
 import type { OrganizationCartDto } from "@/types/online-booking";
 
@@ -30,9 +32,71 @@ export async function removeCartItem(
   return bondBffDeleteJson<OrganizationCartDto>([...cartPath(orgId, cartId), "cart-item", String(cartItemId)]);
 }
 
+/**
+ * DELETE one line; if Bond responds with illegal-price repricing 400, retry once by removing the
+ * reservation root for this snapshot (removes the whole booking subtree Bond ties together).
+ */
+export async function removeCartItemWithIllegalPriceFallback(
+  orgId: number,
+  cartId: number,
+  cartItemId: number,
+  cart: OrganizationCartDto,
+  cartFlatLineIndices?: readonly number[]
+): Promise<OrganizationCartDto | null> {
+  try {
+    return await removeCartItem(orgId, cartId, cartItemId);
+  } catch (e) {
+    if (!isBondIllegalPriceError(e)) throw e;
+    const rootId = bondRootCartItemIdForRemoval(cart, cartFlatLineIndices);
+    if (rootId == null || rootId === cartItemId) throw e;
+    return removeCartItem(orgId, cartId, rootId);
+  }
+}
+
+/**
+ * DELETE multiple lines in order; if Bond returns illegal price mid-way (stale tree / bundle rules),
+ * GET a fresh cart and remove the reservation root once.
+ */
+export async function removeCartItemsSequentiallyWithFallback(
+  orgId: number,
+  cartId: number,
+  cartItemIds: readonly number[],
+  cartFlatLineIndices: readonly number[] | undefined,
+  getFreshCart: () => Promise<OrganizationCartDto>
+): Promise<OrganizationCartDto | null> {
+  let updated: OrganizationCartDto | null = null;
+  try {
+    for (const id of cartItemIds) {
+      updated = await removeCartItem(orgId, cartId, id);
+    }
+    return updated;
+  } catch (e) {
+    if (!isBondIllegalPriceError(e)) throw e;
+    const fresh = await getFreshCart();
+    const rootId = bondRootCartItemIdForRemoval(fresh, cartFlatLineIndices);
+    if (rootId == null) throw e;
+    return removeCartItem(orgId, cartId, rootId);
+  }
+}
+
 /** Close / abandon cart — see module docblock for OpenAPI + AWS troubleshooting. */
 export async function closeCart(orgId: number, cartId: number): Promise<unknown | null> {
   return bondBffDeleteJson<unknown>([...cartPath(orgId, cartId)]);
+}
+
+/** Best-effort abandon (e.g. before logout while JWT is still valid). Ignores failures per cart. */
+export async function closeOrganizationCartsBestEffort(orgId: number, cartIds: Iterable<number>): Promise<void> {
+  const seen = new Set<number>();
+  for (const raw of cartIds) {
+    const id = typeof raw === "number" && Number.isFinite(raw) ? raw : Number(raw);
+    if (!Number.isFinite(id) || id <= 0 || seen.has(id)) continue;
+    seen.add(id);
+    try {
+      await closeCart(orgId, id);
+    } catch {
+      /* cart already finalized, expired, or session lost */
+    }
+  }
 }
 
 /**

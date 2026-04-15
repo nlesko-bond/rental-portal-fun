@@ -66,7 +66,13 @@ import {
   bondRemovableCartItemIdsForIndices,
   bondRootCartItemIdForRemoval,
 } from "@/lib/bond-cart-removal";
-import { closeCart, getOrganizationCart, removeCartItem } from "@/lib/bond-cart-api";
+import {
+  closeCart,
+  closeOrganizationCartsBestEffort,
+  getOrganizationCart,
+  removeCartItemWithIllegalPriceFallback,
+  removeCartItemsSequentiallyWithFallback,
+} from "@/lib/bond-cart-api";
 import { flattenBondCartItemNodes } from "@/lib/checkout-bag-totals";
 import { flatLineIndexSegmentsForMergedBookings } from "@/lib/session-cart-grouping";
 import {
@@ -77,7 +83,12 @@ import {
   type SessionCartSnapshot,
   type SessionReservationGroup,
 } from "@/lib/session-cart-snapshot";
-import { slotControlKey, validateSlotSelection, type PickedSlot } from "@/lib/slot-selection";
+import {
+  pickedSlotConflictsWithBookedSlices,
+  slotControlKey,
+  validateSlotSelection,
+  type PickedSlot,
+} from "@/lib/slot-selection";
 import {
   ActivityPickerBody,
   CategoryPickerBody,
@@ -303,6 +314,8 @@ export function BookingExperience() {
   const [checkoutDrawerOpen, setCheckoutDrawerOpen] = useState(false);
   /** `checkout` = build booking; `bag` = view session carts from cart FAB. */
   const [checkoutDrawerMode, setCheckoutDrawerMode] = useState<"checkout" | "bag">("checkout");
+  /** Show “Go to cart” on sync only after Back from payment — not while adding a new booking with items already in the tab cart. */
+  const [syncStepGoToCartEnabled, setSyncStepGoToCartEnabled] = useState(false);
   /** One-shot step when switching from bag → checkout (e.g. open at payment). Cleared by the drawer. */
   const [navigateToCheckoutStep, setNavigateToCheckoutStep] = useState<CheckoutStep | null>(null);
   const [checkoutBusy, setCheckoutBusy] = useState(false);
@@ -751,6 +764,17 @@ export function BookingExperience() {
     [bondAuth.session.status, bookingInfoQuery.data]
   );
 
+  /** Cart / vended keys plus existing reservations — non-selectable on the schedule grid. */
+  const scheduleGridBlockedSlotKeys = useMemo(() => {
+    const s = new Set<string>(reservedSlotKeysInCart);
+    for (const slice of existingBookedSlices) {
+      if (slice.resourceId > 0) {
+        s.add(`${slice.resourceId}-${slice.startDate}-${slice.startTime}-${slice.endTime}`);
+      }
+    }
+    return s;
+  }, [reservedSlotKeysInCart, existingBookedSlices]);
+
   const vipEarlyAccessDates = useMemo(() => {
     const rows = scheduleSettingsQuery.data?.dates ?? [];
     return computeVipEarlyAccessDateKeys(
@@ -812,7 +836,7 @@ export function BookingExperience() {
   const toggleSlot = useCallback(
     (resourceId: number, resourceName: string, s: ScheduleTimeSlotDto) => {
       const key = slotControlKey(resourceId, s);
-      if (reservedSlotKeysInCart.has(key)) return;
+      if (scheduleGridBlockedSlotKeys.has(key)) return;
       setSelectedSlots((prev) => {
         if (prev.has(key)) {
           setSlotBarError(null);
@@ -846,6 +870,10 @@ export function BookingExperience() {
         };
         const next = new Map(prev);
         next.set(key, picked);
+        if (pickedSlotConflictsWithBookedSlices(picked, existingBookedSlices)) {
+          setSlotBarError(tb("slotAlreadyBookedForParticipant", { who: bookingForLabel }));
+          return prev;
+        }
         const v = validateSlotSelection([...next.values()], slotRules, {
           existing: existingBookedSlices,
           customerLabel: bookingForLabel,
@@ -862,7 +890,7 @@ export function BookingExperience() {
     [
       slotRules,
       entitlementAdjust,
-      reservedSlotKeysInCart,
+      scheduleGridBlockedSlotKeys,
       productsQuery.data,
       state?.productId,
       tb,
@@ -928,10 +956,52 @@ export function BookingExperience() {
     }
     setSessionCartRows([]);
     saveSessionCartSnapshots([]);
+    setSyncStepGoToCartEnabled(false);
     clearSlotSelection();
     void queryClient.invalidateQueries({ queryKey: ["bond", "schedule"] });
     void queryClient.invalidateQueries({ queryKey: ["bond", "userBookingInformation"] });
   }, [clearSlotSelection, queryClient]);
+
+  /** Drop tab cart UI + sessionStorage (shared computers; session expired; post–sign-out safety). */
+  const wipeLocalBookingCartState = useCallback(() => {
+    skipNextSessionCartPersistRef.current = true;
+    setSessionCartRows([]);
+    saveSessionCartSnapshots([]);
+    setCheckoutDrawerOpen(false);
+    setCheckoutDrawerMode("checkout");
+    setNavigateToCheckoutStep(null);
+    setSyncStepGoToCartEnabled(false);
+    setLockBookingForParticipant(false);
+    clearSlotSelection();
+    setVendedSlotKeys([]);
+  }, [clearSlotSelection]);
+
+  const signOutFromPortal = useCallback(async () => {
+    if (env.ok) {
+      const orgId = env.orgId;
+      const ids: number[] = [];
+      const seen = new Set<number>();
+      for (const row of sessionCartRowsRef.current) {
+        const cid = positiveBondCartId(row.cart);
+        if (cid != null && cid > 0 && !seen.has(cid)) {
+          seen.add(cid);
+          ids.push(cid);
+        }
+      }
+      if (ids.length > 0) {
+        await closeOrganizationCartsBestEffort(orgId, ids);
+      }
+    }
+    wipeLocalBookingCartState();
+    await bondAuth.logout();
+  }, [env, bondAuth, wipeLocalBookingCartState]);
+
+  useEffect(() => {
+    if (bondAuth.session.status !== "anonymous") return;
+    const storedLen = loadSessionCartSnapshots().length;
+    if (sessionCartRows.length === 0 && storedLen === 0) return;
+    wipeLocalBookingCartState();
+  }, [bondAuth.session.status, sessionCartRows.length, wipeLocalBookingCartState]);
 
   const onBookNow = useCallback(() => {
     if (bondAuth.session.status !== "authenticated" || bondUserIdResolved == null) {
@@ -942,6 +1012,7 @@ export function BookingExperience() {
     if (pickedSlotsOrdered.length === 0) return;
     setNavigateToCheckoutStep(null);
     setCheckoutDrawerMode("checkout");
+    setSyncStepGoToCartEnabled(false);
     setCheckoutDrawerOpen(true);
   }, [bondAuth, bondUserIdResolved, pickedSlotsOrdered.length]);
 
@@ -955,6 +1026,7 @@ export function BookingExperience() {
       setResumeCheckoutAfterAuth(false);
       setNavigateToCheckoutStep(null);
       setCheckoutDrawerMode("checkout");
+      setSyncStepGoToCartEnabled(false);
       setCheckoutDrawerOpen(true);
     }
   }, [resumeCheckoutAfterAuth, bondAuth.session.status, bondUserIdResolved, pickedSlotsOrdered.length]);
@@ -1277,7 +1349,7 @@ export function BookingExperience() {
               <button
                 type="button"
                 className="cb-header-signin"
-                onClick={() => void bondAuth.logout()}
+                onClick={() => void signOutFromPortal()}
                 aria-label={tb("signOut")}
               >
                 <span className="px-1 text-xs font-semibold">{tb("signOutShort")}</span>
@@ -1523,7 +1595,8 @@ export function BookingExperience() {
         <div
           className={
             state.productId != null
-              ? "flex flex-col gap-6 min-[1068px]:grid min-[1068px]:grid-cols-2 min-[1068px]:gap-8 min-[1068px]:items-start"
+              ? /* Schedule split 1068px — align with globals: .cb-booking-schedule-shell-left sticky + .cb-schedule-when-wide-grid */
+                "flex flex-col gap-6 min-[1068px]:grid min-[1068px]:grid-cols-2 min-[1068px]:gap-8 min-[1068px]:items-start"
               : undefined
           }
         >
@@ -1786,7 +1859,7 @@ export function BookingExperience() {
                 priceCurrency={slotPriceCurrency}
                 membershipGated={effectiveMembershipGated}
                 selectedKeys={selectedKeysSet}
-                reservedSlotKeys={reservedSlotKeysInCart}
+                reservedSlotKeys={scheduleGridBlockedSlotKeys}
                 onToggleSlot={toggleSlot}
                 adjustSlotUnitPrice={entitlementAdjust}
                 autoScrollKey={state.date ?? ""}
@@ -1804,7 +1877,7 @@ export function BookingExperience() {
                 priceCurrency={slotPriceCurrency}
                 membershipGated={effectiveMembershipGated}
                 selectedKeys={selectedKeysSet}
-                reservedSlotKeys={reservedSlotKeysInCart}
+                reservedSlotKeys={scheduleGridBlockedSlotKeys}
                 onToggleSlot={toggleSlot}
                 adjustSlotUnitPrice={entitlementAdjust}
               />
@@ -1950,6 +2023,7 @@ export function BookingExperience() {
             setCheckoutBusy(false);
             setCheckoutDrawerMode("checkout");
             setNavigateToCheckoutStep(null);
+            setSyncStepGoToCartEnabled(false);
             setLockBookingForParticipant(false);
             if (state?.productId != null && typeof document !== "undefined") {
               queueMicrotask(() => {
@@ -2020,7 +2094,13 @@ export function BookingExperience() {
 
             try {
               if (remove.kind === "line") {
-                const updated = await removeCartItem(env.orgId, cid, remove.cartItemId);
+                const updated = await removeCartItemWithIllegalPriceFallback(
+                  env.orgId,
+                  cid,
+                  remove.cartItemId,
+                  row.cart,
+                  cartFlatLineIndices
+                );
                 await settleAfterDeletes(updated);
                 return;
               }
@@ -2036,14 +2116,23 @@ export function BookingExperience() {
                   setSessionCartRows((prev) => prev.filter((_, i) => i !== index));
                   return;
                 }
-                const updated = await removeCartItem(env.orgId, cid, fallback);
+                const updated = await removeCartItemWithIllegalPriceFallback(
+                  env.orgId,
+                  cid,
+                  fallback,
+                  row.cart,
+                  cartFlatLineIndices
+                );
                 await settleAfterDeletes(updated);
                 return;
               }
-              let updated: OrganizationCartDto | null = null;
-              for (const id of ids) {
-                updated = await removeCartItem(env.orgId, cid, id);
-              }
+              const updated = await removeCartItemsSequentiallyWithFallback(
+                env.orgId,
+                cid,
+                ids,
+                cartFlatLineIndices,
+                () => getOrganizationCart(env.orgId, cid)
+              );
               await settleAfterDeletes(updated);
             } catch {
               return;
@@ -2170,14 +2259,25 @@ export function BookingExperience() {
             setCheckoutDrawerOpen(false);
             setNavigateToCheckoutStep(null);
             setCheckoutDrawerMode("checkout");
+            setSyncStepGoToCartEnabled(false);
           }}
           onBackFromPayment={() => {
             setNavigateToCheckoutStep("syncCart");
             setCheckoutDrawerMode("checkout");
+            setSyncStepGoToCartEnabled(true);
           }}
           onRequestBagCheckout={() => {
             setNavigateToCheckoutStep("payment");
             setCheckoutDrawerMode("checkout");
+          }}
+          onGoToCart={() => {
+            setNavigateToCheckoutStep(null);
+            setCheckoutDrawerMode("bag");
+            setSyncStepGoToCartEnabled(false);
+          }}
+          showGoToCartOnSyncStep={syncStepGoToCartEnabled}
+          onBookingConfirmedDismiss={() => {
+            setSessionCartRows((prev) => (prev.length === 0 ? prev : []));
           }}
           navigateToCheckoutStep={navigateToCheckoutStep}
           onClearNavigateToCheckoutStep={clearNavigateToCheckoutStep}
