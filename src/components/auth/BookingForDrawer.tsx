@@ -82,16 +82,30 @@ export function BookingForDrawer({
                 role="radio"
                 aria-checked={active}
               >
-                <span className="cb-booking-for-avatar" aria-hidden>
-                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-                    <circle cx="12" cy="9" r="3.25" stroke="currentColor" strokeWidth="1.5" />
-                    <path
-                      d="M6 19c1.2-2.8 3.6-4.5 6-4.5s4.8 1.7 6 4.5"
-                      stroke="currentColor"
-                      strokeWidth="1.5"
-                      strokeLinecap="round"
+                <span className="cb-booking-for-avatar">
+                  {m.photoUrl ? (
+                    <img
+                      className="cb-booking-for-avatar-img"
+                      src={m.photoUrl}
+                      alt=""
+                      width={40}
+                      height={40}
+                      loading="lazy"
+                      referrerPolicy="no-referrer"
                     />
-                  </svg>
+                  ) : (
+                    <span className="cb-booking-for-avatar-fallback" aria-hidden>
+                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+                        <circle cx="12" cy="9" r="3.25" stroke="currentColor" strokeWidth="1.5" />
+                        <path
+                          d="M6 19c1.2-2.8 3.6-4.5 6-4.5s4.8 1.7 6 4.5"
+                          stroke="currentColor"
+                          strokeWidth="1.5"
+                          strokeLinecap="round"
+                        />
+                      </svg>
+                    </span>
+                  )}
                 </span>
                 <span className="cb-booking-for-card-main">
                   <span className="cb-booking-for-name-row">
@@ -113,7 +127,23 @@ export function BookingForDrawer({
                       </span>
                     ) : null}
                   </span>
-                  {m.relationship ? <span className="cb-booking-for-rel">{m.relationship}</span> : null}
+                  {m.demographicsLine ? (
+                    <span className="cb-booking-for-demo">{m.demographicsLine}</span>
+                  ) : null}
+                  {m.relationship ? (
+                    <span className="cb-booking-for-rel cb-booking-for-rel-row">
+                      <svg className="cb-booking-for-rel-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
+                        <circle cx="12" cy="8" r="3" stroke="currentColor" strokeWidth="1.5" />
+                        <path
+                          d="M6 19c1.5-3 4-5 6-5s4.5 2 6 5"
+                          stroke="currentColor"
+                          strokeWidth="1.5"
+                          strokeLinecap="round"
+                        />
+                      </svg>
+                      {m.relationship}
+                    </span>
+                  ) : null}
                 </span>
                 {active ? (
                   <span className="cb-booking-for-check" aria-hidden>

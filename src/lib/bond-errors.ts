@@ -126,6 +126,10 @@ export function formatConsumerBookingError(
     const who = context?.customerLabel?.trim() || t("guestFallback");
     return t("maxBookableHoursForDay", { who });
   }
+  if (code === "ONLINE_BOOKING.MAX_SEQUENTIAL_EXCEEDED") {
+    const who = context?.customerLabel?.trim() || t("guestFallback");
+    return t("maxSequentialHoursToday", { who });
+  }
   if (code === "ONLINE_BOOKING.INVALID_PRODUCT") {
     const reservedEligibility =
       /reserved|everyone|specific memberships|specific clients/i.test(rawMsg) ||

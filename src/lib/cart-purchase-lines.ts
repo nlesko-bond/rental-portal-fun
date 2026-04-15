@@ -1,4 +1,8 @@
-import { formatSlotKeysScheduleSummary } from "@/components/booking/booking-slot-labels";
+import {
+  formatSlotKeyLongDate,
+  formatSlotKeyTimeRangePretty,
+  formatSlotKeysScheduleSummary,
+} from "@/components/booking/booking-slot-labels";
 import {
   classifyCartItemLineKind,
   getCartItemMetadataDescription,
@@ -43,6 +47,15 @@ export type CartPurchaseDisplayLine = {
   badge?: string;
   /** Bag remove: one line vs whole reservation subsection (add-ons + rental root). */
   bagRemove?: BagRemovePolicy;
+  /** Icon meta rows (cart drawer / Consumer DS) — participant, resource, date, time. */
+  bagMetaRows?: {
+    participant?: string;
+    resource?: string;
+    dateLine?: string;
+    timeLine?: string;
+  };
+  /** Venue submit-for-approval rental line — show approval pill on cart card. */
+  approvalPending?: boolean;
 };
 
 /** How checkout/payment applies across bag rows (per-category approval at add time). */
@@ -175,6 +188,114 @@ function scheduleSummaryForLineMeta(
   return s.length > 0 ? s : undefined;
 }
 
+function slotKeysForSegment(row: SessionCartSnapshot, segIdx: number): string[] {
+  const rg = row.reservationGroups;
+  if (rg != null && rg.length > 0) {
+    const g = rg[segIdx] ?? rg[0];
+    if (g?.slotKeys && g.slotKeys.length > 0) return g.slotKeys;
+  }
+  if (row.reservedSlotKeys != null && row.reservedSlotKeys.length > 0) return row.reservedSlotKeys;
+  return [];
+}
+
+function parseResourceFromScheduleMeta(meta: string): string | undefined {
+  const i = meta.indexOf(" · ");
+  if (i <= 0) return undefined;
+  const first = meta.slice(0, i).trim();
+  if (/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\b/i.test(first)) return undefined;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(first)) return undefined;
+  return first.length > 0 ? first : undefined;
+}
+
+function readResourceFromBondItem(it: Record<string, unknown> | null | undefined): string | undefined {
+  if (!it) return undefined;
+  const meta = it.metadata && typeof it.metadata === "object" ? (it.metadata as Record<string, unknown>) : null;
+  for (const k of ["resourceName", "spaceName", "facilityName", "locationName"] as const) {
+    const v = meta?.[k] ?? it[k];
+    if (typeof v === "string" && v.trim().length > 0) return v.trim();
+  }
+  const space = it.space;
+  if (space && typeof space === "object") {
+    const n = (space as Record<string, unknown>).name;
+    if (typeof n === "string" && n.trim().length > 0) return n.trim();
+  }
+  return undefined;
+}
+
+function buildBagMetaRows(
+  row: SessionCartSnapshot,
+  segIdx: number,
+  kind: CartLineKind,
+  omit: boolean,
+  subsectionBookingForLabel: string | undefined,
+  bondItem: Record<string, unknown> | null | undefined,
+  fallbackMeta: string
+): CartPurchaseDisplayLine["bagMetaRows"] | undefined {
+  if (!omit || kind === "membership") return undefined;
+  const label =
+    (typeof subsectionBookingForLabel === "string" && subsectionBookingForLabel.trim().length > 0
+      ? subsectionBookingForLabel.trim()
+      : undefined) ??
+    (typeof row.bookingForLabel === "string" && row.bookingForLabel.trim().length > 0
+      ? row.bookingForLabel.trim()
+      : undefined);
+  const keys = slotKeysForSegment(row, segIdx);
+  const firstKey = keys[0];
+  const dateLine = firstKey != null ? formatSlotKeyLongDate(firstKey) ?? undefined : undefined;
+  const timeLine = firstKey != null ? formatSlotKeyTimeRangePretty(firstKey) ?? undefined : undefined;
+  let resource = readResourceFromBondItem(bondItem ?? null);
+  if (!resource && fallbackMeta.length > 0) resource = parseResourceFromScheduleMeta(fallbackMeta);
+  const participant = label;
+  if (!participant && !resource && !dateLine && !timeLine) return undefined;
+  return { participant, resource, dateLine, timeLine };
+}
+
+function parseSnapLineFlatIndex(key: string, rowIndex: number): number {
+  const m = key.match(new RegExp(`^snap-${rowIndex}-(?:pending|saved|item)-(\\d+)-`));
+  if (m) return Number(m[1]);
+  return 0;
+}
+
+function finalizePurchaseDisplayLines(
+  lines: CartPurchaseDisplayLine[],
+  row: SessionCartSnapshot,
+  rowIndex: number,
+  options?: {
+    omitBookingLabelInMeta?: boolean;
+    structuredBagMeta?: boolean;
+    subsectionBookingForLabel?: string;
+  }
+): CartPurchaseDisplayLine[] {
+  const want = options?.structuredBagMeta === true;
+  const omit = options?.omitBookingLabelInMeta === true;
+  const subsection = options?.subsectionBookingForLabel;
+  const needApprovalFlags = row.approvalRequired === true;
+  if (!want && !needApprovalFlags) return lines;
+
+  const c = row.cart as OrganizationCartDto;
+  const segByFlat = flatIndexToSegmentMap(c);
+  const flatBond = Array.isArray(c.cartItems)
+    ? flattenBondCartItemNodes(c.cartItems as unknown[])
+    : [];
+
+  return lines.map((line) => {
+    const j = parseSnapLineFlatIndex(line.key, rowIndex);
+    const bondRec = flatBond[j] as Record<string, unknown> | undefined;
+    const segIdx = segByFlat.get(j) ?? 0;
+    const coKind: CartLineKind =
+      line.lineKind === "membership" ? "membership" : line.lineKind === "addon" ? "addon" : "booking";
+    const bagMetaRows = want
+      ? buildBagMetaRows(row, segIdx, coKind, omit, subsection, bondRec ?? null, line.meta)
+      : undefined;
+    const approvalPending = needApprovalFlags && coKind === "booking";
+    return {
+      ...line,
+      ...(bagMetaRows ? { bagMetaRows } : {}),
+      ...(approvalPending ? { approvalPending: true } : {}),
+    };
+  });
+}
+
 /**
  * Renders one or more purchase rows per session snapshot: prefers client `displayLines`
  * from add-to-cart, then Bond `cartItems`, then a single line from `productName` / totals.
@@ -191,6 +312,8 @@ export function expandSnapshotForPurchaseList(
     cartFlatLineIndexFilter?: ReadonlySet<number>;
     /** Merged cart subsection: use this label for “For {name}” meta instead of `row.bookingForLabel`. */
     subsectionBookingForLabel?: string;
+    /** Figma-style cart: icon rows for participant / resource / date / time. */
+    structuredBagMeta?: boolean;
   }
 ): CartPurchaseDisplayLine[] {
   const c = row.cart as OrganizationCartDto;
@@ -223,53 +346,59 @@ export function expandSnapshotForPurchaseList(
 
   if (Array.isArray(saved) && saved.length > 0) {
     if (isPendingPricePreview) {
-      return saved.map((line, j) => {
-        const kind = line.lineKind ?? "booking";
-        const kindMeta: CartLineKind =
-          kind === "membership" ? "membership" : kind === "addon" ? "addon" : "booking";
-        const lineSchedSeg = lineScheduleSummaryForSegment(row, kindMeta, 0);
-        const metaRaw =
-          typeof line.meta === "string" && line.meta.trim().length > 0
-            ? line.meta.trim()
-            : buildLineMeta({
-                bookingBit,
-                kind: kindMeta,
-                scheduleSummary: scheduleForMeta,
-                lineScheduleSummary: lineSchedSeg,
-              });
-        const meta = stripBookingForFromMeta(metaRaw, metaBookingFor, omit);
-        const coKind: CartLineKind =
-          kind === "membership" ? "membership" : kind === "addon" ? "addon" : "booking";
-        const amt =
-          typeof line.amount === "number" && Number.isFinite(line.amount)
-            ? line.amount
-            : typeof c.subtotal === "number" && Number.isFinite(c.subtotal)
-              ? c.subtotal
-              : null;
-        const memberAccessNote =
-          row.participantHasQualifyingMembership === true &&
-          kind === "booking" &&
-          amt != null &&
-          amt <= 0.0001
-            ? "Qualifying membership — reservation at member rate ($0)"
-            : undefined;
-        const pendingBadge =
-          kindMeta === "addon" ? receiptBadgeForCartLine("addon", undefined) : undefined;
-        return {
-          key: `snap-${rowIndex}-pending-${j}-${cartId}`,
-          title: line.title,
-          meta,
-          checkoutNote: checkoutNoteForMixedLine(policy, coKind, rowApproval, hideVenueNotes),
-          amount: amt,
-          lineKind: line.lineKind,
-          memberAccessNote,
-          ...(pendingBadge ? { badge: pendingBadge } : {}),
-          ...(line.discountNote ? { discountNote: line.discountNote } : {}),
-          ...(line.strikeAmount != null ? { strikeAmount: line.strikeAmount } : {}),
-        };
-      });
+      return finalizePurchaseDisplayLines(
+        saved.map((line, j) => {
+          const kind = line.lineKind ?? "booking";
+          const kindMeta: CartLineKind =
+            kind === "membership" ? "membership" : kind === "addon" ? "addon" : "booking";
+          const lineSchedSeg = lineScheduleSummaryForSegment(row, kindMeta, 0);
+          const metaRaw =
+            typeof line.meta === "string" && line.meta.trim().length > 0
+              ? line.meta.trim()
+              : buildLineMeta({
+                  bookingBit,
+                  kind: kindMeta,
+                  scheduleSummary: scheduleForMeta,
+                  lineScheduleSummary: lineSchedSeg,
+                });
+          const meta = stripBookingForFromMeta(metaRaw, metaBookingFor, omit);
+          const coKind: CartLineKind =
+            kind === "membership" ? "membership" : kind === "addon" ? "addon" : "booking";
+          const amt =
+            typeof line.amount === "number" && Number.isFinite(line.amount)
+              ? line.amount
+              : typeof c.subtotal === "number" && Number.isFinite(c.subtotal)
+                ? c.subtotal
+                : null;
+          const memberAccessNote =
+            row.participantHasQualifyingMembership === true &&
+            kind === "booking" &&
+            amt != null &&
+            amt <= 0.0001
+              ? "Qualifying membership — reservation at member rate ($0)"
+              : undefined;
+          const pendingBadge =
+            kindMeta === "addon" ? receiptBadgeForCartLine("addon", undefined) : undefined;
+          return {
+            key: `snap-${rowIndex}-pending-${j}-${cartId}`,
+            title: line.title,
+            meta,
+            checkoutNote: checkoutNoteForMixedLine(policy, coKind, rowApproval, hideVenueNotes),
+            amount: amt,
+            lineKind: line.lineKind,
+            memberAccessNote,
+            ...(pendingBadge ? { badge: pendingBadge } : {}),
+            ...(line.discountNote ? { discountNote: line.discountNote } : {}),
+            ...(line.strikeAmount != null ? { strikeAmount: line.strikeAmount } : {}),
+          };
+        }),
+        row,
+        rowIndex,
+        options
+      );
     }
-    return saved.map((line, j) => {
+    return finalizePurchaseDisplayLines(
+      saved.map((line, j) => {
       const kind = line.lineKind ?? "booking";
       const kindMeta: CartLineKind =
         kind === "membership" ? "membership" : kind === "addon" ? "addon" : "booking";
@@ -366,7 +495,11 @@ export function expandSnapshotForPurchaseList(
         ...(badge ? { badge } : {}),
         ...(bagRemove ? { bagRemove } : {}),
       };
-    });
+    }),
+      row,
+      rowIndex,
+      options
+    );
   }
 
   const items = c.cartItems;
@@ -430,7 +563,7 @@ export function expandSnapshotForPurchaseList(
         ...(bagRemove ? { bagRemove } : {}),
       });
     });
-    if (lines.length > 0) return lines;
+    if (lines.length > 0) return finalizePurchaseDisplayLines(lines, row, rowIndex, options);
   }
 
   const lineTotal =
@@ -440,28 +573,33 @@ export function expandSnapshotForPurchaseList(
         ? c.price
         : null;
 
-  return [
-    {
-      key: `snap-${rowIndex}-main-${cartId}`,
-      title: row.productName,
-      meta: buildLineMeta({
-        bookingBit,
-        kind: "booking",
-        scheduleSummary: scheduleForMeta,
-        lineScheduleSummary: lineScheduleSummaryForSegment(row, "booking", 0),
-      }),
-      checkoutNote: checkoutNoteForMixedLine(policy, "booking", rowApproval, hideVenueNotes),
-      amount: lineTotal,
-      lineKind: "booking",
-      memberAccessNote:
-        row.participantHasQualifyingMembership === true &&
-        lineTotal != null &&
-        Number.isFinite(lineTotal) &&
-        lineTotal <= 0.0001
-          ? "Qualifying membership — reservation at member rate ($0)"
-          : undefined,
-    },
-  ];
+  return finalizePurchaseDisplayLines(
+    [
+      {
+        key: `snap-${rowIndex}-main-${cartId}`,
+        title: row.productName,
+        meta: buildLineMeta({
+          bookingBit,
+          kind: "booking",
+          scheduleSummary: scheduleForMeta,
+          lineScheduleSummary: lineScheduleSummaryForSegment(row, "booking", 0),
+        }),
+        checkoutNote: checkoutNoteForMixedLine(policy, "booking", rowApproval, hideVenueNotes),
+        amount: lineTotal,
+        lineKind: "booking",
+        memberAccessNote:
+          row.participantHasQualifyingMembership === true &&
+          lineTotal != null &&
+          Number.isFinite(lineTotal) &&
+          lineTotal <= 0.0001
+            ? "Qualifying membership — reservation at member rate ($0)"
+            : undefined,
+      },
+    ],
+    row,
+    rowIndex,
+    options
+  );
 }
 
 export function titleFromCartItem(o: Record<string, unknown>): string {

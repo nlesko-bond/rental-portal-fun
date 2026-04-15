@@ -45,6 +45,7 @@ import {
   fetchUserBookingInformation,
   fetchUserRequiredProducts,
 } from "@/lib/online-booking-user-api";
+import { bookedSlicesFromUserBookingInformation } from "@/lib/booking-information-slices";
 import {
   membershipRequiredForProductFromResponse,
   userNeedsMembershipFromRequiredResponse,
@@ -309,7 +310,7 @@ export function BookingExperience() {
   const clearNavigateToCheckoutStep = useCallback(() => {
     setNavigateToCheckoutStep(null);
   }, []);
-  /** After a successful add, go straight to payment with the full session cart (skip the intermediate bag-only screen). */
+  /** After a successful add, go straight to payment in the same drawer (bag remains available from the cart FAB). */
   const onCheckoutAddedToCart = useCallback(() => {
     setCheckoutBusy(false);
     setCheckoutDrawerMode("checkout");
@@ -352,16 +353,25 @@ export function BookingExperience() {
     return undefined;
   }, [sessionCartRows]);
 
+  /**
+   * Slots from completed checkouts in this tab (cart cleared before schedule refetch reflects the booking).
+   * Merged with `sessionCartRows` so the grid stays non-selectable immediately after “Done”.
+   */
+  const [vendedSlotKeys, setVendedSlotKeys] = useState<string[]>([]);
+
   /** Slot keys already added to the tab cart — block re-selection and show “in cart” on the grid. */
   const reservedSlotKeysInCart = useMemo(() => {
     const s = new Set<string>();
+    for (const k of vendedSlotKeys) {
+      if (typeof k === "string" && k.length > 0) s.add(k);
+    }
     for (const row of sessionCartRows) {
       for (const k of row.reservedSlotKeys ?? []) {
         if (typeof k === "string" && k.length > 0) s.add(k);
       }
     }
     return s;
-  }, [sessionCartRows]);
+  }, [sessionCartRows, vendedSlotKeys]);
 
   const welcomeTickPrev = useRef(0);
   const [pendingWelcome, setPendingWelcome] = useState(false);
@@ -732,6 +742,15 @@ export function BookingExperience() {
   });
   void bookingInfoQuery.data;
 
+  /** Existing reservations for the selected participant (same window as booking-information fetch). */
+  const existingBookedSlices = useMemo(
+    () =>
+      bondAuth.session.status === "authenticated" && bookingInfoQuery.data
+        ? bookedSlicesFromUserBookingInformation(bookingInfoQuery.data)
+        : [],
+    [bondAuth.session.status, bookingInfoQuery.data]
+  );
+
   const vipEarlyAccessDates = useMemo(() => {
     const rows = scheduleSettingsQuery.data?.dates ?? [];
     return computeVipEarlyAccessDateKeys(
@@ -827,7 +846,11 @@ export function BookingExperience() {
         };
         const next = new Map(prev);
         next.set(key, picked);
-        const v = validateSlotSelection([...next.values()], slotRules);
+        const v = validateSlotSelection([...next.values()], slotRules, {
+          existing: existingBookedSlices,
+          customerLabel: bookingForLabel,
+          t: tb,
+        });
         if (!v.ok) {
           setSlotBarError(v.message ?? tb("slotNotAllowed"));
           return prev;
@@ -836,7 +859,16 @@ export function BookingExperience() {
         return next;
       });
     },
-    [slotRules, entitlementAdjust, reservedSlotKeysInCart, productsQuery.data, state?.productId, tb]
+    [
+      slotRules,
+      entitlementAdjust,
+      reservedSlotKeysInCart,
+      productsQuery.data,
+      state?.productId,
+      tb,
+      existingBookedSlices,
+      bookingForLabel,
+    ]
   );
 
   const packageAddons = useMemo(() => {
@@ -889,12 +921,16 @@ export function BookingExperience() {
     saveSessionCartSnapshots(sessionCartRows);
   }, [sessionCartRows]);
 
-  /** After Bond confirms checkout (submit-for-approval create, or pay when wired): clear cart, slots, refetch schedule. */
-  const completeCheckoutOnBondSuccess = useCallback(() => {
+  /** Immediately after Bond `finalizeCart` succeeds: clear session cart and slots so confirmation is not stacked on the cart. */
+  const finalizeBondBookingSuccess = useCallback((finalizedSlotKeys: string[]) => {
+    if (finalizedSlotKeys.length > 0) {
+      setVendedSlotKeys((prev) => [...new Set([...prev, ...finalizedSlotKeys])]);
+    }
     setSessionCartRows([]);
     saveSessionCartSnapshots([]);
     clearSlotSelection();
     void queryClient.invalidateQueries({ queryKey: ["bond", "schedule"] });
+    void queryClient.invalidateQueries({ queryKey: ["bond", "userBookingInformation"] });
   }, [clearSlotSelection, queryClient]);
 
   const onBookNow = useCallback(() => {
@@ -2136,7 +2172,8 @@ export function BookingExperience() {
             setCheckoutDrawerMode("checkout");
           }}
           onBackFromPayment={() => {
-            setCheckoutDrawerMode("bag");
+            setNavigateToCheckoutStep("syncCart");
+            setCheckoutDrawerMode("checkout");
           }}
           onRequestBagCheckout={() => {
             setNavigateToCheckoutStep("payment");
@@ -2144,7 +2181,7 @@ export function BookingExperience() {
           }}
           navigateToCheckoutStep={navigateToCheckoutStep}
           onClearNavigateToCheckoutStep={clearNavigateToCheckoutStep}
-          onCheckoutComplete={completeCheckoutOnBondSuccess}
+          onFinalizeBookingSuccess={finalizeBondBookingSuccess}
           packageAddons={packageAddons}
           addonsExpanded={addonsExpanded}
           onToggleExpandAddons={() => setAddonsExpanded((x) => !x)}

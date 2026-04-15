@@ -88,7 +88,8 @@ export function bagRemovePolicyForBondItem(
   if (lineKind === "booking" && desc != null && RENTAL_SEGMENT_ROOT_DESCRIPTIONS.has(desc)) {
     return { kind: "subsection" };
   }
-  if (lineKind === "booking") return { kind: "line", cartItemId };
+  /** Any rental line removes its segment (rental + attached add-ons) when Bond omits `metadata.description`. */
+  if (lineKind === "booking") return { kind: "subsection" };
   return undefined;
 }
 

@@ -1,4 +1,5 @@
 import type { BondUserDto } from "./bond-user-types";
+import { participantDemographicsLine, profilePhotoUrlFromUser } from "./booking-profile-contact";
 
 export type BookingPartyMember = {
   id: number;
@@ -6,6 +7,8 @@ export type BookingPartyMember = {
   isSelf?: boolean;
   /** e.g. Parent (You), Child — from Bond `family` payload when present */
   relationship?: string;
+  /** "Age 12, Female" when DOB/gender exist on the Bond user (Consumer DS participant row). */
+  demographicsLine?: string;
   /** Short label for badge chip (Gold, Pass, …) — account-level; not the same as this product’s membership gate */
   badgeLabel?: string;
   /**
@@ -16,6 +19,8 @@ export type BookingPartyMember = {
    * Product lists a membership requirement and this person already satisfies it (member rate / access for **this** rental).
    */
   hasQualifyingMembershipForProduct?: boolean;
+  /** Bond user/family profile photo when the API returns a URL. */
+  photoUrl?: string;
 };
 
 function personLabel(u: Record<string, unknown>): string {
@@ -61,6 +66,8 @@ export function bookingPartyMembersFromProfile(profile: BondUserDto | undefined)
       label: personLabel(self),
       isSelf: true,
       relationship: relationshipLabel(self, true),
+      demographicsLine: participantDemographicsLine(self),
+      photoUrl: profilePhotoUrlFromUser(self),
       badgeLabel: badgeFromUser(self),
     });
     seen.add(selfId);
@@ -77,6 +84,8 @@ export function bookingPartyMembersFromProfile(profile: BondUserDto | undefined)
         id,
         label: personLabel(u),
         relationship: relationshipLabel(u, false),
+        demographicsLine: participantDemographicsLine(u),
+        photoUrl: profilePhotoUrlFromUser(u),
         badgeLabel: badgeFromUser(u),
       });
     }

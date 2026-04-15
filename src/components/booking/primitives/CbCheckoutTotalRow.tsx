@@ -16,6 +16,9 @@ type CbCheckoutTotalRowProps = {
   value: ReactNode;
   variant?: CbCheckoutTotalRowVariant;
   valueClassName?: string;
+  /** Leading icon (Consumer DS cart totals). */
+  icon?: ReactNode;
+  title?: string;
 };
 
 export function CbCheckoutTotalRow({
@@ -23,10 +26,15 @@ export function CbCheckoutTotalRow({
   value,
   variant = "default",
   valueClassName,
+  icon,
+  title,
 }: CbCheckoutTotalRowProps) {
   return (
-    <div className={variantClass[variant]}>
-      <span>{label}</span>
+    <div className={variantClass[variant]} title={title}>
+      <span className="cb-checkout-total-row-label">
+        {icon ? <span className="cb-checkout-total-row-icon">{icon}</span> : null}
+        {label}
+      </span>
       {valueClassName ? <span className={valueClassName}>{value}</span> : <span>{value}</span>}
     </div>
   );

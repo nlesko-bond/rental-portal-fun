@@ -141,23 +141,58 @@ function maxContiguousChainMinutes(slots: PickedSlot[]): number {
   return globalMax;
 }
 
+export type SlotSelectionValidateOpts = {
+  /** Existing bookings for the participant (e.g. from booking-information API). */
+  existing?: Array<Pick<PickedSlot, "resourceId" | "startDate" | "endDate" | "startTime" | "endTime">>;
+  /** Shown in i18n messages (first name or “You”). */
+  customerLabel?: string;
+  t?: (key: string, values?: Record<string, string | number>) => string;
+};
+
 export function validateSlotSelection(
   selected: PickedSlot[],
-  rules: { maxSequentialHours: number | null; maxBookingHoursPerDay: number | null }
+  rules: { maxSequentialHours: number | null; maxBookingHoursPerDay: number | null },
+  opts?: SlotSelectionValidateOpts
 ): { ok: boolean; message?: string } {
   const maxSeqH = rules.maxSequentialHours;
   const maxH = rules.maxBookingHoursPerDay;
+  const existing = opts?.existing?.length ? opts.existing : [];
+  const combined: PickedSlot[] =
+    existing.length > 0
+      ? [
+          ...existing.map(
+            (e) =>
+              ({
+                ...e,
+                key: `existing-${e.resourceId}-${e.startDate}-${e.startTime}`,
+                resourceName: "",
+                price: 0,
+                spaceId: e.resourceId,
+                timezone: "UTC",
+              }) as PickedSlot
+          ),
+          ...selected,
+        ]
+      : selected;
 
   if (maxSeqH == null && maxH == null) return { ok: true };
 
+  const who = opts?.customerLabel?.trim() || "You";
+
   if (maxH != null && Number.isFinite(maxH) && maxH > 0) {
     const byDay = new Map<string, number>();
-    for (const s of selected) {
+    for (const s of combined) {
       const mins = slotDurationMinutes(s);
       byDay.set(s.startDate, (byDay.get(s.startDate) ?? 0) + mins);
     }
     for (const [, mins] of byDay) {
       if (mins / 60 > maxH + 1e-6) {
+        if (opts?.t) {
+          return {
+            ok: false,
+            message: opts.t("slotValidationMaxPerDay", { maxHours: maxH, who }),
+          };
+        }
         return {
           ok: false,
           message: `You can book a maximum of ${maxH} hour${maxH === 1 ? "" : "s"} in a day.`,
@@ -168,8 +203,17 @@ export function validateSlotSelection(
 
   if (maxSeqH != null && Number.isFinite(maxSeqH) && maxSeqH > 0) {
     const capMins = maxSeqH * 60;
-    const chainMins = maxContiguousChainMinutes(selected);
+    const chainMins = maxContiguousChainMinutes(combined);
     if (chainMins > capMins + 1e-6) {
+      if (opts?.t) {
+        return {
+          ok: false,
+          message: opts.t("slotValidationMaxSequential", {
+            maxHours: maxSeqH,
+            who,
+          }),
+        };
+      }
       return {
         ok: false,
         message: `You can book a maximum of ${maxSeqH} hour${maxSeqH === 1 ? "" : "s"} sequentially.`,

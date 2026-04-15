@@ -27,6 +27,25 @@ export function formatSlotControlKeyLabel(key: string): string | null {
   return `${dayPart} · ${timePart}`;
 }
 
+/** Long date only, e.g. `Dec 25, 2028` — for Figma-style cart meta rows. */
+export function formatSlotKeyLongDate(key: string): string | null {
+  const p = parseSlotControlKey(key);
+  if (!p) return null;
+  const d = new Date(`${p.startDate}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
+/** Time range only, e.g. `8:00 AM – 9:00 AM`. */
+export function formatSlotKeyTimeRangePretty(key: string): string | null {
+  const p = parseSlotControlKey(key);
+  if (!p) return null;
+  return formatPickedSlotTimeRange({
+    startTime: p.startTime.slice(0, 8),
+    endTime: p.endTime.slice(0, 8),
+  });
+}
+
 /** Join multiple slot keys (e.g. one reservation’s segments) for cart / receipt meta. */
 export function formatSlotKeysScheduleSummary(keys: readonly string[]): string {
   const parts = keys.map((k) => formatSlotControlKeyLabel(k)).filter((x): x is string => x != null);

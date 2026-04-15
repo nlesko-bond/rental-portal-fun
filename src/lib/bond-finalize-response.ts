@@ -1,3 +1,5 @@
+import { consumerInvoiceUrl } from "@/lib/bond-consumer-web";
+
 /** Best-effort fields from `POST …/cart/{id}/finalize` (`GenericResponseDto` + `SimpleInvoiceDto` / variants). */
 export type FinalizeSuccessDisplay = {
   /** Display + copy — prefer numeric Bond invoice `id` when present. */
@@ -13,7 +15,7 @@ export function buildSquadCInvoicePortalUrl(
   userId: number,
   invoiceId: number
 ): string {
-  return `https://squad-c.bondsports.co/invoice/${invoiceId}?o=${organizationId}&u=${userId}`;
+  return consumerInvoiceUrl(organizationId, userId, invoiceId);
 }
 
 export function parseFinalizeCartResponse(raw: unknown): FinalizeSuccessDisplay {

@@ -2,7 +2,7 @@
 
 import { useMutation, useQueries, useQuery } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ModalShell } from "@/components/booking/ModalShell";
 import { RightDrawer } from "@/components/ui/RightDrawer";
 import { formatConsumerBookingErrorUnknown } from "@/lib/bond-errors";
@@ -13,6 +13,7 @@ import {
   parseFinalizeCartResponse,
   type FinalizeSuccessDisplay,
 } from "@/lib/bond-finalize-response";
+import { consumerReservationsUrl } from "@/lib/bond-consumer-web";
 import {
   computeConsumerPaymentProcessingFee,
   fetchConsumerPaymentOptions,
@@ -27,7 +28,12 @@ import {
 } from "@/lib/online-booking-user-api";
 import { buildOnlineBookingCreateBody, splitAddonPayloadForCreate } from "@/lib/online-booking-create-body";
 import { productMembershipGated } from "@/lib/booking-pricing";
-import { bookingContactSnapshot } from "@/lib/booking-profile-contact";
+import {
+  bookingContactSnapshot,
+  findProfilePersonById,
+  participantDemographicsLine,
+  profilePhotoUrlFromUser,
+} from "@/lib/booking-profile-contact";
 import {
   isFormQuestionsSatisfied,
   mergeQuestionnaireQuestions,
@@ -78,6 +84,7 @@ import {
   bagApprovalPolicy,
   countSessionCartLineItems,
   expandSnapshotForPurchaseList,
+  type BagApprovalPolicy,
 } from "@/lib/cart-purchase-lines";
 import type { BagRemovePolicy } from "@/lib/bond-cart-removal";
 
@@ -228,10 +235,10 @@ type Props = {
   /** Portal category `settings.approvalRequired` — checkout step shows Submit request vs Pay now. */
   approvalRequired?: boolean;
   /**
-   * Called when checkout is finished from the payment step (submit request, or pay when wired).
-   * Parent should clear session cart storage and UI.
+   * Called as soon as `finalizeCart` succeeds — parent should clear session cart, slot selection,
+   * and refresh schedule so the drawer can show confirmation without cart lines underneath.
    */
-  onCheckoutComplete?: () => void;
+  onFinalizeBookingSuccess?: (finalizedSlotKeys: string[]) => void;
   /** Shown in user-facing eligibility errors (e.g. product reserved for specific clients). */
   orgDisplayName?: string;
   /** Opens family picker so the user can switch who the booking is for (re-fetches required products). */
@@ -295,7 +302,7 @@ export function BookingCheckoutDrawer({
   bagSnapshots = [],
   onRemoveBagLine,
   approvalRequired = false,
-  onCheckoutComplete,
+  onFinalizeBookingSuccess,
   orgDisplayName,
   onBookingForClick,
   mergeCartId,
@@ -309,8 +316,6 @@ export function BookingCheckoutDrawer({
   onParticipantLockChange,
   onPruneSatisfiedAddonProductIds,
 }: Props) {
-  const onCheckoutCompleteRef = useRef(onCheckoutComplete);
-  onCheckoutCompleteRef.current = onCheckoutComplete;
   const tx = useTranslations("checkout");
   const te = useTranslations("errors");
   const tc = useTranslations("common");
@@ -325,10 +330,15 @@ export function BookingCheckoutDrawer({
   const [approvalDeferred, setApprovalDeferred] = useState(false);
   const [depositModalOpen, setDepositModalOpen] = useState(false);
   /** After `POST …/create` succeeds, show confirmation + summary before jumping to payment (Figma-style handoff). */
-  const [postCreateAwaitingContinue, setPostCreateAwaitingContinue] = useState(false);
   /** After `finalizeCart` succeeds — show confirmation (invoice / reservation) before parent clears session. */
   const [finalizeSuccess, setFinalizeSuccess] = useState<FinalizeSuccessDisplay | null>(null);
-  const [finalizeCopyFlash, setFinalizeCopyFlash] = useState<"invoice" | "reservation" | null>(null);
+  /** `submit` = venue approval flow (no invoice row); `pay` = paid / standard finalize. */
+  const [finalizeCheckoutKind, setFinalizeCheckoutKind] = useState<"pay" | "submit" | null>(null);
+  const finalizeCheckoutKindRef = useRef<"pay" | "submit">("pay");
+  const bagPolicyCheckoutRef = useRef<BagApprovalPolicy>("all_pay");
+  const [finalizeCopyFlash, setFinalizeCopyFlash] = useState<"invoice" | "reservations" | null>(null);
+  /** Snapshot at finalize so dismiss still has slot keys if parent clears bag state early. */
+  const finalizeReservedSlotKeysRef = useRef<string[]>([]);
   /** Membership OR-options from `GET .../products/.../required` (OpenAPI `ExtendedRequiredProductDto[]`). */
   const [selectedMembershipRootId, setSelectedMembershipRootId] = useState<number | null>(null);
   const [membershipSelectionResolved, setMembershipSelectionResolved] = useState(false);
@@ -352,7 +362,10 @@ export function BookingCheckoutDrawer({
     queryKey: ["bond", "consumer-payment-options", orgId, primaryAccountUserId],
     queryFn: () => fetchConsumerPaymentOptions(orgId, primaryAccountUserId),
     enabled:
-      open && mode === "checkout" && step === "payment" && orgId > 0 && primaryAccountUserId > 0,
+      open &&
+      orgId > 0 &&
+      primaryAccountUserId > 0 &&
+      (mode === "bag" || (mode === "checkout" && step === "payment")),
   });
 
   const paymentChoices = useMemo(
@@ -363,13 +376,15 @@ export function BookingCheckoutDrawer({
   paymentChoicesRef.current = paymentChoices;
 
   useEffect(() => {
-    if (step !== "payment" || mode !== "checkout") return;
+    if (!open) return;
     if (paymentChoices.length === 0) return;
-    setSelectedPaymentMethodId((prev) => {
-      if (prev != null && paymentChoices.some((p) => p.id === prev)) return prev;
-      return paymentChoices[0]!.id;
-    });
-  }, [step, mode, paymentChoices]);
+    if (mode === "bag" || (mode === "checkout" && step === "payment")) {
+      setSelectedPaymentMethodId((prev) => {
+        if (prev != null && paymentChoices.some((p) => p.id === prev)) return prev;
+        return paymentChoices[0]!.id;
+      });
+    }
+  }, [open, step, mode, paymentChoices]);
 
   useEffect(() => {
     if (!open) return;
@@ -393,7 +408,6 @@ export function BookingCheckoutDrawer({
     setSelectedMembershipRootId(null);
     setMembershipSelectionResolved(false);
     setSelectedPaymentMethodId(null);
-    setPostCreateAwaitingContinue(false);
   }, [open, productId, mode, navigateToCheckoutStep]);
 
   /** Switching “booking for” re-fetches required products; clear membership selection for the new person. */
@@ -765,6 +779,17 @@ export function BookingCheckoutDrawer({
     [bondProfile, userId, primaryAccountUserId]
   );
 
+  const presummaryParticipantDemo = useMemo(() => {
+    const person = findProfilePersonById(bondProfile, userId);
+    if (!person) return undefined;
+    return participantDemographicsLine(person);
+  }, [bondProfile, userId]);
+
+  const presummaryParticipantPhoto = useMemo(() => {
+    const person = findProfilePersonById(bondProfile, userId);
+    return profilePhotoUrlFromUser(person ?? undefined);
+  }, [bondProfile, userId]);
+
   useEffect(() => {
     if (!open || step !== "forms") return;
     if (mergedForms.length === 0) return;
@@ -924,12 +949,6 @@ export function BookingCheckoutDrawer({
     [bagSnapshots.length, mergeCartId]
   );
 
-  const finishAddToCart = useCallback(() => {
-    setPostCreateAwaitingContinue(false);
-    if (onAddedToCart) onAddedToCart();
-    else onClose();
-  }, [onAddedToCart, onClose]);
-
   const persistCartMutation = useMutation({
     mutationFn: () =>
       postOnlineBookingCreate(orgId, buildCreatePayload(mergeCartId != null && mergeCartId > 0)),
@@ -937,27 +956,24 @@ export function BookingCheckoutDrawer({
       setLastCart(cart);
       if (approvalRequired) setApprovalDeferred(true);
       if (cart != null) onSuccess(cart);
-      setPostCreateAwaitingContinue(true);
+      queueMicrotask(() => {
+        onAddedToCart?.();
+      });
     },
   });
 
-  const handleBookAnotherRental = useCallback(() => {
-    setPostCreateAwaitingContinue(false);
-    persistCartMutation.reset();
-    if (onBookAnotherRental) onBookAnotherRental();
-    else onClose();
-  }, [onBookAnotherRental, onClose, persistCartMutation]);
-
   const dismissBookingConfirmed = useCallback(() => {
+    finalizeReservedSlotKeysRef.current = [];
     setFinalizeSuccess(null);
+    setFinalizeCheckoutKind(null);
     setFinalizeCopyFlash(null);
     onClose();
   }, [onClose]);
 
-  const copyFinalizeId = useCallback(async (kind: "invoice" | "reservation", value: string) => {
+  const copyFinalizeClipboard = useCallback(async (value: string, kind: "invoice" | "reservations") => {
     try {
       await navigator.clipboard.writeText(value);
-      setFinalizeCopyFlash(kind === "invoice" ? "invoice" : "reservation");
+      setFinalizeCopyFlash(kind);
       window.setTimeout(() => setFinalizeCopyFlash(null), 2000);
     } catch {
       /* clipboard unavailable */
@@ -995,6 +1011,14 @@ export function BookingCheckoutDrawer({
     if (open && !prev && mode === "checkout") persistCartMutation.reset();
   }, [open, mode, persistCartMutation]);
 
+  const persistCartUserIdRef = useRef(userId);
+  useEffect(() => {
+    if (persistCartUserIdRef.current !== userId) {
+      persistCartUserIdRef.current = userId;
+      persistCartMutation.reset();
+    }
+  }, [userId, persistCartMutation]);
+
   const submitBookingRequestMutation = useMutation({
     mutationFn: async () => {
       const cartId = resolveFinalizeCartId(bagSnapshots, lastCart, mergeCartId);
@@ -1020,9 +1044,18 @@ export function BookingCheckoutDrawer({
       }
       return finalizeCart(orgId, cartId, body);
     },
+    onMutate: () => {
+      finalizeCheckoutKindRef.current =
+        bagPolicyCheckoutRef.current === "all_submission" ? "submit" : "pay";
+      finalizeReservedSlotKeysRef.current = bagSnapshots.flatMap((r) => r.reservedSlotKeys ?? []);
+    },
     onSuccess: (data) => {
+      const keys = [...finalizeReservedSlotKeysRef.current];
+      onFinalizeBookingSuccess?.(keys);
+      setLastCart(null);
+      setApprovalDeferred(false);
+      setFinalizeCheckoutKind(finalizeCheckoutKindRef.current);
       setFinalizeSuccess(parseFinalizeCartResponse(data));
-      onCheckoutCompleteRef.current?.();
     },
   });
 
@@ -1369,15 +1402,8 @@ export function BookingCheckoutDrawer({
 
   const paymentSectionCount = groupedBagWithTotals.length + groupedTailPaymentSections.length;
 
-  /** After create succeeds, header+presummary are hidden so “Added to cart” is one screen (no duplicate summary blocks). */
-  const postCreateSuccessVisible =
-    step === "syncCart" && persistCartMutation.isSuccess && postCreateAwaitingContinue;
-
   const showPreCheckoutShell =
-    step === "addons" ||
-    step === "membership" ||
-    step === "forms" ||
-    (step === "syncCart" && !postCreateSuccessVisible);
+    step === "addons" || step === "membership" || step === "forms" || step === "syncCart";
 
   /** When any row is a real Bond cart, line amounts are already member-priced; schedule “savings” must not be subtracted again. */
   const paymentLinesHaveBondCart = useMemo(
@@ -1386,6 +1412,7 @@ export function BookingCheckoutDrawer({
   );
 
   const bagPolicyCheckout = useMemo(() => bagApprovalPolicy(paymentLines), [paymentLines]);
+  bagPolicyCheckoutRef.current = bagPolicyCheckout;
   const bagPolicyBag = useMemo(() => bagApprovalPolicy(bagSnapshots), [bagSnapshots]);
 
   /** Promo / strike-vs-net savings from the same expanded lines as the order summary (Bond may omit cart-level discount). */
@@ -1447,7 +1474,7 @@ export function BookingCheckoutDrawer({
   }, [groupedPresummaryLineSections, bagPolicyCheckout, approvalRequired]);
 
   const title = useMemo(() => {
-    if (mode === "bag") return tx("savedBookings");
+    if (mode === "bag") return tx("bagTitle");
     switch (step) {
       case "addons":
         return packageAddons.length > 0 ? tx("addonsTitle") : tx("requiredItemsTitle");
@@ -1456,12 +1483,11 @@ export function BookingCheckoutDrawer({
       case "forms":
         return tx("additionalInfoTitle");
       case "syncCart":
-        if (postCreateAwaitingContinue) return tx("addedToCartTitle");
         return persistCartMutation.isPending ? tx("preparingPricing") : tx("addToCart");
       case "payment":
         return tx("cartDrawerTitle");
     }
-  }, [mode, step, packageAddons.length, tx, persistCartMutation.isPending, postCreateAwaitingContinue]);
+  }, [mode, step, packageAddons.length, tx, persistCartMutation.isPending]);
 
   const bagDrawerLineCount = useMemo(() => countSessionCartLineItems(bagSnapshots), [bagSnapshots]);
 
@@ -1470,10 +1496,7 @@ export function BookingCheckoutDrawer({
 
   const bagLineBuckets = useMemo(() => aggregateBagCartLineBuckets(bagSnapshots), [bagSnapshots]);
 
-  const bagEstimatedTotal = useMemo(
-    () => estimateAmountDue(bagSessionAggregates, { includeProvisionalFees: false }),
-    [bagSessionAggregates]
-  );
+  const paymentLineBuckets = useMemo(() => aggregateBagCartLineBuckets(paymentLines), [paymentLines]);
 
   const bagAggregates = useMemo(() => aggregateBagSnapshots(paymentLines), [paymentLines]);
 
@@ -1576,6 +1599,54 @@ export function BookingCheckoutDrawer({
     selectedPaymentChoice,
   ]);
 
+  /** Cart (bag): estimated processing fee from consumer payment `options[].fee` when Bond cart has no fee line yet. */
+  const bagProcessingFeeFromOptions = useMemo(() => {
+    if (bagSessionAggregates.feeTotal != null && bagSessionAggregates.feeTotal > BOND_KIND_LINE_MIN) {
+      return null;
+    }
+    if (!selectedPaymentChoice?.fee) return null;
+    const sub = bagSessionAggregates.lineSubtotal;
+    if (sub == null) return null;
+    const disc = bagSessionAggregates.discountTotal ?? 0;
+    const tax = bagSessionAggregates.taxTotal ?? 0;
+    const base = Math.max(0, sub - disc + tax);
+    return computeConsumerPaymentProcessingFee(base, selectedPaymentChoice.fee);
+  }, [bagSessionAggregates, selectedPaymentChoice]);
+
+  const bagAggregatesWithMaybeEstimatedFee = useMemo(() => {
+    if (bagProcessingFeeFromOptions == null) return bagSessionAggregates;
+    if (bagSessionAggregates.feeTotal != null && bagSessionAggregates.feeTotal > BOND_KIND_LINE_MIN) {
+      return bagSessionAggregates;
+    }
+    return {
+      ...bagSessionAggregates,
+      feeTotal: bagProcessingFeeFromOptions,
+    };
+  }, [bagSessionAggregates, bagProcessingFeeFromOptions]);
+
+  const bagEstimatedTotal = useMemo(
+    () => estimateAmountDue(bagAggregatesWithMaybeEstimatedFee, { includeProvisionalFees: true }),
+    [bagAggregatesWithMaybeEstimatedFee]
+  );
+
+  const bagFeeRowAmount = useMemo(() => {
+    if (bagSessionAggregates.feeTotal != null && bagSessionAggregates.feeTotal > BOND_KIND_LINE_MIN) {
+      return bagSessionAggregates.feeTotal;
+    }
+    if (bagProcessingFeeFromOptions != null) return bagProcessingFeeFromOptions;
+    return null;
+  }, [bagSessionAggregates.feeTotal, bagProcessingFeeFromOptions]);
+
+  const paymentFeeRowAmount = useMemo(() => {
+    if (bagAggregates.feeTotal != null && bagAggregates.feeTotal > BOND_KIND_LINE_MIN) {
+      return bagAggregates.feeTotal;
+    }
+    if (paymentProcessingFeeEstimate != null && paymentProcessingFeeEstimate > 0) {
+      return paymentProcessingFeeEstimate;
+    }
+    return null;
+  }, [bagAggregates.feeTotal, paymentProcessingFeeEstimate]);
+
   const bagAggregatesForPaymentTotal = useMemo(() => {
     if (paymentProcessingFeeEstimate == null || paymentProcessingFeeEstimate <= 0) {
       return bagAggregatesForEstimate;
@@ -1628,34 +1699,6 @@ export function BookingCheckoutDrawer({
     promoDiscountFromExpandedPurchaseLines,
   ]);
 
-  const transactionFeesDisplay = useMemo(() => {
-    const ruleLabel = formatConsumerPaymentFeeRuleSummary(selectedPaymentChoice?.fee ?? null);
-    if (bagAggregates.feeTotal != null) {
-      return { kind: "amount" as const, value: bagAggregates.feeTotal, ruleLabel };
-    }
-    if (paymentProcessingFeeEstimate != null && paymentProcessingFeeEstimate > 0) {
-      return { kind: "amount" as const, value: paymentProcessingFeeEstimate, ruleLabel };
-    }
-    if (bagPolicyCheckout === "all_submission") {
-      return { kind: "muted" as const, text: "—", ruleLabel };
-    }
-    if (paymentChoices.length === 0) {
-      return { kind: "hint" as const, text: tx("addPaymentWhenAvailable"), ruleLabel: null as string | null };
-    }
-    if (!selectedPaymentMethodId) {
-      return { kind: "hint" as const, text: tx("selectPaymentMethod"), ruleLabel: null as string | null };
-    }
-    return { kind: "muted" as const, text: "—", ruleLabel };
-  }, [
-    bagAggregates.feeTotal,
-    paymentProcessingFeeEstimate,
-    bagPolicyCheckout,
-    paymentChoices.length,
-    selectedPaymentMethodId,
-    selectedPaymentChoice,
-    tx,
-  ]);
-
   /** Shown on add-ons / membership / forms / sync steps (before payment method selection). */
   const precheckoutAmountDue = useMemo(
     () => estimateAmountDue(bagAggregatesForEstimate, { includeProvisionalFees: false }),
@@ -1685,6 +1728,22 @@ export function BookingCheckoutDrawer({
     return buildSquadCInvoicePortalUrl(orgId, primaryAccountUserId, finalizeSuccess.invoiceNumericId);
   }, [finalizeSuccess, orgId, primaryAccountUserId]);
 
+  const finalizeReservationDisplay = useMemo(() => {
+    if (finalizeSuccess == null) return null;
+    const r = finalizeSuccess.reservationRef?.trim();
+    if (!r) return null;
+    return /^res-/i.test(r) ? r.toUpperCase() : `RES-${r}`;
+  }, [finalizeSuccess]);
+
+  /** Compact mock-style prefix for the confirmation card (copy matches display). */
+  const finalizeInvoiceDisplayPretty = useMemo(() => {
+    if (finalizeInvoiceDisplay == null) return null;
+    const s = finalizeInvoiceDisplay.trim();
+    if (/^\d+$/.test(s)) return `INV-${s}`;
+    if (/^inv-/i.test(s)) return s.toUpperCase();
+    return s;
+  }, [finalizeInvoiceDisplay]);
+
   const openCalendarTemplate = useCallback(() => {
     const title = encodeURIComponent(`${productName} — ${orgDisplayName ?? "Bond"}`);
     window.open(
@@ -1712,6 +1771,32 @@ export function BookingCheckoutDrawer({
             {tx("bookingSummaryReviewHint")}
           </p>
         ) : null}
+        <div className="cb-checkout-presummary-participant">
+          {presummaryParticipantPhoto ? (
+            <img
+              className="cb-checkout-presummary-participant-photo"
+              src={presummaryParticipantPhoto}
+              alt=""
+              width={40}
+              height={40}
+              loading="lazy"
+              referrerPolicy="no-referrer"
+            />
+          ) : (
+            <div className="cb-checkout-presummary-participant-avatar" aria-hidden />
+          )}
+          <div className="cb-checkout-presummary-participant-text">
+            <span className="cb-checkout-presummary-participant-name">{bookingForLabel}</span>
+            {presummaryParticipantDemo ? (
+              <span className="cb-checkout-presummary-participant-demo">{presummaryParticipantDemo}</span>
+            ) : null}
+          </div>
+          {bookingForBadge ? (
+            <span className="cb-checkout-presummary-participant-badge cb-member-badge cb-member-badge--gold">
+              {bookingForBadge}
+            </span>
+          ) : null}
+        </div>
         {groupedPresummaryLineSections.length > 1 ? (
           <p className="cb-muted mb-2 text-xs leading-relaxed">{tx("purchasesGroupedByMember")}</p>
         ) : null}
@@ -1726,7 +1811,7 @@ export function BookingCheckoutDrawer({
                   tx
                 )}
               </h4>
-              <ul className="cb-checkout-payment-lines">
+              <ul className="cb-checkout-payment-lines cb-checkout-payment-lines--ds-cards">
                 {section.items.flatMap(
                   ({ index, row, cartFlatLineIndices, subsectionBookingForLabel }) =>
                     expandSnapshotForPurchaseList(row, index, {
@@ -1820,13 +1905,27 @@ export function BookingCheckoutDrawer({
         open={open}
         onClose={onClose}
         onBack={showDrawerBack ? handleToolbarBack : undefined}
-        ariaLabel={tx("savedBookings")}
+        ariaLabel={tx("bagTitle")}
         title={title}
         panelClassName={panelCls}
       >
           <div className="cb-checkout-inner cb-checkout-inner--bag">
+          <div className="cb-checkout-payment-hero cb-cart-bag-hero">
+            <div className="cb-checkout-payment-hero-icon" aria-hidden>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+                <path
+                  d="M6 6h15l-1.5 9h-12L6 6zM4 6h2M9 20a1 1 0 1 0 0-2 1 1 0 0 0 0 2zm8 0a1 1 0 1 0 0-2 1 1 0 0 0 0 2z"
+                  stroke="currentColor"
+                  strokeWidth="1.75"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </div>
+            <p className="cb-checkout-payment-hero-sub cb-muted text-sm">{tx("cartHeroSubtitle")}</p>
+          </div>
           <div className="cb-cart-bag-heading">
-            <p className="cb-cart-bag-subtitle">{tx("inYourCart")}</p>
+            <p className="cb-cart-bag-subtitle">{tx("orderSummary")}</p>
             {nBookings > 0 ? (
               <span className="cb-cart-bag-count-pill">
                 {bagDrawerLineCount} {bagDrawerLineCount === 1 ? tx("lineSingular") : tx("linePlural")} · {nBookings}{" "}
@@ -1835,10 +1934,7 @@ export function BookingCheckoutDrawer({
             ) : null}
           </div>
           {groupedBagWithTotals.length > 1 ? (
-                       <p className="cb-muted mb-3 text-sm leading-relaxed">
-              {tx("cartGroupedShort")}{" "}
-              <CbInfoHint label={tx("cartGroupedHintLabel")} description={tx("cartGroupedByPerson")} />
-            </p>
+            <p className="cb-muted mb-3 text-sm leading-relaxed">{tx("cartGroupedShort")}</p>
           ) : null}
           {bagSnapshots.length > 0 && approvalRequired ? (
             <div
@@ -1846,6 +1942,17 @@ export function BookingCheckoutDrawer({
               role="note"
             >
               {tx("approvalNoticeBag")}
+            </div>
+          ) : null}
+          {bagSnapshots.length > 0 && bagPolicyBag === "mixed" ? (
+            <div className="cb-checkout-mixed-cart-banner mb-3" role="note">
+              <span className="cb-checkout-mixed-cart-banner-icon" aria-hidden>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                  <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.5" />
+                  <path d="M12 10v5M12 7v1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                </svg>
+              </span>
+              <p className="cb-checkout-mixed-cart-banner-text">{tx("mixedCartPolicyBanner")}</p>
             </div>
           ) : null}
 
@@ -1865,6 +1972,7 @@ export function BookingCheckoutDrawer({
                         const lines = expandSnapshotForPurchaseList(row, index, {
                           bagPolicy: bagPolicyBag,
                           omitBookingLabelInMeta: true,
+                          structuredBagMeta: true,
                           hideVenueApprovalLineNotes: approvalRequired,
                           ...(cartFlatLineIndices != null
                             ? { cartFlatLineIndexFilter: new Set(cartFlatLineIndices) }
@@ -1878,64 +1986,168 @@ export function BookingCheckoutDrawer({
                             key={`${row.cart.id}-${index}-${subsectionBookingForLabel ?? "all"}`}
                             className="cb-cart-bag-line"
                           >
-                            {lines.map((line, lineIdx) => (
+                                                        {lines.map((line, lineIdx) => (
                               <div
                                 key={line.key}
-                                className={`cb-cart-bag-line-main${lineIdx > 0 ? " mt-3 border-t border-[var(--cb-border)] pt-3" : ""}`}
+                                className={`cb-cart-bag-line-main${
+                                  line.lineKind === "addon" ? " cb-cart-bag-line-main--addon" : ""
+                                }${lineIdx > 0 ? " mt-3 border-t border-[var(--cb-border)] pt-3" : ""}`}
                               >
-                                <div>
-                                  <p className="cb-cart-bag-line-title">{line.title}</p>
-                                  <p className="cb-cart-bag-line-meta">{line.meta}</p>
-                                  {line.discountNote ? (
-                                    <span className="cb-checkout-discount-tag">{line.discountNote}</span>
-                                  ) : null}
-                                  {line.memberAccessNote ? (
-                                    <p className="mt-1.5">
-                                      <span className="cb-cart-line-member-badge">{line.memberAccessNote}</span>
-                                    </p>
-                                  ) : null}
-                                  {line.checkoutNote ? (
-                                    <p className="cb-muted mt-0.5 text-[0.7rem] leading-snug">{line.checkoutNote}</p>
-                                  ) : null}
-                                </div>
-                                <div className="cb-cart-bag-line-actions">
-                                  {line.amount != null ? (
-                                    <span className="cb-cart-bag-line-price">
-                                      {line.strikeAmount != null &&
-                                      line.strikeAmount > line.amount + 0.005 ? (
-                                        <>
-                                          <span className="cb-checkout-price-strike">
-                                            {formatPrice(line.strikeAmount, bagCurrency)}
-                                          </span>{" "}
+                                <div className="cb-cart-bag-line-top">
+                                  <div className="cb-cart-bag-line-primary">
+                                    {line.lineKind === "addon" ? (
+                                      <p className="cb-cart-bag-addon-pill">
+                                        <span aria-hidden className="cb-cart-bag-addon-plus">
+                                          +
+                                        </span>
+                                        <span className="min-w-0 truncate">{line.title}</span>
+                                      </p>
+                                    ) : (
+                                      <div className="cb-cart-bag-line-title-wrap">
+                                        <p className="cb-cart-bag-line-title">{line.title}</p>
+                                        {line.approvalPending ? (
+                                          <span className="cb-cart-bag-approval-pill">
+                                            <span className="cb-cart-bag-approval-pill-icon" aria-hidden>
+                                              !
+                                            </span>
+                                            {tx("approvalRequiredPill")}
+                                          </span>
+                                        ) : null}
+                                      </div>
+                                    )}
+                                    {line.bagMetaRows ? (
+                                      <ul className="cb-cart-bag-meta-rows">
+                                        {line.bagMetaRows.participant ? (
+                                          <li className="cb-cart-bag-meta-row">
+                                            <span className="cb-cart-bag-meta-icon" aria-hidden>
+                                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                                                <circle cx="12" cy="8" r="3" stroke="currentColor" strokeWidth="1.5" />
+                                                <path
+                                                  d="M6 19c1.5-3 4-5 6-5s4.5 2 6 5"
+                                                  stroke="currentColor"
+                                                  strokeWidth="1.5"
+                                                  strokeLinecap="round"
+                                                />
+                                              </svg>
+                                            </span>
+                                            <span className="cb-cart-bag-meta-text">
+                                              {line.bagMetaRows.participant}{" "}
+                                              <span className="cb-cart-bag-meta-muted">
+                                                {tx("participantAttachedCustomer")}
+                                              </span>
+                                            </span>
+                                          </li>
+                                        ) : null}
+                                        {line.bagMetaRows.resource ? (
+                                          <li className="cb-cart-bag-meta-row">
+                                            <span className="cb-cart-bag-meta-icon" aria-hidden>
+                                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                                                <path
+                                                  d="M12 21s7-4.35 7-10a7 7 0 10-14 0c0 5.65 7 10 7 10z"
+                                                  stroke="currentColor"
+                                                  strokeWidth="1.5"
+                                                  strokeLinejoin="round"
+                                                />
+                                                <circle cx="12" cy="11" r="2" stroke="currentColor" strokeWidth="1.5" />
+                                              </svg>
+                                            </span>
+                                            <span className="cb-cart-bag-meta-text">{line.bagMetaRows.resource}</span>
+                                          </li>
+                                        ) : null}
+                                        {line.bagMetaRows.dateLine ? (
+                                          <li className="cb-cart-bag-meta-row">
+                                            <span className="cb-cart-bag-meta-icon" aria-hidden>
+                                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                                                <rect
+                                                  x="4"
+                                                  y="5"
+                                                  width="16"
+                                                  height="14"
+                                                  rx="2"
+                                                  stroke="currentColor"
+                                                  strokeWidth="1.5"
+                                                />
+                                                <path d="M8 3v4M16 3v4M4 11h16" stroke="currentColor" strokeWidth="1.5" />
+                                              </svg>
+                                            </span>
+                                            <span className="cb-cart-bag-meta-text">
+                                              {line.bagMetaRows.dateLine}
+                                              {line.bagMetaRows.timeLine
+                                                ? ` · ${line.bagMetaRows.timeLine}`
+                                                : ""}
+                                            </span>
+                                          </li>
+                                        ) : line.bagMetaRows.timeLine ? (
+                                          <li className="cb-cart-bag-meta-row">
+                                            <span className="cb-cart-bag-meta-icon" aria-hidden>
+                                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                                                <circle cx="12" cy="12" r="7" stroke="currentColor" strokeWidth="1.5" />
+                                                <path
+                                                  d="M12 8v5l3 2"
+                                                  stroke="currentColor"
+                                                  strokeWidth="1.5"
+                                                  strokeLinecap="round"
+                                                />
+                                              </svg>
+                                            </span>
+                                            <span className="cb-cart-bag-meta-text">{line.bagMetaRows.timeLine}</span>
+                                          </li>
+                                        ) : null}
+                                      </ul>
+                                    ) : line.meta ? (
+                                      <p className="cb-cart-bag-line-meta">{line.meta}</p>
+                                    ) : null}
+                                    {line.discountNote ? (
+                                      <span className="cb-checkout-discount-tag">{line.discountNote}</span>
+                                    ) : null}
+                                    {line.memberAccessNote ? (
+                                      <p className="mt-1.5">
+                                        <span className="cb-cart-line-member-badge">{line.memberAccessNote}</span>
+                                      </p>
+                                    ) : null}
+                                    {line.checkoutNote ? (
+                                      <p className="cb-muted mt-0.5 text-[0.7rem] leading-snug">{line.checkoutNote}</p>
+                                    ) : null}
+                                  </div>
+                                  <div className="cb-cart-bag-line-actions">
+                                    {line.amount != null ? (
+                                      <span className="cb-cart-bag-line-price">
+                                        {line.strikeAmount != null &&
+                                        line.strikeAmount > line.amount + 0.005 ? (
+                                          <>
+                                            <span className="cb-checkout-price-strike">
+                                              {formatPrice(line.strikeAmount, bagCurrency)}
+                                            </span>{" "}
+                                            <strong>{formatPrice(line.amount, bagCurrency)}</strong>
+                                          </>
+                                        ) : (
                                           <strong>{formatPrice(line.amount, bagCurrency)}</strong>
-                                        </>
-                                      ) : (
-                                        <strong>{formatPrice(line.amount, bagCurrency)}</strong>
-                                      )}
-                                    </span>
-                                  ) : (
-                                    <span className="cb-muted text-sm">—</span>
-                                  )}
-                                  {line.bagRemove && onRemoveBagLine ? (
-                                    <button
-                                      type="button"
-                                      className="cb-cart-bag-remove"
-                                      aria-label={
-                                        line.bagRemove.kind === "subsection"
-                                          ? `Remove reservation and add-ons: ${row.productName}`
-                                          : `Remove ${line.title}`
-                                      }
-                                      onClick={() =>
-                                        onRemoveBagLine({
-                                          index,
-                                          cartFlatLineIndices,
-                                          remove: line.bagRemove!,
-                                        })
-                                      }
-                                    >
-                                      <span aria-hidden>🗑</span>
-                                    </button>
-                                                                   ) : null}
+                                        )}
+                                      </span>
+                                    ) : (
+                                      <span className="cb-muted text-sm">—</span>
+                                    )}
+                                    {line.bagRemove && onRemoveBagLine ? (
+                                      <button
+                                        type="button"
+                                        className="cb-cart-bag-remove"
+                                        aria-label={
+                                          line.bagRemove.kind === "subsection"
+                                            ? `Remove reservation and add-ons: ${row.productName}`
+                                            : `Remove ${line.title}`
+                                        }
+                                        onClick={() =>
+                                          onRemoveBagLine({
+                                            index,
+                                            cartFlatLineIndices,
+                                            remove: line.bagRemove!,
+                                          })
+                                        }
+                                      >
+                                        <span aria-hidden>🗑</span>
+                                      </button>
+                                    ) : null}
+                                  </div>
                                 </div>
                               </div>
                             ))}
@@ -1965,15 +2177,36 @@ export function BookingCheckoutDrawer({
                     value={formatPrice(bagLineBuckets.memberships, bagCurrency)}
                   />
                 ) : null}
-                {bagSessionAggregates.discountTotal != null && bagSessionAggregates.discountTotal > 0.0001 ? (
-                  <CbCheckoutTotalRow
-                    variant="discount"
-                    label={tx("discountAndSavings")}
-                    value={`−${formatPrice(bagSessionAggregates.discountTotal, bagCurrency)}`}
-                  />
-                ) : null}
+                <CbCheckoutTotalRow
+                  variant="discount"
+                  icon={
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
+                      <path
+                        d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.82 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                        strokeLinejoin="round"
+                      />
+                      <circle cx="7.5" cy="7.5" r="1.25" fill="currentColor" />
+                    </svg>
+                  }
+                  label={tx("discountAndSavings")}
+                  value={
+                    bagSessionAggregates.discountTotal != null &&
+                    bagSessionAggregates.discountTotal > 0.0001
+                      ? `−${formatPrice(bagSessionAggregates.discountTotal, bagCurrency)}`
+                      : "—"
+                  }
+                />
                 <CbCheckoutTotalRow
                   variant="muted"
+                  icon={
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
+                      <circle cx="8.5" cy="8.5" r="2" stroke="currentColor" strokeWidth="1.4" />
+                      <circle cx="15.5" cy="15.5" r="2" stroke="currentColor" strokeWidth="1.4" />
+                      <path d="M16 8L8 16" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+                    </svg>
+                  }
                   label={tx("tax")}
                   value={
                     bagSessionAggregates.taxTotal != null
@@ -1983,20 +2216,50 @@ export function BookingCheckoutDrawer({
                 />
                 <CbCheckoutTotalRow
                   variant="muted"
-                  label={tx("transactionFee")}
-                  value={
-                    bagSessionAggregates.feeTotal != null
-                      ? formatPrice(bagSessionAggregates.feeTotal, bagCurrency)
-                      : tx("feePending")
+                  icon={
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
+                      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.5" />
+                      <path d="M12 7v6l3 2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                    </svg>
                   }
-                  valueClassName="text-[var(--cb-text-muted)] text-right text-xs"
+                  label={tx("fees")}
+                  value={
+                    bagFeeRowAmount != null
+                      ? formatPrice(bagFeeRowAmount, bagCurrency)
+                      : paymentOptionsQuery.isPending
+                        ? tc("loading")
+                        : "—"
+                  }
+                  title={
+                    bagFeeRowAmount != null
+                      ? formatConsumerPaymentFeeRuleSummary(selectedPaymentChoice?.fee ?? null) ??
+                        undefined
+                      : tx("feesMayApplyTooltip")
+                  }
                 />
-                <p className="cb-cart-bag-fees-note mt-1 mb-px text-xs leading-snug text-[var(--cb-text-muted)]">
-                  {tx("transactionFeesShort")}{" "}
-                  <CbInfoHint label={tx("infoHintMore")} description={tx("transactionFeesDetail")} />
-                </p>
+                <CbCheckoutTotalRow
+                  variant="muted"
+                  icon={
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
+                      <rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" strokeWidth="1.5" />
+                      <path d="M3 10h18" stroke="currentColor" strokeWidth="1.5" />
+                    </svg>
+                  }
+                  label={tx("paymentMethodRowLabel")}
+                  value={
+                    selectedPaymentChoice != null
+                      ? selectedPaymentChoice.displayPrimary
+                      : tx("paymentMethodRowValue")
+                  }
+                />
                 <CbCheckoutTotalRow
                   variant="grand"
+                  icon={
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
+                      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.5" />
+                      <path d="M8 14l2.5 2.5L16 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                    </svg>
+                  }
                   label={tx("total")}
                   value={
                     bagEstimatedTotal != null ? (
@@ -2009,10 +2272,6 @@ export function BookingCheckoutDrawer({
                   }
                 />
               </div>
-              <p className="cb-muted text-xs leading-relaxed">
-                {tx("bondAmountsShort")}{" "}
-                <CbInfoHint label={tx("infoHintMore")} description={tx("bondAmountsDetail")} />
-              </p>
             </>
           )}
 
@@ -2033,16 +2292,210 @@ export function BookingCheckoutDrawer({
     );
   }
 
+  const checkoutDrawerTitle = finalizeSuccess != null ? tx("bookingConfirmedTitle") : title;
+  const checkoutDrawerBack =
+    finalizeSuccess != null ? undefined : showDrawerBack ? handleToolbarBack : undefined;
+
   return (
     <RightDrawer
       open={open}
       onClose={onClose}
-      onBack={showDrawerBack ? handleToolbarBack : undefined}
-      ariaLabel={title}
-      title={title}
+      onBack={checkoutDrawerBack}
+      ariaLabel={checkoutDrawerTitle}
+      title={finalizeSuccess != null ? undefined : title}
+      hideTitle={finalizeSuccess != null}
       panelClassName={panelCls}
     >
-      <div className="cb-checkout-inner">
+      <Fragment>
+        {finalizeSuccess != null ? (
+          <div
+            className="cb-checkout-finalize-panel"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="cb-finalize-title"
+          >
+            <div className="cb-booking-confirmed">
+              <div className="cb-booking-confirmed-hero">
+                <div className="cb-booking-confirmed-icon cb-booking-confirmed-icon--success" aria-hidden>
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                    <path
+                      d="M20 6L9 17l-5-5"
+                      stroke="currentColor"
+                      strokeWidth="2.25"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </div>
+                <h2 id="cb-finalize-title" className="cb-booking-confirmed-title">
+                  {tx("bookingConfirmedTitle")}
+                </h2>
+                <p className="cb-booking-confirmed-sub cb-muted">
+                  {finalizeCheckoutKind === "submit"
+                    ? tx("bookingConfirmedSubtitleSubmit")
+                    : tx("bookingConfirmedSubtitle")}
+                </p>
+              </div>
+              <div className="cb-booking-confirmed-details">
+                <div className="cb-booking-confirmed-detail-row cb-booking-confirmed-detail-row--inline-copy">
+                  <span className="cb-booking-confirmed-detail-label">
+                    {tx("reservationLabel")}
+                    <span className="cb-booking-confirmed-detail-colon" aria-hidden>
+                      :
+                    </span>
+                  </span>
+                  <div className="cb-booking-confirmed-detail-inline-value">
+                    {finalizeReservationDisplay != null ? (
+                      <span className="cb-booking-confirmed-invoice-id cb-booking-confirmed-invoice-id--plain cb-booking-confirmed-invoice-id--inline">
+                        {finalizeReservationDisplay}
+                      </span>
+                    ) : (
+                      <a
+                        className="cb-booking-confirmed-invoice-id cb-booking-confirmed-invoice-id--inline"
+                        href={consumerReservationsUrl()}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        {tx("goToReservations")}
+                      </a>
+                    )}
+                    <button
+                      type="button"
+                      className="cb-booking-confirmed-copy-icon"
+                      onClick={() =>
+                        copyFinalizeClipboard(
+                          finalizeReservationDisplay ?? consumerReservationsUrl(),
+                          "reservations"
+                        )
+                      }
+                      aria-label={finalizeCopyFlash === "reservations" ? tx("copied") : tx("copyId")}
+                    >
+                      {finalizeCopyFlash === "reservations" ? (
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
+                          <path
+                            d="M20 6L9 17l-5-5"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                      ) : (
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
+                          <rect x="9" y="9" width="11" height="11" rx="2" stroke="currentColor" strokeWidth="1.5" />
+                          <path
+                            d="M6 15H5a2 2 0 01-2-2V5a2 2 0 012-2h8a2 2 0 012 2v1"
+                            stroke="currentColor"
+                            strokeWidth="1.5"
+                          />
+                        </svg>
+                      )}
+                    </button>
+                  </div>
+                </div>
+                {finalizeCheckoutKind === "pay" && finalizeInvoiceDisplayPretty != null ? (
+                  <div className="cb-booking-confirmed-detail-row cb-booking-confirmed-detail-row--inline-copy">
+                    <span className="cb-booking-confirmed-detail-label">
+                      {tx("invoiceLabel")}
+                      <span className="cb-booking-confirmed-detail-colon" aria-hidden>
+                        :
+                      </span>
+                    </span>
+                    <div className="cb-booking-confirmed-detail-inline-value">
+                      {finalizeInvoicePortalUrl != null ? (
+                        <a
+                          className="cb-booking-confirmed-invoice-id cb-booking-confirmed-invoice-id--inline"
+                          href={finalizeInvoicePortalUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          {finalizeInvoiceDisplayPretty}
+                        </a>
+                      ) : (
+                        <span className="cb-booking-confirmed-invoice-id cb-booking-confirmed-invoice-id--plain cb-booking-confirmed-invoice-id--inline">
+                          {finalizeInvoiceDisplayPretty}
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        className="cb-booking-confirmed-copy-icon"
+                        onClick={() => copyFinalizeClipboard(finalizeInvoiceDisplayPretty, "invoice")}
+                        aria-label={finalizeCopyFlash === "invoice" ? tx("copied") : tx("copyId")}
+                      >
+                        {finalizeCopyFlash === "invoice" ? (
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
+                            <path
+                              d="M20 6L9 17l-5-5"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        ) : (
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
+                            <rect x="9" y="9" width="11" height="11" rx="2" stroke="currentColor" strokeWidth="1.5" />
+                            <path
+                              d="M6 15H5a2 2 0 01-2-2V5a2 2 0 012-2h8a2 2 0 012 2v1"
+                              stroke="currentColor"
+                              strokeWidth="1.5"
+                            />
+                          </svg>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+              <p className="cb-booking-confirmed-email cb-muted text-center text-sm">
+                {confirmationAccountEmail != null
+                  ? tx("confirmationEmailSent", { email: confirmationAccountEmail })
+                  : tx("confirmationEmailGeneric")}
+              </p>
+              <div className="cb-booking-confirmed-actions cb-booking-confirmed-actions--adjacent">
+                <button type="button" className="cb-btn-outline cb-booking-confirmed-action-btn" onClick={openCalendarTemplate}>
+                  <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    aria-hidden
+                    className="cb-booking-confirmed-action-btn-icon"
+                  >
+                    <rect x="4" y="5" width="16" height="15" rx="2" stroke="currentColor" strokeWidth="1.6" />
+                    <path d="M8 3v4M16 3v4M4 11h16" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                  </svg>
+                  {tx("addToCalendar")}
+                </button>
+                <button
+                  type="button"
+                  className="cb-btn-primary cb-booking-confirmed-action-btn"
+                  onClick={dismissBookingConfirmed}
+                >
+                  <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    aria-hidden
+                    className="cb-booking-confirmed-action-btn-icon"
+                  >
+                    <path
+                      d="M20 6L9 17l-5-5"
+                      stroke="currentColor"
+                      strokeWidth="2.2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                  {tx("done")}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="cb-checkout-inner">
         {showPreCheckoutShell ? (
           <>
             <div className="cb-checkout-progress">
@@ -2082,10 +2535,12 @@ export function BookingCheckoutDrawer({
               ) : null}
             </div>
 
-            <p className="cb-checkout-product">
-              <span className="cb-checkout-product-label">{tx("serviceShort")}</span>
-              <span className="cb-checkout-product-name">{productName}</span>
-            </p>
+            {step !== "forms" ? (
+              <p className="cb-checkout-product">
+                <span className="cb-checkout-product-label">{tx("serviceShort")}</span>
+                <span className="cb-checkout-product-name">{productName}</span>
+              </p>
+            ) : null}
 
             {step === "addons" ? (
               pickedSlots.length > 0 ? (
@@ -2164,13 +2619,24 @@ export function BookingCheckoutDrawer({
               <p className="cb-muted mb-3 text-sm">{tx("purchasesGroupedByMember")}</p>
             )}
             <h3 className="cb-checkout-section-title">{tx("orderSummary")}</h3>
+            {bagPolicyCheckout === "mixed" ? (
+              <div className="cb-checkout-mixed-cart-banner" role="note">
+                <span className="cb-checkout-mixed-cart-banner-icon" aria-hidden>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                    <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.5" />
+                    <path d="M12 10v5M12 7v1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                  </svg>
+                </span>
+                <p className="cb-checkout-mixed-cart-banner-text">{tx("mixedCartPolicyBanner")}</p>
+              </div>
+            ) : null}
             <div className="cb-checkout-payment-purchase-groups mb-4">
               {groupedBagWithTotals.map((section, si) => (
                 <section key={`${section.label}-${si}`} className="cb-checkout-payment-group">
                   <h4 className="cb-checkout-payment-group-title">
                     {groupHeadingForBooking(section.label, si, Math.max(1, paymentSectionCount), tx)}
                   </h4>
-                  <ul className="cb-checkout-payment-lines">
+                  <ul className="cb-checkout-payment-lines cb-checkout-payment-lines--ds-cards">
                     {section.items.flatMap(
                       ({ index, row, cartFlatLineIndices, subsectionBookingForLabel }) =>
                         expandSnapshotForPurchaseList(row, index, {
@@ -2235,7 +2701,7 @@ export function BookingCheckoutDrawer({
                       tx
                     )}
                   </h4>
-                  <ul className="cb-checkout-payment-lines">
+                  <ul className="cb-checkout-payment-lines cb-checkout-payment-lines--ds-cards">
                     {section.items.flatMap(
                       ({ index, row, cartFlatLineIndices, subsectionBookingForLabel }) =>
                         expandSnapshotForPurchaseList(row, index, {
@@ -2292,58 +2758,117 @@ export function BookingCheckoutDrawer({
               ))}
             </div>
 
-            <h3 className="cb-checkout-section-title">Totals</h3>
-            <div className="cb-checkout-totals mb-6">
-              <div className="cb-checkout-total-row">
-                <span>Subtotal</span>
-                <span>
-                  {bagAggregates.lineSubtotal != null
-                    ? formatPrice(bagAggregates.lineSubtotal, bagCurrency)
-                    : bagGrandTotal != null
-                      ? formatPrice(bagGrandTotal, bagCurrency)
-                      : "—"}
-                </span>
-              </div>
-              {displayDiscountTotal != null && displayDiscountTotal > 0.005 ? (
-                <div className="cb-checkout-total-row cb-checkout-total-row--discount">
-                  <span>{tc("discountsAndSavings")}</span>
-                  <span>−{formatPrice(displayDiscountTotal, bagCurrency)}</span>
-                </div>
+            <h3 className="cb-checkout-section-title">{tx("orderSummary")}</h3>
+            <div className="cb-checkout-totals cb-checkout-totals--ds mb-6">
+              <CbCheckoutTotalRow
+                label={tx("bagBookings")}
+                value={formatPrice(paymentLineBuckets.bookings, bagCurrency)}
+              />
+              {Math.abs(paymentLineBuckets.addons) > BOND_KIND_LINE_MIN ? (
+                <CbCheckoutTotalRow
+                  label={tx("extras")}
+                  value={formatPrice(paymentLineBuckets.addons, bagCurrency)}
+                />
               ) : null}
-              <div className="cb-checkout-total-row cb-checkout-total-row--muted">
-                <span>Tax</span>
-                <span>
-                  {bagAggregates.taxTotal != null
+              {Math.abs(paymentLineBuckets.memberships) > BOND_KIND_LINE_MIN ? (
+                <CbCheckoutTotalRow
+                  label={tx("memberships")}
+                  value={formatPrice(paymentLineBuckets.memberships, bagCurrency)}
+                />
+              ) : null}
+              <CbCheckoutTotalRow
+                variant="discount"
+                icon={
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
+                    <path
+                      d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.82 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinejoin="round"
+                    />
+                    <circle cx="7.5" cy="7.5" r="1.25" fill="currentColor" />
+                  </svg>
+                }
+                label={tx("discountAndSavings")}
+                value={
+                  displayDiscountTotal != null && displayDiscountTotal > 0.005
+                    ? `−${formatPrice(displayDiscountTotal, bagCurrency)}`
+                    : "—"
+                }
+              />
+              <CbCheckoutTotalRow
+                variant="muted"
+                icon={
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
+                    <circle cx="8.5" cy="8.5" r="2" stroke="currentColor" strokeWidth="1.4" />
+                    <circle cx="15.5" cy="15.5" r="2" stroke="currentColor" strokeWidth="1.4" />
+                    <path d="M16 8L8 16" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+                  </svg>
+                }
+                label={tx("tax")}
+                value={
+                  bagAggregates.taxTotal != null
                     ? formatPrice(bagAggregates.taxTotal, bagCurrency)
-                    : "—"}
-                </span>
-              </div>
-              <div className="cb-checkout-total-row cb-checkout-total-row--muted">
-                <span>
-                  {transactionFeesDisplay.ruleLabel
-                    ? `${tx("transactionFee")} (${transactionFeesDisplay.ruleLabel})`
-                    : tx("transactionFee")}
-                </span>
-                <span
-                  className={
-                    transactionFeesDisplay.kind === "hint" ? "text-[var(--cb-text-muted)] text-right text-xs" : ""
-                  }
-                >
-                  {transactionFeesDisplay.kind === "amount"
-                    ? formatPrice(transactionFeesDisplay.value, bagCurrency)
-                    : transactionFeesDisplay.text}
-                </span>
-              </div>
-              <div className="cb-checkout-total-row cb-checkout-total-row--grand">
-                <span>Total</span>
-                <strong>
-                  {estimatedAmountDue != null
-                    ? formatPrice(estimatedAmountDue, bagCurrency)
-                    : bagAggregates.cartGrandTotal != null
-                      ? formatPrice(bagAggregates.cartGrandTotal, bagCurrency)
-                      : "—"}
-                </strong>
-              </div>
+                    : tx("feePending")
+                }
+              />
+              <CbCheckoutTotalRow
+                variant="muted"
+                icon={
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
+                    <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.5" />
+                    <path d="M12 7v6l3 2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                  </svg>
+                }
+                label={tx("fees")}
+                value={
+                  paymentFeeRowAmount != null
+                    ? formatPrice(paymentFeeRowAmount, bagCurrency)
+                    : paymentOptionsQuery.isPending
+                      ? tc("loading")
+                      : "—"
+                }
+                title={
+                  paymentFeeRowAmount != null
+                    ? formatConsumerPaymentFeeRuleSummary(selectedPaymentChoice?.fee ?? null) ??
+                      undefined
+                    : tx("feesMayApplyTooltip")
+                }
+              />
+              <CbCheckoutTotalRow
+                variant="muted"
+                icon={
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
+                    <rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" strokeWidth="1.5" />
+                    <path d="M3 10h18" stroke="currentColor" strokeWidth="1.5" />
+                  </svg>
+                }
+                label={tx("paymentMethodRowLabel")}
+                value={
+                  selectedPaymentChoice != null
+                    ? selectedPaymentChoice.displayPrimary
+                    : tx("selectPaymentMethod")
+                }
+              />
+              <CbCheckoutTotalRow
+                variant="grand"
+                icon={
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
+                    <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.5" />
+                    <path d="M8 14l2.5 2.5L16 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                  </svg>
+                }
+                label={tx("total")}
+                value={
+                  estimatedAmountDue != null ? (
+                    <strong>{formatPrice(estimatedAmountDue, bagCurrency)}</strong>
+                  ) : bagAggregates.cartGrandTotal != null ? (
+                    <strong>{formatPrice(bagAggregates.cartGrandTotal, bagCurrency)}</strong>
+                  ) : (
+                    tx("feePending")
+                  )
+                }
+              />
             </div>
 
             <h3 className="cb-checkout-section-title">{tc("paymentMethodSectionTitle")}</h3>
@@ -2723,45 +3248,11 @@ export function BookingCheckoutDrawer({
                   className="cb-btn-outline text-sm"
                   onClick={() => {
                     persistCartMutation.reset();
-                    setPostCreateAwaitingContinue(false);
                     persistBondCart();
                   }}
                 >
                   {tc("retry")}
                 </button>
-              </div>
-            ) : persistCartMutation.isSuccess && postCreateAwaitingContinue ? (
-              <div className="cb-checkout-post-create">
-                <div className="cb-checkout-confirmation-hero">
-                  <div className="cb-checkout-confirmation-icon" aria-hidden>
-                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-                      <path
-                        d="M20 6L9 17l-5-5"
-                        stroke="currentColor"
-                        strokeWidth="2.2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                  </div>
-                  <p className="cb-checkout-confirmation-kicker">{tx("addedToCartTitle")}</p>
-                  <p className="cb-checkout-confirmation-sub cb-muted">{tx("addedToCartSubtitle")}</p>
-                </div>
-                <div className="cb-checkout-post-create-footer">
-                  <button
-                    type="button"
-                    className="cb-btn-outline cb-checkout-post-create-secondary w-full"
-                    onClick={handleBookAnotherRental}
-                  >
-                    <span className="cb-checkout-post-create-plus" aria-hidden>
-                      +
-                    </span>{" "}
-                    {tx("bookAnotherRental")}
-                  </button>
-                  <button type="button" className="cb-btn-primary w-full" onClick={finishAddToCart}>
-                    {tx("continueToPayment")}
-                  </button>
-                </div>
               </div>
             ) : !cannotMergeSessionCart ? (
               <div className="cb-checkout-actions">
@@ -2845,92 +3336,9 @@ export function BookingCheckoutDrawer({
           </div>
         </div>
       </ModalShell>
-
-      <ModalShell
-        open={finalizeSuccess != null}
-        title={tx("bookingConfirmedTitle")}
-        hideTitle
-        ariaLabel={tx("bookingConfirmedTitle")}
-        onClose={dismissBookingConfirmed}
-        panelClassName={`consumer-booking ${appearanceClass} cb-modal-panel--booking-confirmed`.trim()}
-      >
-        <div className="cb-booking-confirmed">
-          <div className="cb-booking-confirmed-hero">
-            <div className="cb-booking-confirmed-icon" aria-hidden>
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-                <path
-                  d="M20 6L9 17l-5-5"
-                  stroke="currentColor"
-                  strokeWidth="2.4"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            </div>
-            <h2 className="cb-booking-confirmed-title">{tx("bookingConfirmedTitle")}</h2>
-            <p className="cb-booking-confirmed-sub cb-muted">{tx("bookingConfirmedSubtitle")}</p>
-          </div>
-          {finalizeSuccess?.reservationRef != null || finalizeInvoiceDisplay != null ? (
-            <div className="cb-booking-confirmed-details">
-              {finalizeSuccess != null && finalizeSuccess.reservationRef != null ? (
-                <div className="cb-booking-confirmed-detail-row">
-                  <span className="cb-booking-confirmed-detail-label">{tx("reservationLabel")}</span>
-                  <span className="cb-booking-confirmed-detail-value">{finalizeSuccess.reservationRef}</span>
-                  <button
-                    type="button"
-                    className="cb-booking-confirmed-copy"
-                    onClick={() => copyFinalizeId("reservation", finalizeSuccess.reservationRef!)}
-                  >
-                    {finalizeCopyFlash === "reservation" ? tx("copied") : tx("copyId")}
-                  </button>
-                </div>
-              ) : null}
-              {finalizeInvoiceDisplay != null ? (
-                <div className="cb-booking-confirmed-detail-row cb-booking-confirmed-detail-row--invoice">
-                  <span className="cb-booking-confirmed-detail-label">{tx("invoiceLabel")}</span>
-                  {finalizeInvoicePortalUrl != null ? (
-                    <a
-                      className="cb-booking-confirmed-invoice-id"
-                      href={finalizeInvoicePortalUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      aria-label={`${tx("invoiceLabel")}: ${finalizeInvoiceDisplay}`}
-                    >
-                      {finalizeInvoiceDisplay}
-                    </a>
-                  ) : (
-                    <span className="cb-booking-confirmed-invoice-id cb-booking-confirmed-invoice-id--plain">
-                      {finalizeInvoiceDisplay}
-                    </span>
-                  )}
-                  <div className="cb-booking-confirmed-detail-row-actions">
-                    <button
-                      type="button"
-                      className="cb-booking-confirmed-copy"
-                      onClick={() => copyFinalizeId("invoice", finalizeInvoiceDisplay)}
-                    >
-                      {finalizeCopyFlash === "invoice" ? tx("copied") : tx("copyId")}
-                    </button>
-                  </div>
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-          <p className="cb-booking-confirmed-email cb-muted text-center text-sm">
-            {confirmationAccountEmail != null
-              ? tx("confirmationEmailSent", { email: confirmationAccountEmail })
-              : tx("confirmationEmailGeneric")}
-          </p>
-          <div className="cb-booking-confirmed-actions">
-            <button type="button" className="cb-btn-outline" onClick={openCalendarTemplate}>
-              {tx("addToCalendar")}
-            </button>
-            <button type="button" className="cb-btn-primary" onClick={dismissBookingConfirmed}>
-              {tx("done")}
-            </button>
-          </div>
-        </div>
-      </ModalShell>
+          </>
+        )}
+      </Fragment>
     </RightDrawer>
   );
 }

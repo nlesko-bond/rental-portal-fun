@@ -5,6 +5,36 @@ function str(v: unknown): string | undefined {
 }
 
 /** Resolve a family member (or self) by Bond user id from `GET .../user?expand=family` (and `expand=address`). */
+/**
+ * Public profile image from `GET .../user?expand=family` when Bond exposes a URL
+ * (`profilePhotoUrl`, `avatarUrl`, nested `profile`, etc.).
+ */
+export function profilePhotoUrlFromUser(u: Record<string, unknown> | null | undefined): string | undefined {
+  if (!u) return undefined;
+  const keys = [
+    "profilePhotoUrl",
+    "avatarUrl",
+    "photoUrl",
+    "profileImageUrl",
+    "imageUrl",
+    "pictureUrl",
+    "headshotUrl",
+    "thumbnailUrl",
+  ] as const;
+  for (const k of keys) {
+    const c = u[k];
+    if (typeof c === "string" && c.trim().length > 0) {
+      const t = c.trim();
+      if (t.startsWith("http://") || t.startsWith("https://") || t.startsWith("/")) return t;
+    }
+  }
+  const nested = u.profile;
+  if (nested && typeof nested === "object") {
+    return profilePhotoUrlFromUser(nested as Record<string, unknown>);
+  }
+  return undefined;
+}
+
 export function findProfilePersonById(
   profile: BondUserDto | undefined,
   userId: number
@@ -98,6 +128,37 @@ function readGender(u: Record<string, unknown> | null): string {
   const g = str(u.gender) ?? str(u.genderName);
   if (!g) return "";
   return g.trim().toLowerCase();
+}
+
+/** Age in full years from `YYYY-MM-DD` (or parseable date string). */
+export function ageFromBirthDateYmd(ymd: string): number | null {
+  if (!ymd || ymd.length < 4) return null;
+  const d = new Date(ymd.length === 10 ? `${ymd}T12:00:00` : ymd);
+  if (Number.isNaN(d.getTime())) return null;
+  const today = new Date();
+  let age = today.getFullYear() - d.getFullYear();
+  const md = today.getMonth() - d.getMonth();
+  if (md < 0 || (md === 0 && today.getDate() < d.getDate())) age--;
+  return age >= 0 && age < 130 ? age : null;
+}
+
+/**
+ * One line for participant cards: "Age 12, Female" when Bond sends DOB and/or gender (Consumer DS).
+ */
+export function participantDemographicsLine(u: Record<string, unknown>): string | undefined {
+  const ymd = readBirthDate(u);
+  const age = ymd ? ageFromBirthDateYmd(ymd) : null;
+  const gRaw = str(u.gender) ?? str(u.genderName);
+  const genderLabel =
+    gRaw && gRaw.length > 0
+      ? gRaw.length <= 3
+        ? gRaw.toUpperCase()
+        : gRaw.charAt(0).toUpperCase() + gRaw.slice(1).toLowerCase()
+      : null;
+  const parts: string[] = [];
+  if (age != null) parts.push(`Age ${age}`);
+  if (genderLabel) parts.push(genderLabel);
+  return parts.length > 0 ? parts.join(", ") : undefined;
 }
 
 /** `customer.waiverSignedDate` from Bond `ExtendedUserDto` / `BasicCustomerDto` (YYYY-MM-DD). */
