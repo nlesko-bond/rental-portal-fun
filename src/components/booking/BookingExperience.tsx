@@ -1291,7 +1291,7 @@ export function BookingExperience() {
       style={themeStyle}
     >
       <header className="cb-header-sticky cb-header-fullbleed cb-header-booking grid h-16 shrink-0 grid-cols-[1fr_auto_1fr] items-center border-t-4 border-t-[var(--cb-primary)] bg-[var(--cb-bg-header)] px-2 sm:px-3">
-        <div className="flex items-center justify-self-start">
+        <div className="flex items-center gap-2 justify-self-start">
           <button
             type="button"
             className="cb-appearance-cycle"
@@ -1307,6 +1307,16 @@ export function BookingExperience() {
           >
             {appearanceMode === "light" ? "☀" : appearanceMode === "dark" ? "☾" : "A"}
           </button>
+          <a
+            href="/docs/CONSUMER_FLOW_DIAGRAM.html"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="cb-appearance-cycle"
+            aria-label="Open consumer flow diagram"
+            title="Consumer flow diagram"
+          >
+            📄
+          </a>
         </div>
         <div className="flex min-w-0 flex-col items-center justify-center px-1 text-center">
           {bondAuth.session.status === "authenticated" ? (
