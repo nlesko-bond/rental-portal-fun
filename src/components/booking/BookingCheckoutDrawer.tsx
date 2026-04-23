@@ -2795,6 +2795,216 @@ export function BookingCheckoutDrawer({
     );
   };
 
+  /**
+   * Shared confirmation body. `finalizeSuccess` can be set from either bag-mode
+   * (Pay in full / Pay minimum / Submit request CTAs added in e896dee) or
+   * checkout-mode, so the early return below routes both modes to this one view.
+   */
+  const finalizeConfirmationBody =
+    finalizeSuccess != null ? (
+      <div
+        className="cb-checkout-finalize-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="cb-finalize-title"
+      >
+        <div className="cb-booking-confirmed">
+          <div className="cb-booking-confirmed-hero">
+            <div className="cb-booking-confirmed-icon cb-booking-confirmed-icon--success" aria-hidden>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                <path
+                  d="M20 6L9 17l-5-5"
+                  stroke="currentColor"
+                  strokeWidth="2.25"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </div>
+            <h2 id="cb-finalize-title" className="cb-booking-confirmed-title">
+              {tx("bookingConfirmedTitle")}
+            </h2>
+            <p className="cb-booking-confirmed-sub cb-muted">
+              {finalizeCheckoutKind === "submit"
+                ? tx("bookingConfirmedSubtitleSubmit")
+                : tx("bookingConfirmedSubtitle")}
+            </p>
+          </div>
+          <div className="cb-booking-confirmed-details">
+            <div className="cb-booking-confirmed-detail-row cb-booking-confirmed-detail-row--inline-copy">
+              <span className="cb-booking-confirmed-detail-label">
+                {tx("reservationLabel")}
+                <span className="cb-booking-confirmed-detail-colon" aria-hidden>
+                  :
+                </span>
+              </span>
+              <div className="cb-booking-confirmed-detail-inline-value">
+                {finalizeReservationDisplay != null ? (
+                  <span className="cb-booking-confirmed-invoice-id cb-booking-confirmed-invoice-id--plain cb-booking-confirmed-invoice-id--inline">
+                    {finalizeReservationDisplay}
+                  </span>
+                ) : (
+                  <a
+                    className="cb-booking-confirmed-invoice-id cb-booking-confirmed-invoice-id--inline"
+                    href={consumerReservationsUrl()}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    {tx("goToReservations")}
+                  </a>
+                )}
+                <button
+                  type="button"
+                  className="cb-booking-confirmed-copy-icon"
+                  onClick={() =>
+                    copyFinalizeClipboard(
+                      finalizeReservationDisplay ?? consumerReservationsUrl(),
+                      "reservations"
+                    )
+                  }
+                  aria-label={finalizeCopyFlash === "reservations" ? tx("copied") : tx("copyId")}
+                >
+                  {finalizeCopyFlash === "reservations" ? (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
+                      <path
+                        d="M20 6L9 17l-5-5"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  ) : (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
+                      <rect x="9" y="9" width="11" height="11" rx="2" stroke="currentColor" strokeWidth="1.5" />
+                      <path
+                        d="M6 15H5a2 2 0 01-2-2V5a2 2 0 012-2h8a2 2 0 012 2v1"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                      />
+                    </svg>
+                  )}
+                </button>
+              </div>
+            </div>
+            {finalizeCheckoutKind === "pay" && finalizeInvoiceDisplayPretty != null ? (
+              <div className="cb-booking-confirmed-detail-row cb-booking-confirmed-detail-row--inline-copy">
+                <span className="cb-booking-confirmed-detail-label">
+                  {tx("invoiceLabel")}
+                  <span className="cb-booking-confirmed-detail-colon" aria-hidden>
+                    :
+                  </span>
+                </span>
+                <div className="cb-booking-confirmed-detail-inline-value">
+                  {finalizeInvoicePortalUrl != null ? (
+                    <a
+                      className="cb-booking-confirmed-invoice-id cb-booking-confirmed-invoice-id--inline"
+                      href={finalizeInvoicePortalUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      {finalizeInvoiceDisplayPretty}
+                    </a>
+                  ) : (
+                    <span className="cb-booking-confirmed-invoice-id cb-booking-confirmed-invoice-id--plain cb-booking-confirmed-invoice-id--inline">
+                      {finalizeInvoiceDisplayPretty}
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    className="cb-booking-confirmed-copy-icon"
+                    onClick={() => copyFinalizeClipboard(finalizeInvoiceDisplayPretty, "invoice")}
+                    aria-label={finalizeCopyFlash === "invoice" ? tx("copied") : tx("copyId")}
+                  >
+                    {finalizeCopyFlash === "invoice" ? (
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
+                        <path
+                          d="M20 6L9 17l-5-5"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    ) : (
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
+                        <rect x="9" y="9" width="11" height="11" rx="2" stroke="currentColor" strokeWidth="1.5" />
+                        <path
+                          d="M6 15H5a2 2 0 01-2-2V5a2 2 0 012-2h8a2 2 0 012 2v1"
+                          stroke="currentColor"
+                          strokeWidth="1.5"
+                        />
+                      </svg>
+                    )}
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+          <p className="cb-booking-confirmed-email cb-muted text-center text-sm">
+            {confirmationAccountEmail != null
+              ? tx("confirmationEmailSent", { email: confirmationAccountEmail })
+              : tx("confirmationEmailGeneric")}
+          </p>
+          <div className="cb-booking-confirmed-actions cb-booking-confirmed-actions--adjacent">
+            <button type="button" className="cb-btn-outline cb-booking-confirmed-action-btn" onClick={openCalendarTemplate}>
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                aria-hidden
+                className="cb-booking-confirmed-action-btn-icon"
+              >
+                <rect x="4" y="5" width="16" height="15" rx="2" stroke="currentColor" strokeWidth="1.6" />
+                <path d="M8 3v4M16 3v4M4 11h16" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+              </svg>
+              {tx("addToCalendar")}
+            </button>
+            <button
+              type="button"
+              className="cb-btn-primary cb-booking-confirmed-action-btn"
+              onClick={dismissBookingConfirmed}
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                aria-hidden
+                className="cb-booking-confirmed-action-btn-icon"
+              >
+                <path
+                  d="M20 6L9 17l-5-5"
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+              {tx("done")}
+            </button>
+          </div>
+        </div>
+      </div>
+    ) : null;
+
+  // Confirmation view wins over both bag and checkout renders so submission
+  // from either mode lands on the "Booking Confirmed" / "Booking Submitted" screen.
+  if (finalizeConfirmationBody != null) {
+    return (
+      <RightDrawer
+        open={open}
+        onClose={safeOnClose}
+        ariaLabel={tx("bookingConfirmedTitle")}
+        hideTitle={true}
+        panelClassName={panelCls}
+      >
+        {finalizeConfirmationBody}
+      </RightDrawer>
+    );
+  }
+
   if (mode === "bag") {
     const nBookings = bagSnapshots.length;
     return (
@@ -3475,210 +3685,20 @@ export function BookingCheckoutDrawer({
     );
   }
 
-  const checkoutDrawerTitle = finalizeSuccess != null ? tx("bookingConfirmedTitle") : title;
-  const checkoutDrawerBack =
-    finalizeSuccess != null ? undefined : showDrawerBack ? handleToolbarBack : undefined;
-
+  // `finalizeSuccess != null` is handled by the shared early return above, so this path
+  // is always the "normal checkout UI" case.
   return (
     <RightDrawer
       open={open}
       onClose={safeOnClose}
-      onBack={checkoutDrawerBack}
-      ariaLabel={checkoutDrawerTitle}
-      title={finalizeSuccess != null ? undefined : title}
-      hideTitle={finalizeSuccess != null}
+      onBack={showDrawerBack ? handleToolbarBack : undefined}
+      ariaLabel={title}
+      title={title}
       panelClassName={panelCls}
     >
       <Fragment>
-        {finalizeSuccess != null ? (
-          <div
-            className="cb-checkout-finalize-panel"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="cb-finalize-title"
-          >
-            <div className="cb-booking-confirmed">
-              <div className="cb-booking-confirmed-hero">
-                <div className="cb-booking-confirmed-icon cb-booking-confirmed-icon--success" aria-hidden>
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                    <path
-                      d="M20 6L9 17l-5-5"
-                      stroke="currentColor"
-                      strokeWidth="2.25"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                </div>
-                <h2 id="cb-finalize-title" className="cb-booking-confirmed-title">
-                  {tx("bookingConfirmedTitle")}
-                </h2>
-                <p className="cb-booking-confirmed-sub cb-muted">
-                  {finalizeCheckoutKind === "submit"
-                    ? tx("bookingConfirmedSubtitleSubmit")
-                    : tx("bookingConfirmedSubtitle")}
-                </p>
-              </div>
-              <div className="cb-booking-confirmed-details">
-                <div className="cb-booking-confirmed-detail-row cb-booking-confirmed-detail-row--inline-copy">
-                  <span className="cb-booking-confirmed-detail-label">
-                    {tx("reservationLabel")}
-                    <span className="cb-booking-confirmed-detail-colon" aria-hidden>
-                      :
-                    </span>
-                  </span>
-                  <div className="cb-booking-confirmed-detail-inline-value">
-                    {finalizeReservationDisplay != null ? (
-                      <span className="cb-booking-confirmed-invoice-id cb-booking-confirmed-invoice-id--plain cb-booking-confirmed-invoice-id--inline">
-                        {finalizeReservationDisplay}
-                      </span>
-                    ) : (
-                      <a
-                        className="cb-booking-confirmed-invoice-id cb-booking-confirmed-invoice-id--inline"
-                        href={consumerReservationsUrl()}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        {tx("goToReservations")}
-                      </a>
-                    )}
-                    <button
-                      type="button"
-                      className="cb-booking-confirmed-copy-icon"
-                      onClick={() =>
-                        copyFinalizeClipboard(
-                          finalizeReservationDisplay ?? consumerReservationsUrl(),
-                          "reservations"
-                        )
-                      }
-                      aria-label={finalizeCopyFlash === "reservations" ? tx("copied") : tx("copyId")}
-                    >
-                      {finalizeCopyFlash === "reservations" ? (
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
-                          <path
-                            d="M20 6L9 17l-5-5"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                        </svg>
-                      ) : (
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
-                          <rect x="9" y="9" width="11" height="11" rx="2" stroke="currentColor" strokeWidth="1.5" />
-                          <path
-                            d="M6 15H5a2 2 0 01-2-2V5a2 2 0 012-2h8a2 2 0 012 2v1"
-                            stroke="currentColor"
-                            strokeWidth="1.5"
-                          />
-                        </svg>
-                      )}
-                    </button>
-                  </div>
-                </div>
-                {finalizeCheckoutKind === "pay" && finalizeInvoiceDisplayPretty != null ? (
-                  <div className="cb-booking-confirmed-detail-row cb-booking-confirmed-detail-row--inline-copy">
-                    <span className="cb-booking-confirmed-detail-label">
-                      {tx("invoiceLabel")}
-                      <span className="cb-booking-confirmed-detail-colon" aria-hidden>
-                        :
-                      </span>
-                    </span>
-                    <div className="cb-booking-confirmed-detail-inline-value">
-                      {finalizeInvoicePortalUrl != null ? (
-                        <a
-                          className="cb-booking-confirmed-invoice-id cb-booking-confirmed-invoice-id--inline"
-                          href={finalizeInvoicePortalUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          {finalizeInvoiceDisplayPretty}
-                        </a>
-                      ) : (
-                        <span className="cb-booking-confirmed-invoice-id cb-booking-confirmed-invoice-id--plain cb-booking-confirmed-invoice-id--inline">
-                          {finalizeInvoiceDisplayPretty}
-                        </span>
-                      )}
-                      <button
-                        type="button"
-                        className="cb-booking-confirmed-copy-icon"
-                        onClick={() => copyFinalizeClipboard(finalizeInvoiceDisplayPretty, "invoice")}
-                        aria-label={finalizeCopyFlash === "invoice" ? tx("copied") : tx("copyId")}
-                      >
-                        {finalizeCopyFlash === "invoice" ? (
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
-                            <path
-                              d="M20 6L9 17l-5-5"
-                              stroke="currentColor"
-                              strokeWidth="2"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            />
-                          </svg>
-                        ) : (
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
-                            <rect x="9" y="9" width="11" height="11" rx="2" stroke="currentColor" strokeWidth="1.5" />
-                            <path
-                              d="M6 15H5a2 2 0 01-2-2V5a2 2 0 012-2h8a2 2 0 012 2v1"
-                              stroke="currentColor"
-                              strokeWidth="1.5"
-                            />
-                          </svg>
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-              <p className="cb-booking-confirmed-email cb-muted text-center text-sm">
-                {confirmationAccountEmail != null
-                  ? tx("confirmationEmailSent", { email: confirmationAccountEmail })
-                  : tx("confirmationEmailGeneric")}
-              </p>
-              <div className="cb-booking-confirmed-actions cb-booking-confirmed-actions--adjacent">
-                <button type="button" className="cb-btn-outline cb-booking-confirmed-action-btn" onClick={openCalendarTemplate}>
-                  <svg
-                    width="18"
-                    height="18"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    aria-hidden
-                    className="cb-booking-confirmed-action-btn-icon"
-                  >
-                    <rect x="4" y="5" width="16" height="15" rx="2" stroke="currentColor" strokeWidth="1.6" />
-                    <path d="M8 3v4M16 3v4M4 11h16" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-                  </svg>
-                  {tx("addToCalendar")}
-                </button>
-                <button
-                  type="button"
-                  className="cb-btn-primary cb-booking-confirmed-action-btn"
-                  onClick={dismissBookingConfirmed}
-                >
-                  <svg
-                    width="18"
-                    height="18"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    aria-hidden
-                    className="cb-booking-confirmed-action-btn-icon"
-                  >
-                    <path
-                      d="M20 6L9 17l-5-5"
-                      stroke="currentColor"
-                      strokeWidth="2.2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                  {tx("done")}
-                </button>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <>
-            <div className="cb-checkout-inner">
+        <>
+          <div className="cb-checkout-inner">
         {showPreCheckoutShell ? (
           <>
             <div className="cb-checkout-progress">
@@ -4704,7 +4724,6 @@ export function BookingCheckoutDrawer({
       </div>
 
           </>
-        )}
       </Fragment>
     </RightDrawer>
   );
