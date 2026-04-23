@@ -21,8 +21,6 @@ import {
 } from "@/lib/booking-pricing";
 import { isInstructorScheduleResourceType } from "@/lib/schedule-resource-type";
 import {
-  IconCalendarDetail,
-  IconClockDetail,
   IconDollarDetail,
   IconLockDetail,
   IconPeakTrend,
@@ -318,88 +316,86 @@ export function ProductDetailModal({
           />
         </div>
 
-        {product.description ? (
-          <section className="cb-detail-block">
-            <h3 className="cb-detail-block-title">{tb("productDetailAbout")}</h3>
-            {safeDescription ? (
-              <div
-                className="cb-detail-html cb-detail-block-text"
-                dangerouslySetInnerHTML={{ __html: safeDescription }}
-              />
-            ) : (
-              <p className="cb-detail-block-text cb-muted text-sm">{tb("productDetailDescriptionFallback")}</p>
-            )}
-          </section>
-        ) : null}
+        {/* Two-column body: description left, details + addons right */}
+        <div className="cb-product-detail-body">
+          <div className="cb-product-detail-body-desc">
+            {product.description ? (
+              <section className="cb-detail-block cb-detail-block--no-top-border">
+                <h3 className="cb-detail-block-title">{tb("productDetailAbout")}</h3>
+                {safeDescription ? (
+                  <div
+                    className="cb-detail-html cb-detail-block-text"
+                    dangerouslySetInnerHTML={{ __html: safeDescription }}
+                  />
+                ) : (
+                  <p className="cb-detail-block-text cb-muted text-sm">{tb("productDetailDescriptionFallback")}</p>
+                )}
+              </section>
+            ) : null}
+          </div>
 
-        <section className="cb-detail-block">
-          <h3 className="cb-detail-block-title">{tb("productDetailDetails")}</h3>
-          <ul className="cb-detail-row-list">
-            <DetailRow icon={<IconClockDetail className="text-[var(--cb-primary)]" />} label={tb("productDetailDuration")}>
-              {formatDurationLabel(durationMinutes)}
-            </DetailRow>
-            <DetailRow icon={<IconDollarDetail className="text-[var(--cb-primary)]" />} label={tb("productDetailPrice")}>
-              {productMembershipGated(product) && productCatalogAllPricesNearZero(product) ? (
-                <span className="cb-detail-price-pill">
-                  <span className="cb-detail-price-pill-amount">{tb("productDetailFreeForMembers")}</span>
-                </span>
-              ) : (
-                <div className="cb-detail-price-group">
-                  <span
-                    className="cb-detail-price-pill"
-                    title={productHasVariableSchedulePricing(product) ? tc("peakPricingHint") : undefined}
-                  >
-                    <span className="cb-detail-price-pill-amount">{priceRangeLabel(product)}</span>
-                    <span className="cb-detail-price-pill-sep">/</span>
-                    <span className="cb-detail-price-pill-dur">{formatDurationLabel(durationMinutes)}</span>
-                    {productHasVariableSchedulePricing(product) ? (
-                      <IconPeakTrend className="cb-detail-price-pill-peak" aria-hidden />
-                    ) : null}
-                  </span>
-                  {down != null && Number.isFinite(down) && down > 0 ? (
-                    <span className="cb-detail-deposit-note">
-                      {formatPrice(down, currency)}{" "}
-                      {tb("productDetailDepositSuffix", { dur: formatDurationLabel(durationMinutes) })}
+          <div className="cb-product-detail-body-info">
+            <section className="cb-detail-block cb-detail-block--no-top-border">
+              <h3 className="cb-detail-block-title">{tb("productDetailDetails")}</h3>
+              <ul className="cb-detail-row-list">
+                <DetailRow icon={<IconDollarDetail className="text-[var(--cb-primary)]" />} label={tb("productDetailPrice")}>
+                  {productMembershipGated(product) && productCatalogAllPricesNearZero(product) ? (
+                    <span className="cb-detail-price-pill">
+                      <span className="cb-detail-price-pill-amount">{tb("productDetailFreeForMembers")}</span>
                     </span>
-                  ) : null}
-                  {productHasVariableSchedulePricing(product) ? (
-                    <span className="sr-only">{tc("peakPricingHint")}</span>
-                  ) : null}
-                </div>
-              )}
-            </DetailRow>
-            {(hasScheduleResources || scheduleResourcesLoading) ? (
-              <ProductResourcesSection
-                key={product.id}
-                resources={scheduleResources}
-                loading={scheduleResourcesLoading}
-              />
-            ) : null}
-            {showMembersOnly ? (
-              <DetailRow icon={<IconLockDetail className="text-[var(--cb-primary)]" />} label={tb("productDetailAccess")}>
-                {tb("productDetailMembersOnly")}
-                {addons.length === 1 ? ` — ${addons[0]!.name}` : null}
-              </DetailRow>
-            ) : null}
-            {product.isPunchPass ? (
-              <DetailRow icon={<IconCalendarDetail className="text-[var(--cb-primary)]" />} label={tb("productDetailPasses")}>
-                {tb("productDetailPassEligible")}
-              </DetailRow>
-            ) : null}
-            {hasMemberBenefit ? (
-              <DetailRow icon={<span className="text-[var(--cb-primary)] font-bold text-sm">%</span>} label={tb("productDetailMemberBenefits")}>
-                {entitlementLabel ?? tb("productDetailMemberBenefitsBlurb")}
-              </DetailRow>
-            ) : null}
-          </ul>
-        </section>
+                  ) : (
+                    <div className="cb-detail-price-group">
+                      <span
+                        className="cb-detail-price-pill"
+                        title={productHasVariableSchedulePricing(product) ? tc("peakPricingHint") : undefined}
+                      >
+                        <span className="cb-detail-price-pill-amount">{priceRangeLabel(product)}</span>
+                        <span className="cb-detail-price-pill-sep">/</span>
+                        <span className="cb-detail-price-pill-dur">{formatDurationLabel(durationMinutes)}</span>
+                        {productHasVariableSchedulePricing(product) ? (
+                          <IconPeakTrend className="cb-detail-price-pill-peak" aria-hidden />
+                        ) : null}
+                      </span>
+                      {down != null && Number.isFinite(down) && down > 0 ? (
+                        <span className="cb-detail-deposit-note">
+                          {formatPrice(down, currency)}{" "}
+                          {tb("productDetailDepositSuffix", { dur: formatDurationLabel(durationMinutes) })}
+                        </span>
+                      ) : null}
+                      {productHasVariableSchedulePricing(product) ? (
+                        <span className="sr-only">{tc("peakPricingHint")}</span>
+                      ) : null}
+                    </div>
+                  )}
+                </DetailRow>
+                {(hasScheduleResources || scheduleResourcesLoading) ? (
+                  <ProductResourcesSection
+                    key={product.id}
+                    resources={scheduleResources}
+                    loading={scheduleResourcesLoading}
+                  />
+                ) : null}
+                {showMembersOnly ? (
+                  <DetailRow icon={<IconLockDetail className="text-[var(--cb-primary)]" />} label={tb("productDetailAccess")}>
+                    {tb("productDetailMembersOnly")}
+                  </DetailRow>
+                ) : null}
+                {hasMemberBenefit ? (
+                  <DetailRow icon={<span className="text-[var(--cb-primary)] font-bold text-sm">%</span>} label={tb("productDetailMemberBenefits")}>
+                    {entitlementLabel ?? tb("productDetailMemberBenefitsBlurb")}
+                  </DetailRow>
+                ) : null}
+              </ul>
+            </section>
 
-        {addons.length > 0 ? (
-          <section className="cb-detail-block">
-            <h3 className="cb-detail-block-title">{tb("productDetailAvailableAddons")}</h3>
-            <AddonsGrouped addons={addons} />
-          </section>
-        ) : null}
+            {addons.length > 0 ? (
+              <section className="cb-detail-block">
+                <h3 className="cb-detail-block-title">{tb("productDetailAvailableAddons")}</h3>
+                <AddonsGrouped addons={addons} />
+              </section>
+            ) : null}
+          </div>
+        </div>
 
         <div className="cb-product-detail-footer">
           <button type="button" className="cb-btn-outline" onClick={onClose}>
