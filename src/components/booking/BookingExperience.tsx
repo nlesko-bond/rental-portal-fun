@@ -252,6 +252,8 @@ export function BookingExperience() {
   const [selectedAddonIds, setSelectedAddonIds] = useState<Set<number>>(new Set());
   /** Parallel to `selectedAddonIds`; each selected addon has a qty (1..50). Missing = 1 when selected. */
   const [addonQuantities, setAddonQuantities] = useState<Map<number, number>>(new Map());
+  /** Per-slot qty for slot/hour addons: addonId → slotKey → qty. */
+  const [addonSlotQuantities, setAddonSlotQuantities] = useState<Map<number, Map<string, number>>>(new Map());
   const ADDON_MAX_QTY = 50;
   const setAddonQty = useCallback((addonId: number, qty: number) => {
     const clamped = Math.max(0, Math.min(ADDON_MAX_QTY, Math.floor(qty)));
@@ -265,6 +267,23 @@ export function BookingExperience() {
       const next = new Map(prev);
       if (clamped <= 0) next.delete(addonId);
       else next.set(addonId, clamped);
+      return next;
+    });
+    if (clamped <= 0) {
+      setAddonSlotQuantities((prev) => {
+        const next = new Map(prev);
+        next.delete(addonId);
+        return next;
+      });
+    }
+  }, []);
+  const setAddonSlotQty = useCallback((addonId: number, slotKey: string, qty: number) => {
+    const clamped = Math.max(1, Math.min(ADDON_MAX_QTY, Math.floor(qty)));
+    setAddonSlotQuantities((prev) => {
+      const next = new Map(prev);
+      const inner = new Map(next.get(addonId) ?? []);
+      inner.set(slotKey, clamped);
+      next.set(addonId, inner);
       return next;
     });
   }, []);
@@ -2028,7 +2047,9 @@ export function BookingExperience() {
               moreCount={packageAddons.length - ADDONS_PAGE}
               selectedAddonIds={selectedAddonIds}
               addonQuantities={addonQuantities}
+              addonSlotQuantities={addonSlotQuantities}
               onSetAddonQty={setAddonQty}
+              onSetAddonSlotQty={setAddonSlotQty}
               onToggleAddon={handleAddonToggle}
               addonSlotTargeting={addonSlotTargeting}
               onAddonSelectAllSlots={onAddonSelectAllSlots}

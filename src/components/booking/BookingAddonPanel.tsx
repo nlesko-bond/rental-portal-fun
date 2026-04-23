@@ -19,7 +19,9 @@ type Props = {
   moreCount: number;
   selectedAddonIds: ReadonlySet<number>;
   addonQuantities?: ReadonlyMap<number, number>;
+  addonSlotQuantities?: ReadonlyMap<number, ReadonlyMap<string, number>>;
   onSetAddonQty?: (addonId: number, qty: number) => void;
+  onSetAddonSlotQty?: (addonId: number, slotKey: string, qty: number) => void;
   onToggleAddon: (addon: PackageAddonLine) => void;
   addonSlotTargeting: AddonSlotTargeting;
   onAddonSelectAllSlots: (addonId: number, checked: boolean, allSlotKeys: string[]) => void;
@@ -35,20 +37,26 @@ function QtyStepperInline({
   qty,
   addonId,
   addonName,
+  slotKey,
   onSet,
 }: {
   qty: number;
   addonId: number;
   addonName: string;
-  onSet: (id: number, qty: number) => void;
+  slotKey?: string;
+  onSet: ((id: number, qty: number) => void) | ((id: number, key: string, qty: number) => void);
 }) {
+  const fire = (next: number) => {
+    if (slotKey !== undefined) (onSet as (id: number, key: string, qty: number) => void)(addonId, slotKey, next);
+    else (onSet as (id: number, qty: number) => void)(addonId, next);
+  };
   return (
     <span className="cb-addon-qty" role="group" aria-label={`Quantity for ${addonName}`}>
       <button
         type="button"
         className="cb-addon-qty-btn"
         aria-label="Decrease"
-        onClick={(e) => { e.stopPropagation(); onSet(addonId, qty - 1); }}
+        onClick={(e) => { e.stopPropagation(); fire(qty - 1); }}
       >
         −
       </button>
@@ -58,7 +66,7 @@ function QtyStepperInline({
         className="cb-addon-qty-btn"
         aria-label="Increase"
         disabled={qty >= ADDON_MAX_QTY}
-        onClick={(e) => { e.stopPropagation(); onSet(addonId, qty + 1); }}
+        onClick={(e) => { e.stopPropagation(); fire(qty + 1); }}
       >
         +
       </button>
@@ -113,9 +121,11 @@ function SlotAddonRow({
   slotKeySet,
   pickedSlots,
   targeting,
+  slotQuantities,
   onToggle,
   onToggleSlot,
   onSelectAllSlots,
+  onSetSlotQty,
   formatPrice,
   ta,
 }: {
@@ -125,9 +135,11 @@ function SlotAddonRow({
   slotKeySet: Set<string>;
   pickedSlots: PickedSlot[];
   targeting: AddonSlotTargeting;
+  slotQuantities?: ReadonlyMap<string, number>;
   onToggle: () => void;
   onToggleSlot: (addonId: number, slotKey: string, allKeys: string[]) => void;
   onSelectAllSlots: (addonId: number, checked: boolean, allKeys: string[]) => void;
+  onSetSlotQty?: (addonId: number, slotKey: string, qty: number) => void;
   formatPrice: (amount: number, currency: string) => string;
   ta: ReturnType<typeof useTranslations>;
 }) {
@@ -168,16 +180,28 @@ function SlotAddonRow({
           </label>
           {pickedSlots.map((p, idx) => {
             const on = eff?.has(p.key) ?? false;
+            const slotQty = slotQuantities?.get(p.key) ?? 1;
             return (
-              <label key={`${p.key}#${idx}`} className={`cb-addon-slot-row ${on ? "cb-addon-slot-row--on" : ""}`}>
-                <input
-                  type="checkbox"
-                  checked={on}
-                  onChange={() => onToggleSlot(addon.id, p.key, allSlotKeys)}
-                />
-                <span className="cb-addon-slot-row-time">{formatPickedSlotTimeRange(p)}</span>
-                <span className="cb-addon-slot-row-resource">{p.resourceName}</span>
-              </label>
+              <div key={`${p.key}#${idx}`} className={`cb-addon-slot-row ${on ? "cb-addon-slot-row--on" : ""}`}>
+                <label className="cb-addon-slot-row-check">
+                  <input
+                    type="checkbox"
+                    checked={on}
+                    onChange={() => onToggleSlot(addon.id, p.key, allSlotKeys)}
+                  />
+                  <span className="cb-addon-slot-row-time">{formatPickedSlotTimeRange(p)}</span>
+                  <span className="cb-addon-slot-row-resource">{p.resourceName}</span>
+                </label>
+                {on && onSetSlotQty ? (
+                  <QtyStepperInline
+                    qty={slotQty}
+                    addonId={addon.id}
+                    addonName={`${addon.name} – ${formatPickedSlotTimeRange(p)}`}
+                    slotKey={p.key}
+                    onSet={onSetSlotQty}
+                  />
+                ) : null}
+              </div>
             );
           })}
         </div>
@@ -196,7 +220,9 @@ export function BookingAddonPanel({
   moreCount,
   selectedAddonIds,
   addonQuantities,
+  addonSlotQuantities,
   onSetAddonQty,
+  onSetAddonSlotQty,
   onToggleAddon,
   addonSlotTargeting,
   onAddonSelectAllSlots,
@@ -253,9 +279,11 @@ export function BookingAddonPanel({
               slotKeySet={slotKeySet}
               pickedSlots={pickedSlots}
               targeting={addonSlotTargeting}
+              slotQuantities={addonSlotQuantities?.get(a.id)}
               onToggle={() => onToggleAddon(a)}
               onToggleSlot={onToggleAddonSlot}
               onSelectAllSlots={onAddonSelectAllSlots}
+              onSetSlotQty={onSetAddonSlotQty}
               formatPrice={formatPrice}
               ta={ta}
             />

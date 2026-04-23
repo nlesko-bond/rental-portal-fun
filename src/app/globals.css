@@ -297,6 +297,16 @@ body {
   background: color-mix(in srgb, var(--cb-bg-surface-muted) 88%, var(--cb-border));
 }
 
+/* At desktop the left col uses card-per-element layout — strip the band tint/borders */
+@media (min-width: 1068px) {
+  .consumer-booking .cb-schedule-when-band {
+    background: transparent;
+    border: none;
+    padding: 0;
+    margin: 0;
+  }
+}
+
 /* Right column: available times — match card outline (split layout). */
 .consumer-booking .cb-schedule-available-times-shell {
   border-radius: 0.75rem;
@@ -3332,9 +3342,17 @@ body {
   padding: 0.35rem 0.5rem;
   border-radius: 0.45rem;
   border: 1px solid transparent;
-  cursor: pointer;
   font-size: 0.82rem;
   transition: background 0.12s;
+}
+
+.consumer-booking .cb-addon-slot-row-check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+  cursor: pointer;
+  min-width: 0;
 }
 
 .consumer-booking .cb-addon-slot-row input {
