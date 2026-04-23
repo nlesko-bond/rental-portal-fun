@@ -38,6 +38,11 @@ export type SessionCartSnapshot = {
   reservationGroups?: SessionReservationGroup[];
   /** Category required venue approval when this row was added — drives bag labels & line meta. */
   approvalRequired?: boolean;
+  /**
+   * Per-product approval flag accumulated across merges so mixed carts keep each product's
+   * category setting — approval badges and dual CTAs then follow the product, not the cart row.
+   */
+  approvalByProductId?: Record<number, boolean>;
   /** At add-to-cart time: GET …/required had no unpaid membership for this product (member rate for this rental). */
   participantHasQualifyingMembership?: boolean;
   /** Slot keys (`slotControlKey`) already committed with this cart row — hide from re-selection on the schedule. */
@@ -161,6 +166,15 @@ function normalizeRow(x: unknown, rowIndex: number): SessionCartSnapshot | null 
     const reservedSlotKeys =
       Array.isArray(rsk) && rsk.length > 0 && rsk.every((x) => typeof x === "string") ? rsk : undefined;
     const approvalRequired = o.approvalRequired === true ? true : undefined;
+    let approvalByProductId: Record<number, boolean> | undefined;
+    if (o.approvalByProductId && typeof o.approvalByProductId === "object") {
+      const acc: Record<number, boolean> = {};
+      for (const [k, v] of Object.entries(o.approvalByProductId as Record<string, unknown>)) {
+        const id = /^\d+$/.test(k) ? Number(k) : NaN;
+        if (Number.isFinite(id) && id > 0 && typeof v === "boolean") acc[id] = v;
+      }
+      if (Object.keys(acc).length > 0) approvalByProductId = acc;
+    }
     const participantHasQualifyingMembership =
       o.participantHasQualifyingMembership === true ? true : undefined;
     const scheduleSummary =
@@ -172,6 +186,7 @@ function normalizeRow(x: unknown, rowIndex: number): SessionCartSnapshot | null 
       productName: typeof o.productName === "string" && o.productName.length > 0 ? o.productName : "Booking",
       ...(bookingForLabel != null ? { bookingForLabel } : {}),
       ...(approvalRequired === true ? { approvalRequired: true } : {}),
+      ...(approvalByProductId != null ? { approvalByProductId } : {}),
       ...(participantHasQualifyingMembership === true ? { participantHasQualifyingMembership: true } : {}),
       ...(reservedSlotKeys != null ? { reservedSlotKeys } : {}),
       ...(displayLines != null ? { displayLines } : {}),

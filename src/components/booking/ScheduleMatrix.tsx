@@ -132,26 +132,34 @@ export function ScheduleMatrix({
   const scrollElRef = useRef<HTMLDivElement | null>(null);
   const anchorColRef = useRef<HTMLTableCellElement | null>(null);
 
+  const sortedResources = useMemo(
+    () =>
+      [...schedule.resources].sort((a, b) =>
+        a.resource.name.localeCompare(b.resource.name, undefined, { sensitivity: "base" })
+      ),
+    [schedule.resources]
+  );
+
   const timeKeys = useMemo(() => {
     const set = new Set<string>();
-    for (const r of schedule.resources) {
+    for (const r of sortedResources) {
       for (const s of r.timeSlots) {
         set.add(`${s.startDate} ${s.startTime}`);
       }
     }
     return [...set].sort();
-  }, [schedule.resources]);
+  }, [sortedResources]);
 
   const firstAvailableColIndex = useMemo(() => {
     for (let i = 0; i < timeKeys.length; i++) {
       const k = timeKeys[i]!;
-      for (const row of schedule.resources) {
+      for (const row of sortedResources) {
         const slot = row.timeSlots.find((s) => `${s.startDate} ${s.startTime}` === k);
         if (slot?.isAvailable) return i;
       }
     }
     return -1;
-  }, [timeKeys, schedule.resources]);
+  }, [timeKeys, sortedResources]);
 
   const scrollAnchorColIndex = useMemo(
     () =>
@@ -199,7 +207,7 @@ export function ScheduleMatrix({
           </tr>
         </thead>
         <tbody>
-          {schedule.resources.map((row) => {
+          {sortedResources.map((row) => {
             // Peer prices for this resource across the day (list view uses the same rule).
             const peerUnitsRawForRow = row.timeSlots.filter((s) => s.isAvailable).map((s) => s.price);
             const roundedRow = peerUnitsRawForRow.map((n) => Math.round(n * 100) / 100);
@@ -280,7 +288,18 @@ export function ScheduleMatrix({
                         ) : null}
                       </button>
                     ) : (
-                      <span className="text-[var(--cb-border)]">·</span>
+                      <div
+                        className="cb-matrix-slot cb-matrix-slot--missing flex min-h-[4.5rem] w-full min-w-[5rem] flex-col items-center justify-center gap-0.5 rounded-lg border px-1.5 py-2 text-center"
+                        role="gridcell"
+                        aria-label={ts("matrixSlotMissingAria", { time: formatTime12hFromKey(k) })}
+                      >
+                        <span className="cb-matrix-slot-time text-[0.7rem] font-bold leading-tight text-[var(--cb-text-muted)] line-through decoration-2 sm:text-xs">
+                          {formatTime12hFromKey(k)}
+                        </span>
+                        <span className="text-[0.6rem] font-bold uppercase tracking-wide text-[var(--cb-text-muted)]">
+                          {ts("matrixSlotBooked")}
+                        </span>
+                      </div>
                     )}
                   </td>
                 );

@@ -8,8 +8,8 @@ import {
   addonLevelLabel,
   addonPriceSuffixForLevel,
   bookingOptionalAddons,
-  plainAddonDescription,
   resolveAddonDisplayPrice,
+  type PackageAddonLine,
 } from "@/lib/product-package-addons";
 import { sanitizeBookingDescriptionHtml } from "@/lib/sanitize-html";
 import { useTranslations } from "next-intl";
@@ -19,14 +19,15 @@ import {
   productHasVariableSchedulePricing,
   productMembershipGated,
 } from "@/lib/booking-pricing";
+import { isInstructorScheduleResourceType } from "@/lib/schedule-resource-type";
 import {
   IconCalendarDetail,
   IconClockDetail,
   IconDollarDetail,
   IconLockDetail,
   IconPeakTrend,
-  IconPinDetail,
 } from "./booking-icons";
+import { describeEntitlementsForDisplay } from "@/lib/entitlement-discount";
 
 function formatPrice(amount: number, currency: string): string {
   try {
@@ -100,8 +101,61 @@ function DetailRow({
   );
 }
 
-function isInstructorResourceType(type: string | undefined): boolean {
-  return (type ?? "").toLowerCase().includes("instructor");
+function AddonsGrouped({ addons }: { addons: PackageAddonLine[] }) {
+  const tb = useTranslations("booking");
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const groups: Array<{ key: "slot" | "hour" | "reservation"; items: PackageAddonLine[] }> = [
+    { key: "slot", items: [] },
+    { key: "hour", items: [] },
+    { key: "reservation", items: [] },
+  ];
+  const seenIds = new Set<number>();
+  for (const a of addons) {
+    if (seenIds.has(a.id)) continue;
+    seenIds.add(a.id);
+    const g = groups.find((gr) => gr.key === a.level);
+    if (g) g.items.push(a);
+  }
+  const renderItem = (a: PackageAddonLine) => {
+    const resolved = resolveAddonDisplayPrice(a);
+    const extra = resolved ? formatPrice(resolved.price, resolved.currency) : "";
+    return (
+      <li key={a.id} className="cb-detail-addon-chip">
+        <span className="cb-detail-addon-chip-name">{a.name}</span>
+        {extra ? (
+          <span className="cb-detail-addon-chip-price">
+            {extra}
+            {addonPriceSuffixForLevel(a.level)}
+          </span>
+        ) : null}
+      </li>
+    );
+  };
+  return (
+    <div className="cb-detail-addon-groups">
+      {groups.map((g) => {
+        if (g.items.length === 0) return null;
+        const isExpanded = expanded[g.key] ?? false;
+        const hiddenCount = Math.max(0, g.items.length - 1);
+        const shown = isExpanded ? g.items : g.items.slice(0, 1);
+        return (
+          <div key={g.key} className="cb-detail-addon-group">
+            <div className="cb-detail-addon-group-label">{addonLevelLabel(g.key)}</div>
+            <ul className="cb-detail-addon-chips">{shown.map(renderItem)}</ul>
+            {hiddenCount > 0 ? (
+              <button
+                type="button"
+                className="cb-detail-resource-more"
+                onClick={() => setExpanded((prev) => ({ ...prev, [g.key]: !isExpanded }))}
+              >
+                {isExpanded ? tb("resourceShowLess") : tb("resourceViewMore", { count: hiddenCount })}
+              </button>
+            ) : null}
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 function ResourcesNamesList({ items }: { items: PublicResourceDto[] }) {
@@ -119,7 +173,11 @@ function ResourcesNamesList({ items }: { items: PublicResourceDto[] }) {
         ))}
       </ul>
       {hiddenCount > 0 ? (
-        <button type="button" className="cb-detail-resource-more" onClick={() => setExpanded((x) => !x)}>
+        <button
+          type="button"
+          className="cb-detail-resource-more-link"
+          onClick={() => setExpanded((x) => !x)}
+        >
           {expanded ? tb("resourceShowLess") : tb("resourceViewMore", { count: hiddenCount })}
         </button>
       ) : null}
@@ -140,7 +198,7 @@ function ProductResourcesSection({
     const sp: PublicResourceDto[] = [];
     const ins: PublicResourceDto[] = [];
     for (const r of resources ?? []) {
-      if (isInstructorResourceType(r.type)) ins.push(r);
+      if (isInstructorScheduleResourceType(r.type)) ins.push(r);
       else sp.push(r);
     }
     const byName = (a: PublicResourceDto, b: PublicResourceDto) =>
@@ -241,8 +299,12 @@ export function ProductDetailModal({
   const down = product.downPayment ?? product.downpayment;
   const addons = bookingOptionalAddons(product);
   const entitlements = product.entitlementDiscounts;
+  const entitlementLabel = describeEntitlementsForDisplay(Array.isArray(entitlements) ? entitlements : []);
   const hasMemberBenefit = Array.isArray(entitlements) && entitlements.length > 0;
   const showMembersOnly = Boolean(membershipGated || product.memberOnly);
+  const hasScheduleResources =
+    Array.isArray(scheduleResources) && scheduleResources.length > 0;
+  const currency = product.prices[0]?.currency ?? "USD";
 
   return (
     <ModalShell open={open} title={product.name} panelClassName="cb-modal-panel--detail" onClose={onClose}>
@@ -273,11 +335,6 @@ export function ProductDetailModal({
         <section className="cb-detail-block">
           <h3 className="cb-detail-block-title">{tb("productDetailDetails")}</h3>
           <ul className="cb-detail-row-list">
-            {facilityName ? (
-              <DetailRow icon={<IconPinDetail className="text-[var(--cb-primary)]" />} label={tb("productDetailLocation")}>
-                {facilityName}
-              </DetailRow>
-            ) : null}
             <DetailRow icon={<IconClockDetail className="text-[var(--cb-primary)]" />} label={tb("productDetailDuration")}>
               {formatDurationLabel(durationMinutes)}
             </DetailRow>
@@ -287,12 +344,10 @@ export function ProductDetailModal({
                   <span className="cb-detail-price-pill-amount">{tb("productDetailFreeForMembers")}</span>
                 </span>
               ) : (
-                <>
+                <div className="cb-detail-price-group">
                   <span
                     className="cb-detail-price-pill"
-                    title={
-                      productHasVariableSchedulePricing(product) ? tc("peakPricingHint") : undefined
-                    }
+                    title={productHasVariableSchedulePricing(product) ? tc("peakPricingHint") : undefined}
                   >
                     <span className="cb-detail-price-pill-amount">{priceRangeLabel(product)}</span>
                     <span className="cb-detail-price-pill-sep">/</span>
@@ -301,24 +356,24 @@ export function ProductDetailModal({
                       <IconPeakTrend className="cb-detail-price-pill-peak" aria-hidden />
                     ) : null}
                   </span>
+                  {down != null && Number.isFinite(down) && down > 0 ? (
+                    <span className="cb-detail-deposit-note">
+                      {formatPrice(down, currency)}{" "}
+                      {tb("productDetailDepositSuffix", { dur: formatDurationLabel(durationMinutes) })}
+                    </span>
+                  ) : null}
                   {productHasVariableSchedulePricing(product) ? (
                     <span className="sr-only">{tc("peakPricingHint")}</span>
                   ) : null}
-                </>
+                </div>
               )}
             </DetailRow>
-            <DetailRow icon={<IconCalendarDetail className="text-[var(--cb-primary)]" />} label={tb("productDetailSchedule")}>
-              {tb("productDetailScheduleBlurb")}
-            </DetailRow>
-            <ProductResourcesSection
-              key={product.id}
-              resources={scheduleResources}
-              loading={scheduleResourcesLoading}
-            />
-            {down != null && Number.isFinite(down) && down > 0 ? (
-              <DetailRow icon={<IconDollarDetail className="text-[var(--cb-primary)]" />} label={tb("productDetailDownPayment")}>
-                {product.prices[0] ? formatPrice(down, product.prices[0].currency) : String(down)}
-              </DetailRow>
+            {(hasScheduleResources || scheduleResourcesLoading) ? (
+              <ProductResourcesSection
+                key={product.id}
+                resources={scheduleResources}
+                loading={scheduleResourcesLoading}
+              />
             ) : null}
             {showMembersOnly ? (
               <DetailRow icon={<IconLockDetail className="text-[var(--cb-primary)]" />} label={tb("productDetailAccess")}>
@@ -332,13 +387,8 @@ export function ProductDetailModal({
               </DetailRow>
             ) : null}
             {hasMemberBenefit ? (
-              <DetailRow icon={<span className="text-[var(--cb-primary)] font-bold">%</span>} label={tb("productDetailMemberBenefits")}>
-                {tb("productDetailMemberBenefitsBlurb")}
-              </DetailRow>
-            ) : null}
-            {addons.length > 0 ? (
-              <DetailRow icon={<span className="text-[var(--cb-primary)] font-bold">+</span>} label={tb("productDetailAddonsHeading")}>
-                {addons.map((a) => a.name).join(", ")}
+              <DetailRow icon={<span className="text-[var(--cb-primary)] font-bold text-sm">%</span>} label={tb("productDetailMemberBenefits")}>
+                {entitlementLabel ?? tb("productDetailMemberBenefitsBlurb")}
               </DetailRow>
             ) : null}
           </ul>
@@ -347,26 +397,7 @@ export function ProductDetailModal({
         {addons.length > 0 ? (
           <section className="cb-detail-block">
             <h3 className="cb-detail-block-title">{tb("productDetailAvailableAddons")}</h3>
-            <ul className="cb-detail-addon-chips">
-              {addons.map((a) => {
-                const resolved = resolveAddonDisplayPrice(a);
-                const extra = resolved ? formatPrice(resolved.price, resolved.currency) : "";
-                const desc = plainAddonDescription(a.description);
-                return (
-                  <li key={a.id} className="cb-detail-addon-chip">
-                    <span className="cb-detail-addon-chip-level">{addonLevelLabel(a.level)}</span>
-                    <span className="cb-detail-addon-chip-name">{a.name}</span>
-                    {desc ? <span className="cb-detail-addon-chip-desc">{desc}</span> : null}
-                    {extra ? (
-                      <span className="cb-detail-addon-chip-price">
-                        {extra}
-                        {addonPriceSuffixForLevel(a.level)}
-                      </span>
-                    ) : null}
-                  </li>
-                );
-              })}
-            </ul>
+            <AddonsGrouped addons={addons} />
           </section>
         ) : null}
 

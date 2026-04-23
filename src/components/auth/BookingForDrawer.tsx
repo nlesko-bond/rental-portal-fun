@@ -147,7 +147,10 @@ export function BookingForDrawer({
                 </span>
                 {active ? (
                   <span className="cb-booking-for-check" aria-hidden>
-                    ✓
+                    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                      <circle cx="9" cy="9" r="9" fill="var(--cb-primary)"/>
+                      <path d="M5.5 9l2.5 2.5 4.5-5" stroke="white" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
                   </span>
                 ) : null}
               </button>

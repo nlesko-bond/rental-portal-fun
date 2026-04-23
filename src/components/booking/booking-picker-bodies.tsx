@@ -1,5 +1,6 @@
 "use client";
 
+import { ActivityGlyph } from "@/components/booking/activity-icons";
 import { formatActivityLabel } from "@/lib/booking-activity-display";
 import { plainAddonDescription } from "@/lib/product-package-addons";
 import type { ExtendedFacilityDto, ReservationProductCategoryDto } from "@/types/online-booking";
@@ -39,20 +40,21 @@ export function IconSearch({ className }: { className?: string }) {
   );
 }
 
-export function activityEmoji(activity: string): string {
-  const a = activity.toLowerCase();
-  if (a === "football" || (a.includes("football") && a.includes("american"))) return "🏈";
-  if (a.includes("soccer")) return "⚽";
-  if (a.includes("basketball")) return "🏀";
-  if (a.includes("tennis")) return "🎾";
-  if (a.includes("volleyball")) return "🏐";
-  if (a.includes("baseball") || a.includes("softball")) return "⚾";
-  if (a.includes("pickle")) return "🏓";
-  if (a.includes("futsal")) return "⚽";
-  if (a.includes("rugby")) return "🏉";
-  if (a.includes("hockey") || a.includes("ice")) return "🏒";
-  return "🏟️";
+/** Chevron between breadcrumb pills (Consumer DS). */
+export function BreadcrumbChevronRight({ className }: { className?: string }) {
+  return (
+    <svg className={className} width="11" height="11" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M9 6l6 6-6 6"
+        stroke="currentColor"
+        strokeWidth="2.25"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
 }
+
 
 type FacilityPickerProps = {
   facilities: ExtendedFacilityDto[];
@@ -186,9 +188,10 @@ export function ActivityPickerBody({ activities, selected, onSelect, onClose }: 
               }}
             >
               <div className={`cb-activity-cell-icon ${isSel ? "cb-activity-cell-icon--selected" : ""}`}>
-                <span className="text-2xl" aria-hidden>
-                  {activityEmoji(a)}
-                </span>
+                <ActivityGlyph
+                  activity={a}
+                  className={isSel ? "text-[var(--cb-primary)]" : "text-[var(--cb-text)]"}
+                />
               </div>
               <span className={`mt-2 text-center text-sm font-semibold ${isSel ? "text-[var(--cb-primary)]" : "text-[var(--cb-text)]"}`}>
                 {formatActivityLabel(a)}

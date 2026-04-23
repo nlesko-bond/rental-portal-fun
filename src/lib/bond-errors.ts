@@ -27,6 +27,16 @@ export function isBondIllegalPriceError(err: unknown): boolean {
   return /illegal\s+price/i.test(combined);
 }
 
+/** Stale UI id or wrong id type (e.g. catalog product id) vs Bond cart line id. */
+export function isBondMissingCartItemError(err: unknown): boolean {
+  if (!(err instanceof BondBffError)) return false;
+  const body = asBondApiErrorBody(err.body);
+  const code = body?.code;
+  if (typeof code === "string" && code.includes("MISSING_CART_ITEM")) return true;
+  const msg = bondApiMessageString(body);
+  return /cart item.*not found/i.test(msg);
+}
+
 function bondApiMessageString(body: BondApiErrorBody | null): string {
   if (body && typeof body === "object" && "Message" in body) {
     const cap = (body as { Message?: unknown }).Message;

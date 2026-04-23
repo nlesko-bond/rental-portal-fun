@@ -6,7 +6,6 @@ import type { PackageAddonLine } from "@/lib/product-package-addons";
 import {
   addonLevelLabel,
   addonPriceSuffixForLevel,
-  plainAddonDescription,
   resolveAddonDisplayPrice,
 } from "@/lib/product-package-addons";
 import type { PickedSlot } from "@/lib/slot-selection";
@@ -23,13 +22,21 @@ type Props = {
   onToggleExpand: () => void;
   moreCount: number;
   selectedAddonIds: ReadonlySet<number>;
+  /** Optional parallel qty map; missing id or qty<=0 means not selected. */
+  addonQuantities?: ReadonlyMap<number, number>;
+  /** When provided, stepper controls qty (1..max). Falls back to toggle-only if omitted. */
+  onSetAddonQty?: (addonId: number, qty: number) => void;
   onToggleAddon: (addon: PackageAddonLine) => void;
   addonSlotTargeting: AddonSlotTargeting;
   onAddonSelectAllSlots: (addonId: number, checked: boolean, allSlotKeys: string[]) => void;
   onToggleAddonSlot: (addonId: number, slotKey: string, allSlotKeys: string[]) => void;
   pickedSlots: PickedSlot[];
   formatPrice: (amount: number, currency: string) => string;
+  /** When the parent renders its own heading/hero (e.g. checkout drawer). */
+  omitPanelHeading?: boolean;
 };
+
+const ADDON_MAX_QTY = 50;
 
 function levelTagClass(level: PackageAddonLine["level"]): string {
   if (level === "reservation") return "cb-addon-level-tag cb-addon-level-tag--reservation";
@@ -44,24 +51,28 @@ export function BookingAddonPanel({
   onToggleExpand,
   moreCount,
   selectedAddonIds,
+  addonQuantities,
+  onSetAddonQty,
   onToggleAddon,
   addonSlotTargeting,
   onAddonSelectAllSlots,
   onToggleAddonSlot,
   pickedSlots,
   formatPrice,
+  omitPanelHeading = false,
 }: Props) {
   const ta = useTranslations("addons");
   const allSlotKeys = pickedSlots.map((s) => s.key);
   const slotKeySet = new Set(allSlotKeys);
 
   const visReservation = visibleAddons.filter((a) => a.level === "reservation");
-  const visSlotHour = visibleAddons.filter((a) => a.level === "slot" || a.level === "hour");
+  const visSlot = visibleAddons.filter((a) => a.level === "slot");
+  const visHour = visibleAddons.filter((a) => a.level === "hour");
 
   const renderCard = (a: PackageAddonLine) => {
     const resolved = resolveAddonDisplayPrice(a);
-    const desc = plainAddonDescription(a.description);
     const sel = selectedAddonIds.has(a.id);
+    const qty = sel ? Math.max(1, addonQuantities?.get(a.id) ?? 1) : 0;
     const eff =
       a.level === "reservation"
         ? null
@@ -69,33 +80,74 @@ export function BookingAddonPanel({
     const showSlotUi = sel && (a.level === "slot" || a.level === "hour") && pickedSlots.length > 0;
     const allSelected =
       eff != null && eff.size > 0 && pickedSlots.length > 0 && pickedSlots.every((p) => eff.has(p.key));
+    const canStep = sel && typeof onSetAddonQty === "function";
 
     return (
-      <div key={a.id} className="cb-addon-card-wrap">
-        <button
-          type="button"
-          className={`cb-addon-card ${sel ? "cb-addon-card--selected" : ""}`}
+      <div key={a.id} className="cb-addon-card-wrap cb-addon-card-wrap--chip">
+        <div
+          className={`cb-addon-card cb-addon-card--chip ${sel ? "cb-addon-card--selected" : ""}`}
+          role="button"
+          tabIndex={0}
           aria-pressed={sel}
-          onClick={() => onToggleAddon(a)}
+          onClick={() => {
+            if (sel) return;
+            onToggleAddon(a);
+          }}
+          onKeyDown={(e) => {
+            if (sel) return;
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              onToggleAddon(a);
+            }
+          }}
         >
-          {sel ? (
-            <span className="cb-addon-card-selected-pill" aria-hidden>
-              {ta("selectedPill")}
-            </span>
-          ) : null}
-          <span className={levelTagClass(a.level)}>{addonLevelLabel(a.level)}</span>
           <span className="cb-addon-card-title">{a.name}</span>
-          {desc ? <span className="cb-addon-card-desc line-clamp-2">{desc}</span> : null}
           {resolved ? (
             <span className="cb-addon-card-price">
               +{formatPrice(resolved.price, resolved.currency)}
               {addonPriceSuffixForLevel(a.level)}
             </span>
           ) : null}
-          {a.level === "reservation" ? (
-            <span className="cb-addon-card-hint">{ta("reservationHint")}</span>
+          {canStep ? (
+            <span
+              className="cb-addon-card-qty"
+              role="group"
+              aria-label={`Quantity for ${a.name}`}
+            >
+              <button
+                type="button"
+                className="cb-addon-card-qty-btn"
+                aria-label="Decrease quantity"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onSetAddonQty!(a.id, qty - 1);
+                }}
+              >−</button>
+              <span className="cb-addon-card-qty-value" aria-live="polite">{qty}</span>
+              <button
+                type="button"
+                className="cb-addon-card-qty-btn"
+                aria-label="Increase quantity"
+                disabled={qty >= ADDON_MAX_QTY}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onSetAddonQty!(a.id, qty + 1);
+                }}
+              >+</button>
+            </span>
           ) : null}
-        </button>
+          {sel ? (
+            <button
+              type="button"
+              className="cb-addon-card-deselect"
+              aria-label="Remove add-on"
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleAddon(a);
+              }}
+            >×</button>
+          ) : null}
+        </div>
         {showSlotUi ? (
           <div className="cb-addon-slot-apply">
             <p className="cb-addon-slot-apply-title">
@@ -114,11 +166,11 @@ export function BookingAddonPanel({
               role="group"
               aria-label={ta("slotsForAddonAria", { name: a.name })}
             >
-              {pickedSlots.map((p) => {
+              {pickedSlots.map((p, idx) => {
                 const on = eff?.has(p.key) ?? false;
                 return (
                   <button
-                    key={p.key}
+                    key={`${p.key}#${idx}`}
                     type="button"
                     className={`cb-addon-slot-chip ${on ? "cb-addon-slot-chip--on" : ""}`}
                     onClick={() => onToggleAddonSlot(a.id, p.key, allSlotKeys)}
@@ -136,45 +188,35 @@ export function BookingAddonPanel({
   };
 
   const showReservationBlock = visReservation.length > 0;
-  const showSlotBlock = visSlotHour.length > 0 && pickedSlots.length > 0;
-  const mixedAddonLayout = showReservationBlock && showSlotBlock;
+  const showSlotBlock = visSlot.length > 0 && pickedSlots.length > 0;
+  const showHourBlock = visHour.length > 0 && pickedSlots.length > 0;
 
-  if (!showReservationBlock && !showSlotBlock) return null;
+  if (!showReservationBlock && !showSlotBlock && !showHourBlock) return null;
 
-  const reservationBlock = showReservationBlock ? (
-    <div className="cb-addon-subsection">
-      <h4 className="cb-addon-subsection-title">{ta("withReservation")}</h4>
-      <div className="cb-addon-grid">{visReservation.map(renderCard)}</div>
+  const renderLevelRow = (label: string, items: PackageAddonLine[]) => (
+    <div className="cb-addon-subsection cb-addon-subsection--rail">
+      <h4 className="cb-addon-subsection-title">{label}</h4>
+      <div className="cb-addon-rail cb-hide-scrollbar" role="list">
+        {items.map(renderCard)}
+      </div>
     </div>
-  ) : null;
-
-  const slotBlock = showSlotBlock ? (
-    <div className="cb-addon-subsection">
-      <h4 className="cb-addon-subsection-title">{ta("forSelectedTimes")}</h4>
-      <div className="cb-addon-grid">{visSlotHour.map(renderCard)}</div>
-    </div>
-  ) : null;
+  );
 
   return (
     <section
-      className={`cb-addon-panel text-left${mixedAddonLayout ? " cb-addon-panel--mixed" : ""}`}
-      aria-labelledby="addons-heading"
+      className="cb-addon-panel cb-addon-panel--rails text-left"
+      aria-label={omitPanelHeading ? ta("panelHeading") : undefined}
+      {...(omitPanelHeading ? {} : { "aria-labelledby": "addons-heading" })}
     >
-      <h3 id="addons-heading" className="cb-addon-panel-title">
-        {ta("panelHeading")}
-      </h3>
-
-      {mixedAddonLayout ? (
-        <div className="cb-addon-panel-columns">
-          {reservationBlock}
-          {slotBlock}
-        </div>
-      ) : (
-        <>
-          {reservationBlock}
-          {slotBlock}
-        </>
+      {omitPanelHeading ? null : (
+        <h3 id="addons-heading" className="cb-addon-panel-title">
+          {ta("panelHeading")}
+        </h3>
       )}
+
+      {showReservationBlock ? renderLevelRow(ta("withReservation"), visReservation) : null}
+      {showSlotBlock ? renderLevelRow(ta("perSlot"), visSlot) : null}
+      {showHourBlock ? renderLevelRow(ta("perHour"), visHour) : null}
 
       {hasMoreAddons ? (
         <button type="button" className="cb-addon-more" onClick={onToggleExpand}>

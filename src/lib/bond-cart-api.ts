@@ -1,5 +1,9 @@
-import { isBondIllegalPriceError } from "@/lib/bond-errors";
-import { bondRootCartItemIdForRemoval } from "@/lib/bond-cart-removal";
+import { isBondIllegalPriceError, isBondMissingCartItemError } from "@/lib/bond-errors";
+import {
+  allBondFlatLineIndices,
+  bondRemovableCartItemIdsForIndices,
+  bondRootCartItemIdForRemoval,
+} from "@/lib/bond-cart-removal";
 import { bondBffDeleteJson, bondBffGetJson, bondBffPostJson } from "@/lib/bond-json";
 import type { OrganizationCartDto } from "@/types/online-booking";
 
@@ -21,6 +25,42 @@ function cartPath(orgId: number, cartId: number): string[] {
 
 export async function getOrganizationCart(orgId: number, cartId: number): Promise<OrganizationCartDto> {
   return bondBffGetJson<OrganizationCartDto>(cartPath(orgId, cartId));
+}
+
+/**
+ * After `CART.MISSING_CART_ITEM`, try reservation root then other removable line ids from a fresh cart
+ * (stale id / wrong line id from merged UI).
+ */
+async function removeOneLineAfterMissingCartItem(
+  orgId: number,
+  cartId: number,
+  fresh: OrganizationCartDto,
+  cartFlatLineIndices?: readonly number[]
+): Promise<OrganizationCartDto | null> {
+  const tried = new Set<number>();
+  const tryRemove = async (id: number | null): Promise<OrganizationCartDto | null> => {
+    if (id == null || !Number.isFinite(id) || id <= 0 || tried.has(id)) return null;
+    tried.add(id);
+    try {
+      return await removeCartItem(orgId, cartId, id);
+    } catch (e) {
+      if (isBondMissingCartItemError(e)) return null;
+      throw e;
+    }
+  };
+
+  let result = await tryRemove(bondRootCartItemIdForRemoval(fresh, cartFlatLineIndices));
+  if (result != null) return result;
+
+  const indices =
+    cartFlatLineIndices != null && cartFlatLineIndices.length > 0
+      ? [...cartFlatLineIndices]
+      : allBondFlatLineIndices(fresh);
+  for (const id of bondRemovableCartItemIdsForIndices(fresh, indices)) {
+    result = await tryRemove(id);
+    if (result != null) return result;
+  }
+  return null;
 }
 
 /** OpenAPI `removeCartItem` returns updated `OrganizationCartDto` on 200. */
@@ -46,6 +86,12 @@ export async function removeCartItemWithIllegalPriceFallback(
   try {
     return await removeCartItem(orgId, cartId, cartItemId);
   } catch (e) {
+    if (isBondMissingCartItemError(e)) {
+      const fresh = await getOrganizationCart(orgId, cartId);
+      const recovered = await removeOneLineAfterMissingCartItem(orgId, cartId, fresh, cartFlatLineIndices);
+      if (recovered != null) return recovered;
+      throw e;
+    }
     if (!isBondIllegalPriceError(e)) throw e;
     const rootId = bondRootCartItemIdForRemoval(cart, cartFlatLineIndices);
     if (rootId == null || rootId === cartItemId) throw e;
@@ -71,6 +117,12 @@ export async function removeCartItemsSequentiallyWithFallback(
     }
     return updated;
   } catch (e) {
+    if (isBondMissingCartItemError(e)) {
+      const fresh = await getFreshCart();
+      const recovered = await removeOneLineAfterMissingCartItem(orgId, cartId, fresh, cartFlatLineIndices);
+      if (recovered != null) return recovered;
+      throw e;
+    }
     if (!isBondIllegalPriceError(e)) throw e;
     const fresh = await getFreshCart();
     const rootId = bondRootCartItemIdForRemoval(fresh, cartFlatLineIndices);

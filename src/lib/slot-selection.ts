@@ -16,8 +16,15 @@ export type PickedSlot = {
    * Bond `POST …/online-booking/create` must receive this; sending $0 from member discounts triggers errors.
    */
   scheduleUnitPrice?: number;
-  /** Bond `POST .../online-booking/create` segment `spaceId` — prefer `spacesIds[0]` from schedule */
-  spaceId: number;
+  /**
+   * Bond `POST …/online-booking/create` segment `spaceId` when the row is space-based — prefer `spacesIds[0]`
+   * from the slot, else the resource id. Omitted for instructor-only segments (see `usesInstructorSegment`).
+   */
+  spaceId?: number;
+  /**
+   * When true, create payload must set `segments[].instructorId` to {@link resourceId} (selected schedule row).
+   */
+  usesInstructorSegment?: boolean;
   timezone: string;
 };
 
@@ -123,7 +130,9 @@ export function pickedSlotConflictsWithBookedSlices(
 ): boolean {
   for (const e of existing) {
     if (e.resourceId <= 0) continue;
-    if (e.resourceId !== picked.resourceId && e.resourceId !== picked.spaceId) continue;
+    const matchesResource = e.resourceId === picked.resourceId;
+    const matchesSpace = picked.spaceId != null && e.resourceId === picked.spaceId;
+    if (!matchesResource && !matchesSpace) continue;
     if (schedulingIntervalsOverlap(picked, e)) return true;
   }
   return false;
@@ -186,35 +195,41 @@ export function validateSlotSelection(
   const maxSeqH = rules.maxSequentialHours;
   const maxH = rules.maxBookingHoursPerDay;
   const existing = opts?.existing?.length ? opts.existing : [];
-  const combined: PickedSlot[] =
-    existing.length > 0
-      ? [
-          ...existing.map(
-            (e) =>
-              ({
-                ...e,
-                key: `existing-${e.resourceId}-${e.startDate}-${e.startTime}`,
-                resourceName: "",
-                price: 0,
-                spaceId: e.resourceId,
-                timezone: "UTC",
-              }) as PickedSlot
-          ),
-          ...selected,
-        ]
-      : selected;
 
   if (maxSeqH == null && maxH == null) return { ok: true };
 
+  /** Only validate days the user is actively selecting — avoids carrying limits from other days in the booking-information window. */
+  const selectedDates = new Set(selected.map((s) => s.startDate));
+  if (selectedDates.size === 0) return { ok: true };
+
   const who = opts?.customerLabel?.trim() || "You";
 
-  if (maxH != null && Number.isFinite(maxH) && maxH > 0) {
-    const byDay = new Map<string, number>();
-    for (const s of combined) {
-      const mins = slotDurationMinutes(s);
-      byDay.set(s.startDate, (byDay.get(s.startDate) ?? 0) + mins);
+  const combinedForDate = (date: string): PickedSlot[] => {
+    const out: PickedSlot[] = [];
+    for (const e of existing) {
+      if (e.startDate !== date) continue;
+      out.push({
+        ...e,
+        key: `existing-${e.resourceId}-${e.startDate}-${e.startTime}`,
+        resourceName: "",
+        price: 0,
+        spaceId: e.resourceId,
+        timezone: "UTC",
+      } as PickedSlot);
     }
-    for (const [, mins] of byDay) {
+    for (const s of selected) {
+      if (s.startDate === date) out.push(s);
+    }
+    return out;
+  };
+
+  if (maxH != null && Number.isFinite(maxH) && maxH > 0) {
+    for (const d of selectedDates) {
+      const combined = combinedForDate(d);
+      let mins = 0;
+      for (const s of combined) {
+        mins += slotDurationMinutes(s);
+      }
       if (mins / 60 > maxH + 1e-6) {
         if (opts?.t) {
           return {
@@ -232,21 +247,24 @@ export function validateSlotSelection(
 
   if (maxSeqH != null && Number.isFinite(maxSeqH) && maxSeqH > 0) {
     const capMins = maxSeqH * 60;
-    const chainMins = maxContiguousChainMinutes(combined);
-    if (chainMins > capMins + 1e-6) {
-      if (opts?.t) {
+    for (const d of selectedDates) {
+      const combined = combinedForDate(d);
+      const chainMins = maxContiguousChainMinutes(combined);
+      if (chainMins > capMins + 1e-6) {
+        if (opts?.t) {
+          return {
+            ok: false,
+            message: opts.t("slotValidationMaxSequential", {
+              maxHours: maxSeqH,
+              who,
+            }),
+          };
+        }
         return {
           ok: false,
-          message: opts.t("slotValidationMaxSequential", {
-            maxHours: maxSeqH,
-            who,
-          }),
+          message: `You can book a maximum of ${maxSeqH} hour${maxSeqH === 1 ? "" : "s"} sequentially.`,
         };
       }
-      return {
-        ok: false,
-        message: `You can book a maximum of ${maxSeqH} hour${maxSeqH === 1 ? "" : "s"} sequentially.`,
-      };
     }
   }
 

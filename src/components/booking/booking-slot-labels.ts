@@ -36,6 +36,13 @@ export function formatSlotKeyLongDate(key: string): string | null {
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
+/** Same as {@link formatSlotKeyLongDate} for an in-memory picked slot (schedule uses YYYY-MM-DD). */
+export function formatPickedSlotLongDate(slot: Pick<PickedSlot, "startDate">): string {
+  const d = new Date(`${slot.startDate}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return slot.startDate;
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
 /** Time range only, e.g. `8:00 AM – 9:00 AM`. */
 export function formatSlotKeyTimeRangePretty(key: string): string | null {
   const p = parseSlotControlKey(key);

@@ -1,4 +1,5 @@
-import { formatPickedSlotTimeRange } from "@/components/booking/booking-slot-labels";
+import { formatPickedSlotLongDate, formatPickedSlotTimeRange } from "@/components/booking/booking-slot-labels";
+import { formatDurationPriceBadge } from "@/lib/category-booking-settings";
 import { classifyCartItemLineKind } from "@/lib/bond-cart-item-classify";
 import { titleFromCartItem } from "@/lib/cart-purchase-lines";
 import {
@@ -10,7 +11,7 @@ import {
 } from "@/lib/checkout-bag-totals";
 import { dedupeDiscountCaptionSegments, describeEntitlementsForDisplay } from "@/lib/entitlement-discount";
 import type { SessionCartDisplayLine } from "@/lib/session-cart-snapshot";
-import type { PickedSlot } from "@/lib/slot-selection";
+import { slotDurationMinutes, type PickedSlot } from "@/lib/slot-selection";
 import type { ExtendedProductDto, OrganizationCartDto } from "@/types/online-booking";
 
 /** Names of membership products that gate pricing on the catalog (from `requiredProducts`). */
@@ -47,20 +48,103 @@ function catalogProductIdFromCartItem(it: Record<string, unknown>): number | nul
   return null;
 }
 
-export function formatScheduleSummaryForBooking(slots: PickedSlot[], bookingForLabel?: string): string {
-  return scheduleSummaryFromSlots(slots, bookingForLabel);
+function roundPriceKey(n: number): number {
+  return Math.round(n * 10000) / 10000;
 }
 
+/**
+ * Groups picked slots by matching list unit (schedule or display) + duration; emits resource line,
+ * optional `$X | per Nhr × count` lines when `formatMoney` is set, and `Date | time1, time2` lines.
+ * Multi-date groups within the same price/duration get one calendar line per date.
+ */
+export function buildGroupedScheduleSummaryLines(
+  slots: PickedSlot[],
+  opts?: { formatMoney?: (amount: number) => string; bookingForLabel?: string }
+): string[] {
+  if (slots.length === 0) return [];
+
+  const sorted = [...slots].sort((a, b) => {
+    const d = a.startDate.localeCompare(b.startDate);
+    if (d !== 0) return d;
+    return a.startTime.localeCompare(b.startTime);
+  });
+
+  const resources = [...new Set(sorted.map((s) => s.resourceName.trim()).filter(Boolean))];
+  const resourceLine =
+    resources.length === 0 ? "" : resources.length === 1 ? resources[0]! : resources.join(", ");
+
+  type Bucket = { unitKey: number; durationMins: number; slots: PickedSlot[] };
+  const buckets = new Map<string, Bucket>();
+  for (const s of sorted) {
+    const listUnit =
+      typeof s.scheduleUnitPrice === "number" && Number.isFinite(s.scheduleUnitPrice) && s.scheduleUnitPrice > 0
+        ? s.scheduleUnitPrice
+        : typeof s.price === "number" && Number.isFinite(s.price)
+          ? s.price
+          : 0;
+    const dur = Math.max(1, Math.round(slotDurationMinutes(s)));
+    const key = `${roundPriceKey(listUnit)}|${dur}`;
+    const prev = buckets.get(key);
+    if (prev) prev.slots.push(s);
+    else buckets.set(key, { unitKey: roundPriceKey(listUnit), durationMins: dur, slots: [s] });
+  }
+
+  const priceDurLines: string[] = [];
+  const calendarLines: string[] = [];
+  const formatMoney = opts?.formatMoney;
+
+  for (const b of buckets.values()) {
+    const byDate = new Map<string, PickedSlot[]>();
+    for (const s of b.slots) {
+      const arr = byDate.get(s.startDate) ?? [];
+      arr.push(s);
+      byDate.set(s.startDate, arr);
+    }
+    const dates = [...byDate.keys()].sort();
+    const count = b.slots.length;
+    const listUnit =
+      typeof b.slots[0]!.scheduleUnitPrice === "number" &&
+      Number.isFinite(b.slots[0]!.scheduleUnitPrice) &&
+      b.slots[0]!.scheduleUnitPrice > 0
+        ? b.slots[0]!.scheduleUnitPrice
+        : b.slots[0]!.price;
+
+    if (formatMoney && listUnit > 0) {
+      priceDurLines.push(
+        `${formatMoney(listUnit)} | per ${formatDurationPriceBadge(b.durationMins)} × ${count}`
+      );
+    }
+
+    for (const date of dates) {
+      const daySlots = byDate.get(date)!;
+      const longDate = formatPickedSlotLongDate(daySlots[0]!);
+      const times = daySlots.map((s) => formatPickedSlotTimeRange(s)).join(", ");
+      calendarLines.push(`${longDate} | ${times}`);
+    }
+  }
+
+  const out: string[] = [];
+  if (resourceLine.length > 0) out.push(resourceLine);
+  out.push(...priceDurLines, ...calendarLines);
+
+  if (opts?.bookingForLabel && opts.bookingForLabel.trim().length > 0) {
+    out.push(`For ${opts.bookingForLabel.trim()}`);
+  }
+
+  return out.length > 0 ? out : ["Reservation details"];
+}
+
+export function formatScheduleSummaryForBooking(
+  slots: PickedSlot[],
+  bookingForLabel?: string,
+  formatMoney?: (amount: number) => string
+): string {
+  return buildGroupedScheduleSummaryLines(slots, { formatMoney, bookingForLabel }).join("\n");
+}
+
+/** @deprecated Prefer {@link formatScheduleSummaryForBooking} — kept for one-off legacy meta strings. */
 function scheduleSummaryFromSlots(slots: PickedSlot[], bookingForLabel?: string): string {
-  const slotMeta = slots
-    .map((s) => `${s.resourceName} · ${formatPickedSlotTimeRange(s)}`)
-    .join(" · ");
-  const parts = [
-    slotMeta,
-    bookingForLabel && bookingForLabel.trim().length > 0 ? `For ${bookingForLabel.trim()}` : undefined,
-  ].filter((x): x is string => typeof x === "string" && x.length > 0);
-  const s = parts.join(" · ");
-  return s.length > 0 ? s : "Reservation details";
+  return formatScheduleSummaryForBooking(slots, bookingForLabel);
 }
 
 function mergeKeyForExtraLine(
@@ -111,8 +195,10 @@ export function buildBookingDisplayLinesForCart(opts: {
   cart: OrganizationCartDto;
   product?: ExtendedProductDto;
   bookingForLabel?: string;
+  /** When set, grouped summary includes `$X | per … × n` lines. */
+  formatMoney?: (amount: number) => string;
 }): SessionCartDisplayLine[] {
-  const schedule = scheduleSummaryFromSlots(opts.slots, opts.bookingForLabel);
+  const schedule = formatScheduleSummaryForBooking(opts.slots, opts.bookingForLabel, opts.formatMoney);
   const ent = describeEntitlementsForDisplay(opts.product?.entitlementDiscounts);
   const c = opts.cart;
   const items = c.cartItems;

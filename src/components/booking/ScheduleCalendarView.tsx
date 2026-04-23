@@ -163,7 +163,15 @@ export function ScheduleCalendarView({
   const reserved = reservedSlotKeys ?? EMPTY_SLOT_KEY_SET;
   const [userResourceTabId, setUserResourceTabId] = useState<number | null>(null);
 
-  const resourceIds = useMemo(() => schedule.resources.map((r) => r.resource.id), [schedule.resources]);
+  const sortedResources = useMemo(
+    () =>
+      [...schedule.resources].sort((a, b) =>
+        a.resource.name.localeCompare(b.resource.name, undefined, { sensitivity: "base" })
+      ),
+    [schedule.resources]
+  );
+
+  const resourceIds = useMemo(() => sortedResources.map((r) => r.resource.id), [sortedResources]);
 
   const activeResourceId = useMemo(() => {
     if (resourceIds.length === 0) return null;
@@ -177,8 +185,8 @@ export function ScheduleCalendarView({
   const membershipGateNames = useMemo(() => membershipGateProductNames(product), [product]);
 
   const grouped = useMemo(() => {
-    const map = new Map<string, typeof schedule.resources>();
-    for (const row of schedule.resources) {
+    const map = new Map<string, typeof sortedResources>();
+    for (const row of sortedResources) {
       const t = row.resource.type?.trim() || "Other";
       const list = map.get(t) ?? [];
       list.push(row);
@@ -272,33 +280,33 @@ export function ScheduleCalendarView({
     return n;
   }
 
-  const activeRow = schedule.resources.find((r) => r.resource.id === activeResourceId);
-  const multiResource = schedule.resources.length > 1;
+  const activeRow = sortedResources.find((r) => r.resource.id === activeResourceId);
+  const multiResource = sortedResources.length > 1;
 
   return (
     <div className="cb-schedule-resource-tabs">
       {multiResource ? (
         <>
           <h3 id="cb-resource-picker-title" className="cb-resource-picker-title">
-            Select a resource ({schedule.resources.length} available)
+            Select a resource ({sortedResources.length} available)
           </h3>
           <div
             className={
-              schedule.resources.length >= RESOURCE_SEARCH_THRESHOLD
+              sortedResources.length >= RESOURCE_SEARCH_THRESHOLD
                 ? "cb-resource-toolbar"
                 : "cb-resource-toolbar cb-resource-toolbar--tabs-only"
             }
           >
-            {schedule.resources.length >= RESOURCE_SEARCH_THRESHOLD ? (
+            {sortedResources.length >= RESOURCE_SEARCH_THRESHOLD ? (
               <ResourceSearchJump
-                rows={schedule.resources}
-                activeResourceId={activeResourceId ?? schedule.resources[0]!.resource.id}
+                rows={sortedResources}
+                activeResourceId={activeResourceId ?? sortedResources[0]!.resource.id}
                 onPick={(id) => setUserResourceTabId(id)}
               />
             ) : null}
             <div className="cb-resource-tabs-scroll cb-hide-scrollbar">
               <div className="cb-resource-tabs" role="tablist" aria-labelledby="cb-resource-picker-title">
-                {schedule.resources.map((r) => {
+                {sortedResources.map((r) => {
                   const sel = r.resource.id === activeResourceId;
                   const n = slotCountForResource(r.resource.id);
                   const typeLine = showTypeHeadings ? r.resource.type?.trim() : "";

@@ -3,6 +3,7 @@ import {
   formatSlotKeyTimeRangePretty,
   formatSlotKeysScheduleSummary,
 } from "@/components/booking/booking-slot-labels";
+import { parseSlotControlKey } from "@/lib/slot-selection";
 import {
   classifyCartItemLineKind,
   getCartItemMetadataDescription,
@@ -56,14 +57,61 @@ export type CartPurchaseDisplayLine = {
   };
   /** Venue submit-for-approval rental line — show approval pill on cart card. */
   approvalPending?: boolean;
+  /** Booking line with a non-zero `product.downPayment` — show deposit pill on cart card. */
+  depositRequired?: boolean;
+  /** Membership billing cadence row — e.g. "$45.99 / month × 1" — from `product.resource.membership.durationMonths`. */
+  unitSubtitle?: string;
 };
 
-/** How checkout/payment applies across bag rows (per-category approval at add time). */
+/** Bond cart membership item → billing cadence label ("month" / "year" / "3 months"). */
+function membershipCadenceLabel(it: Record<string, unknown>): string | undefined {
+  const product = it.product as Record<string, unknown> | undefined;
+  const resource = product?.resource as Record<string, unknown> | undefined;
+  const membership = resource?.membership as Record<string, unknown> | undefined;
+  const months = typeof membership?.durationMonths === "number" ? membership.durationMonths : undefined;
+  if (months == null || !Number.isFinite(months) || months <= 0) return undefined;
+  if (months === 1) return "month";
+  if (months === 12) return "year";
+  if (months % 12 === 0) return `${months / 12} years`;
+  return `${months} months`;
+}
+
+/** Membership cart item → unit subtitle like "$45.99 / month × 1". */
+function membershipUnitSubtitle(
+  it: Record<string, unknown>,
+  fallbackCurrency: string
+): string | undefined {
+  const cadence = membershipCadenceLabel(it);
+  const unit =
+    typeof it.unitPrice === "number" && Number.isFinite(it.unitPrice)
+      ? it.unitPrice
+      : typeof it.price === "number" && Number.isFinite(it.price)
+        ? it.price
+        : undefined;
+  if (unit == null || unit <= 0) return undefined;
+  const qty =
+    typeof it.quantity === "number" && Number.isFinite(it.quantity) && it.quantity > 0
+      ? it.quantity
+      : 1;
+  const currency = typeof it.currency === "string" ? it.currency : fallbackCurrency;
+  const price = new Intl.NumberFormat(undefined, { style: "currency", currency }).format(unit);
+  return cadence ? `${price} / ${cadence} × ${qty}` : `${price} × ${qty}`;
+}
+
+/** How checkout/payment applies across bag rows — considers per-productId approval for merged carts. */
 export function bagApprovalPolicy(rows: SessionCartSnapshot[]): BagApprovalPolicy {
   if (rows.length === 0) return "all_pay";
-  const flags = rows.map((r) => r.approvalRequired === true);
-  const all = flags.every(Boolean);
-  const none = flags.every((f) => !f);
+  const values: boolean[] = [];
+  for (const r of rows) {
+    const map = r.approvalByProductId;
+    if (map && Object.keys(map).length > 0) {
+      for (const v of Object.values(map)) values.push(v === true);
+    } else {
+      values.push(r.approvalRequired === true);
+    }
+  }
+  const all = values.every(Boolean);
+  const none = values.every((f) => !f);
   if (all) return "all_submission";
   if (none) return "all_pay";
   return "mixed";
@@ -129,9 +177,7 @@ function buildLineMeta(opts: {
   const lineSched = opts.lineScheduleSummary?.trim();
   const sched = opts.scheduleSummary?.trim();
   const primary = lineSched && lineSched.length > 0 ? lineSched : sched;
-  if (opts.kind === "membership") {
-    return `Membership charge${bb}`;
-  }
+  if (opts.kind === "membership") return "";
   if (primary && primary.length > 0) return `${primary}${bb}`;
   return `Reservation details${bb}`;
 }
@@ -240,11 +286,37 @@ function buildBagMetaRows(
       ? row.bookingForLabel.trim()
       : undefined);
   const keys = slotKeysForSegment(row, segIdx);
-  const firstKey = keys[0];
-  const dateLine = firstKey != null ? formatSlotKeyLongDate(firstKey) ?? undefined : undefined;
-  const timeLine = firstKey != null ? formatSlotKeyTimeRangePretty(firstKey) ?? undefined : undefined;
   let resource = readResourceFromBondItem(bondItem ?? null);
   if (!resource && fallbackMeta.length > 0) resource = parseResourceFromScheduleMeta(fallbackMeta);
+
+  let dateLine: string | undefined;
+  let timeLine: string | undefined;
+  if (keys.length > 0) {
+    const byDate = new Map<string, string[]>();
+    for (const k of keys) {
+      const p = parseSlotControlKey(k);
+      if (!p) continue;
+      const long = formatSlotKeyLongDate(k);
+      const tr = formatSlotKeyTimeRangePretty(k);
+      if (!long || !tr) continue;
+      const arr = byDate.get(long) ?? [];
+      arr.push(tr);
+      byDate.set(long, arr);
+    }
+    const dates = [...byDate.keys()];
+    if (dates.length === 1) {
+      dateLine = dates[0];
+      timeLine = byDate.get(dates[0]!)!.join(", ");
+    } else if (dates.length > 1) {
+      timeLine = dates
+        .map((d) => {
+          const parts = byDate.get(d)!;
+          return `${d}: ${parts.join(", ")}`;
+        })
+        .join("; ");
+    }
+  }
+
   const participant = label;
   if (!participant && !resource && !dateLine && !timeLine) return undefined;
   return { participant, resource, dateLine, timeLine };
@@ -269,14 +341,36 @@ function finalizePurchaseDisplayLines(
   const want = options?.structuredBagMeta === true;
   const omit = options?.omitBookingLabelInMeta === true;
   const subsection = options?.subsectionBookingForLabel;
+  const approvalMap = row.approvalByProductId;
+  const hasPerProductApproval = approvalMap != null && Object.keys(approvalMap).length > 0;
+  /** Row-level fallback when the snapshot predates per-productId persistence (loaded carts, legacy rows). */
   const needApprovalFlags = row.approvalRequired === true;
-  if (!want && !needApprovalFlags) return lines;
 
   const c = row.cart as OrganizationCartDto;
-  const segByFlat = flatIndexToSegmentMap(c);
   const flatBond = Array.isArray(c.cartItems)
     ? flattenBondCartItemNodes(c.cartItems as unknown[])
     : [];
+  const hasAnyDeposit = flatBond.some((it) => bondItemHasDownpayment(it));
+  if (!want && !needApprovalFlags && !hasPerProductApproval && !hasAnyDeposit) return lines;
+
+  const segByFlat = flatIndexToSegmentMap(c);
+  const segApprovalCache = new Map<number, boolean>();
+  const segmentHasApprovalProduct = (segIdx: number): boolean => {
+    if (segApprovalCache.has(segIdx)) return segApprovalCache.get(segIdx)!;
+    let has = false;
+    for (let k = 0; k < flatBond.length; k++) {
+      if ((segByFlat.get(k) ?? 0) !== segIdx) continue;
+      const kind = classifyCartItemLineKind(flatBond[k]!);
+      if (kind !== "booking") continue;
+      const pid = productIdFromBondItem(flatBond[k]!);
+      if (pid != null && approvalMap && approvalMap[pid] === true) {
+        has = true;
+        break;
+      }
+    }
+    segApprovalCache.set(segIdx, has);
+    return has;
+  };
 
   return lines.map((line) => {
     const j = parseSnapLineFlatIndex(line.key, rowIndex);
@@ -287,13 +381,44 @@ function finalizePurchaseDisplayLines(
     const bagMetaRows = want
       ? buildBagMetaRows(row, segIdx, coKind, omit, subsection, bondRec ?? null, line.meta)
       : undefined;
-    const approvalPending = needApprovalFlags && coKind === "booking";
+    /** Per-product approval when available; otherwise row-level. Addons inherit the segment's booking. */
+    let approvalPending = false;
+    if (coKind === "booking") {
+      if (hasPerProductApproval) {
+        const pid = bondRec != null ? productIdFromBondItem(bondRec) : null;
+        approvalPending = pid != null && approvalMap![pid] === true;
+      } else {
+        approvalPending = needApprovalFlags;
+      }
+    } else if (coKind === "addon" && hasPerProductApproval) {
+      approvalPending = segmentHasApprovalProduct(segIdx);
+    }
+    const depositRequired =
+      !approvalPending && coKind === "booking" && bondRec != null && bondItemHasDownpayment(bondRec);
     return {
       ...line,
       ...(bagMetaRows ? { bagMetaRows } : {}),
       ...(approvalPending ? { approvalPending: true } : {}),
+      ...(depositRequired ? { depositRequired: true } : {}),
     };
   });
+}
+
+function productIdFromBondItem(it: Record<string, unknown>): number | null {
+  const prod = it.product as Record<string, unknown> | undefined;
+  const pid = typeof prod?.id === "number" ? prod.id : null;
+  return pid != null && Number.isFinite(pid) && pid > 0 ? pid : null;
+}
+
+/** True when this Bond cart item's product carries a non-zero `downPayment`. */
+function bondItemHasDownpayment(it: Record<string, unknown>): boolean {
+  const prod = it.product as Record<string, unknown> | undefined;
+  const dp =
+    (prod?.downPayment as number | undefined) ??
+    (prod?.downpayment as number | undefined) ??
+    (it.downPayment as number | undefined) ??
+    (it.downpayment as number | undefined);
+  return typeof dp === "number" && Number.isFinite(dp) && dp > 0;
 }
 
 /**
@@ -482,6 +607,10 @@ export function expandSnapshotForPurchaseList(
         typeof cartId === "number" && Number.isFinite(cartId) && cartId > 0 && bondRec != null
           ? bagRemovePolicyForBondItem(bondRec, kindMeta, bondId)
           : undefined;
+      const unitSubtitle =
+        kindMeta === "membership" && bondRec != null
+          ? membershipUnitSubtitle(bondRec, c.currency ?? "USD")
+          : undefined;
       return {
         key: `snap-${rowIndex}-saved-${j}-${cartId}`,
         title: line.title,
@@ -494,6 +623,7 @@ export function expandSnapshotForPurchaseList(
         ...(strikeAmount != null ? { strikeAmount } : {}),
         ...(badge ? { badge } : {}),
         ...(bagRemove ? { bagRemove } : {}),
+        ...(unitSubtitle ? { unitSubtitle } : {}),
       };
     }),
       row,
@@ -512,10 +642,14 @@ export function expandSnapshotForPurchaseList(
       if (fromItem == null) return;
       const it = o as Record<string, unknown>;
       const kind = classifyCartItemLineKind(it);
+      /** Merged carts hold items from different products — prefer each item's own Bond name so line 1 doesn't inherit line 2's product. */
+      const bondTitle = titleFromCartItem(it);
       const title =
-        kind === "booking" && typeof row.productName === "string" && row.productName.trim().length > 0
-          ? row.productName.trim()
-          : titleFromCartItem(it);
+        bondTitle !== "Item"
+          ? bondTitle
+          : kind === "booking" && typeof row.productName === "string" && row.productName.trim().length > 0
+            ? row.productName.trim()
+            : bondTitle;
       const segIdx = segByFlat.get(i) ?? 0;
       const lineSchedSeg = lineScheduleSummaryForSegment(row, kind, segIdx);
       const meta = buildLineMeta({
@@ -549,6 +683,10 @@ export function expandSnapshotForPurchaseList(
         typeof cartId === "number" && Number.isFinite(cartId) && cartId > 0
           ? bagRemovePolicyForBondItem(it, kind, lineCartId)
           : undefined;
+      const unitSubtitle =
+        kind === "membership"
+          ? membershipUnitSubtitle(it, c.currency ?? "USD")
+          : undefined;
       lines.push({
         key: `snap-${rowIndex}-item-${i}-${cartId}`,
         title,
@@ -561,6 +699,7 @@ export function expandSnapshotForPurchaseList(
         ...(strikeAmount != null ? { strikeAmount } : {}),
         ...(badge ? { badge } : {}),
         ...(bagRemove ? { bagRemove } : {}),
+        ...(unitSubtitle ? { unitSubtitle } : {}),
       });
     });
     if (lines.length > 0) return finalizePurchaseDisplayLines(lines, row, rowIndex, options);

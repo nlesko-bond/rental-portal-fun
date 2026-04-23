@@ -15,11 +15,46 @@ const RENTAL_SEGMENT_ROOT_DESCRIPTIONS = new Set([
 
 export { RENTAL_SEGMENT_ROOT_DESCRIPTIONS };
 
-function cartItemNumericId(it: Record<string, unknown>): number | null {
-  const id = it.id;
-  if (typeof id === "number" && Number.isFinite(id)) return id;
-  if (typeof id === "string" && /^\d+$/.test(id)) return Number(id);
+function coercePositiveInt(v: unknown): number | null {
+  if (typeof v === "number" && Number.isFinite(v) && v > 0) return v;
+  if (typeof v === "string" && /^\d+$/.test(v.trim())) {
+    const n = Number(v.trim());
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }
   return null;
+}
+
+function nestedProductId(it: Record<string, unknown>): number | null {
+  const p = it.product;
+  if (!p || typeof p !== "object") return null;
+  return coercePositiveInt((p as Record<string, unknown>).id);
+}
+
+/**
+ * Id for `DELETE …/cart/{cartId}/cart-item/{cartItemId}` — Bond expects the **cart line** id, not catalog `product.id`.
+ * When `id` duplicates `product.id` / `productId`, DELETE is interpreted as a product id and returns `CART.MISSING_CART_ITEM`.
+ */
+function resolveBondCartItemLineIdForDelete(it: Record<string, unknown>): number | null {
+  for (const key of ["organizationCartItemId", "cartItemId", "lineItemId", "itemId"] as const) {
+    const n = coercePositiveInt(it[key]);
+    if (n != null) return n;
+  }
+  const meta =
+    it.metadata && typeof it.metadata === "object" ? (it.metadata as Record<string, unknown>) : null;
+  if (meta != null) {
+    for (const key of ["cartItemId", "organizationCartItemId"] as const) {
+      const n = coercePositiveInt(meta[key]);
+      if (n != null) return n;
+    }
+  }
+  const topId = coercePositiveInt(it.id);
+  const prodNested = nestedProductId(it);
+  const topProductId = coercePositiveInt(it.productId);
+  if (topId != null) {
+    if (prodNested != null && topId === prodNested) return null;
+    if (topProductId != null && topId === topProductId) return null;
+  }
+  return topId;
 }
 
 /**
@@ -41,7 +76,7 @@ export function bondRootCartItemIdForRemoval(
     const it = flat[i]!;
     const desc = getCartItemMetadataDescription(it);
     if (desc != null && RENTAL_SEGMENT_ROOT_DESCRIPTIONS.has(desc)) {
-      const id = cartItemNumericId(it);
+      const id = resolveBondCartItemLineIdForDelete(it);
       if (id != null) return id;
     }
   }
@@ -49,7 +84,7 @@ export function bondRootCartItemIdForRemoval(
     if (allowed != null && !allowed.has(i)) continue;
     const it = flat[i]!;
     if (classifyCartItemLineKind(it) === "booking") {
-      const id = cartItemNumericId(it);
+      const id = resolveBondCartItemLineIdForDelete(it);
       if (id != null) return id;
     }
   }
@@ -94,7 +129,7 @@ export function bagRemovePolicyForBondItem(
 }
 
 export function bondCartItemIdFromRecord(it: Record<string, unknown>): number | null {
-  return cartItemNumericId(it);
+  return resolveBondCartItemLineIdForDelete(it);
 }
 
 /**
@@ -113,7 +148,7 @@ export function bondRemovableCartItemIdsForIndices(
     const it = flat[i]!;
     const kind = classifyCartItemLineKind(it);
     if (kind === "membership" && !membershipRemovableFromBag(it)) continue;
-    const id = cartItemNumericId(it);
+    const id = resolveBondCartItemLineIdForDelete(it);
     if (id == null || seen.has(id)) continue;
     seen.add(id);
     out.push(id);

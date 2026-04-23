@@ -36,11 +36,61 @@ function buildSegmentsFromBookingStarts(
   return segments;
 }
 
+/**
+ * Walk a top-level cart item subtree in DFS pre-order, assigning sequential flat indices, while
+ * noting whether this subtree roots any rental/lesson/league — used to attribute multi-booker wrappers.
+ * Matches the order produced by `flattenBondCartItemNodes`.
+ */
+type SubtreeInfo = { indices: number[]; hasRentalRoot: boolean };
+
+function walkSubtree(node: Record<string, unknown>, cursor: { i: number }): SubtreeInfo {
+  const indices: number[] = [cursor.i];
+  cursor.i += 1;
+  const desc = getCartItemMetadataDescription(node);
+  let hasRental = desc != null && RENTAL_SEGMENT_ROOT_DESCRIPTIONS.has(desc);
+  const children = node.children;
+  if (Array.isArray(children)) {
+    for (const c of children) {
+      if (!c || typeof c !== "object") continue;
+      const sub = walkSubtree(c as Record<string, unknown>, cursor);
+      indices.push(...sub.indices);
+      if (sub.hasRentalRoot) hasRental = true;
+    }
+  }
+  return { indices, hasRentalRoot: hasRental };
+}
+
 export function flatLineIndexSegmentsForMergedBookings(cart: OrganizationCartDto): number[][] | null {
   const items = cart.cartItems;
   if (!Array.isArray(items) || items.length === 0) return null;
   const flat = flattenBondCartItemNodes(items);
-  /** Prefer Bond line `metadata.description` so wrapper rows don’t inflate “booking” starts (fixes merged multi-guest carts grouping under the last person). */
+
+  /**
+   * Topology-aware: each top-level `cartItems[]` wrapper containing a rental descendant is one segment.
+   * Top-level wrappers without any rental (e.g. cart-level membership) go into a preamble attached to segment 0.
+   */
+  const preamble: number[] = [];
+  const rentalSegments: number[][] = [];
+  const cursor = { i: 0 };
+  for (const node of items) {
+    if (!node || typeof node !== "object") {
+      cursor.i += 1;
+      continue;
+    }
+    const sub = walkSubtree(node as Record<string, unknown>, cursor);
+    if (sub.indices.length === 0) continue;
+    if (sub.hasRentalRoot) {
+      rentalSegments.push(sub.indices);
+    } else {
+      preamble.push(...sub.indices);
+    }
+  }
+  if (rentalSegments.length > 0) {
+    if (preamble.length > 0 && rentalSegments[0]) rentalSegments[0] = [...preamble, ...rentalSegments[0]];
+    return rentalSegments;
+  }
+
+  // Fallback: flat linear segmentation via rental-root description, then classifier.
   const rentalRoots: number[] = [];
   for (let i = 0; i < flat.length; i++) {
     const desc = getCartItemMetadataDescription(flat[i]!);

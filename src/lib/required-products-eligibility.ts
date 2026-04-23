@@ -7,22 +7,22 @@ import {
 import { parseRequiredProductsResponse } from "@/lib/required-products-parse";
 
 /**
- * True when `GET .../products/{productId}/user/{userId}/required` still lists at least one
- * membership the user must add. Bond sets **`required: false`** on a row when the user
- * already satisfies it (e.g. holds the membership) — those rows must be ignored here.
+ * True when `GET .../products/{productId}/user/{userId}/required` lists membership options
+ * the user hasn't satisfied yet. Top-level memberships are **OR options** (pick any one), so
+ * the user is eligible as soon as Bond marks **any** option with `required: false`. The gate
+ * only shows when no membership in the list is satisfied.
  */
 export function userNeedsMembershipFromRequiredResponse(raw: unknown): boolean {
   const extended = parseExtendedRequiredProductsList(raw);
   if (extended.length > 0) {
     const { membershipOptions } = partitionMembershipVsOtherRequired(extended);
-    return membershipOptions.some((n) => n.required !== false);
+    if (membershipOptions.length === 0) return false;
+    return !membershipOptions.some((n) => n.required === false);
   }
   const legacy = parseRequiredProductsResponse(raw);
-  return legacy.some((r) => {
-    if (!isMembershipRequiredProduct(r as ExtendedRequiredProductNode)) return false;
-    if (r.required === false) return false;
-    return true;
-  });
+  const memberships = legacy.filter((r) => isMembershipRequiredProduct(r as ExtendedRequiredProductNode));
+  if (memberships.length === 0) return false;
+  return !memberships.some((r) => r.required === false);
 }
 
 /**

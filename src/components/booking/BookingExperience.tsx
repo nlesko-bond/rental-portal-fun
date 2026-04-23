@@ -58,20 +58,16 @@ import { CB_BOOKING_APPEARANCE_EVENT, CB_BOOKING_APPEARANCE_KEY } from "@/lib/bo
 import { bookingAppearanceClass, resolveBookingThemeStyle, type BookingThemeUrlOverrides } from "@/lib/booking-theme";
 import { clientScheduleViews } from "@/lib/booking-views";
 import { resolveProductCardImageAtStep, type ProductCardImageFallbackStep } from "@/lib/product-card-image";
+import { sanitizeBookingDescriptionHtml } from "@/lib/sanitize-html";
 import { bookingOptionalAddons } from "@/lib/product-package-addons";
 import { parseProductFormIds } from "@/lib/product-form-ids";
 import { countSessionCartLineItems } from "@/lib/cart-purchase-lines";
-import {
-  allBondFlatLineIndices,
-  bondRemovableCartItemIdsForIndices,
-  bondRootCartItemIdForRemoval,
-} from "@/lib/bond-cart-removal";
+import { bondRootCartItemIdForRemoval } from "@/lib/bond-cart-removal";
 import {
   closeCart,
   closeOrganizationCartsBestEffort,
   getOrganizationCart,
   removeCartItemWithIllegalPriceFallback,
-  removeCartItemsSequentiallyWithFallback,
 } from "@/lib/bond-cart-api";
 import { flattenBondCartItemNodes } from "@/lib/checkout-bag-totals";
 import { flatLineIndexSegmentsForMergedBookings } from "@/lib/session-cart-grouping";
@@ -89,10 +85,12 @@ import {
   validateSlotSelection,
   type PickedSlot,
 } from "@/lib/slot-selection";
+import { isInstructorScheduleResourceType } from "@/lib/schedule-resource-type";
+import { ActivityGlyph } from "@/components/booking/activity-icons";
 import {
   ActivityPickerBody,
+  BreadcrumbChevronRight,
   CategoryPickerBody,
-  activityEmoji,
   FacilityPickerBody,
   IconCalendar,
   IconPin,
@@ -246,6 +244,24 @@ export function BookingExperience() {
   const [preferredStartTime, setPreferredStartTime] = useState<string | null>(null);
   const [selectedSlots, setSelectedSlots] = useState<Map<string, PickedSlot>>(new Map());
   const [selectedAddonIds, setSelectedAddonIds] = useState<Set<number>>(new Set());
+  /** Parallel to `selectedAddonIds`; each selected addon has a qty (1..50). Missing = 1 when selected. */
+  const [addonQuantities, setAddonQuantities] = useState<Map<number, number>>(new Map());
+  const ADDON_MAX_QTY = 50;
+  const setAddonQty = useCallback((addonId: number, qty: number) => {
+    const clamped = Math.max(0, Math.min(ADDON_MAX_QTY, Math.floor(qty)));
+    setSelectedAddonIds((prev) => {
+      const next = new Set(prev);
+      if (clamped <= 0) next.delete(addonId);
+      else next.add(addonId);
+      return next;
+    });
+    setAddonQuantities((prev) => {
+      const next = new Map(prev);
+      if (clamped <= 0) next.delete(addonId);
+      else next.set(addonId, clamped);
+      return next;
+    });
+  }, []);
   const [addonSlotTargeting, setAddonSlotTargeting] = useState<AddonSlotTargeting>({});
   const [addonsExpanded, setAddonsExpanded] = useState(false);
   const [slotBarError, setSlotBarError] = useState<string | null>(null);
@@ -268,9 +284,11 @@ export function BookingExperience() {
   const clearSlotSelection = useCallback(() => {
     setSelectedSlots(new Map());
     setSelectedAddonIds(new Set());
+    setAddonQuantities(new Map());
     setAddonSlotTargeting({});
     setAddonsExpanded(false);
     setSlotBarError(null);
+    prevCheckoutUserIdRef.current = null;
   }, []);
 
   const portalQuery = useQuery({
@@ -283,7 +301,10 @@ export function BookingExperience() {
   });
 
   const [bookingTargetUserId, setBookingTargetUserId] = useState<number | null>(null);
+  /** userId that was active the last time checkout was opened — used to detect participant change between opens. */
+  const prevCheckoutUserIdRef = useRef<number | null>(null);
   const [bookingForModalOpen, setBookingForModalOpen] = useState(false);
+  const [pendingParticipantUserId, setPendingParticipantUserId] = useState<number | null | undefined>(undefined);
 
   const partyMembers = useMemo(
     () => bookingPartyMembersFromProfile(bondProfileQuery.data),
@@ -323,16 +344,26 @@ export function BookingExperience() {
   const clearNavigateToCheckoutStep = useCallback(() => {
     setNavigateToCheckoutStep(null);
   }, []);
-  /** After a successful add, go straight to payment in the same drawer (bag remains available from the cart FAB). */
+  /** After a successful add, drawer shows “Added to cart” — user chooses book again or checkout. */
   const onCheckoutAddedToCart = useCallback(() => {
     setCheckoutBusy(false);
     setCheckoutDrawerMode("checkout");
-    setNavigateToCheckoutStep("payment");
   }, []);
 
   const pruneSatisfiedAddonProductIds = useCallback((ids: number[]) => {
     setSelectedAddonIds((prev) => {
       const next = new Set(prev);
+      let changed = false;
+      for (const id of ids) {
+        if (next.has(id)) {
+          next.delete(id);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+    setAddonQuantities((prev) => {
+      const next = new Map(prev);
       let changed = false;
       for (const id of ids) {
         if (next.has(id)) {
@@ -349,6 +380,8 @@ export function BookingExperience() {
   const [sessionCartRows, setSessionCartRows] = useState<SessionCartSnapshot[]>([]);
   const sessionCartRowsRef = useRef<SessionCartSnapshot[]>([]);
   sessionCartRowsRef.current = sessionCartRows;
+  /** `useMutation` callbacks can close over a stale `categoryRequiresApproval` — read `.current` when persisting snapshots. */
+  const categoryApprovalRequiredRef = useRef(false);
   /**
    * First persist effect run happens in the same commit as the rehydrate effect, while state can still be the
    * initial `[]`, so it would overwrite sessionStorage with an empty cart. Skip that write; persist after load.
@@ -492,6 +525,15 @@ export function BookingExperience() {
       pushBookingState({ ...state, productId: ids[0] });
     }
   }, [productsQuery.data, state, pushBookingState]);
+
+  const soloProduct = useMemo(() => {
+    const list = productsQuery.data?.data ?? [];
+    return list.length === 1 ? list[0]! : null;
+  }, [productsQuery.data]);
+  const soloProductDescriptionHtml = useMemo(() => {
+    if (!soloProduct?.description || typeof window === "undefined") return "";
+    return sanitizeBookingDescriptionHtml(soloProduct.description);
+  }, [soloProduct]);
 
   const categoryRules = useMemo(() => {
     if (!portal || !state) return null;
@@ -844,10 +886,12 @@ export function BookingExperience() {
           next.delete(key);
           return next;
         }
-        const spaceId =
+        const resourceMeta = scheduleSettingsQuery.data?.resources?.find((r) => r.id === resourceId);
+        const usesInstructorSegment = isInstructorScheduleResourceType(resourceMeta?.type);
+        const spaceIdFromSlot =
           Array.isArray(s.spacesIds) && s.spacesIds.length > 0 && typeof s.spacesIds[0] === "number"
             ? s.spacesIds[0]!
-            : resourceId;
+            : undefined;
         const productRow = productsQuery.data?.data.find((p) => p.id === state?.productId);
         const catalogListUnit = cashUnitPriceForBondFallback(productRow);
         const rawUnit =
@@ -865,8 +909,13 @@ export function BookingExperience() {
           endTime: s.endTime,
           scheduleUnitPrice: scheduleUnitStored,
           price: entitlementAdjust(scheduleUnitStored),
-          spaceId,
           timezone: typeof s.timezone === "string" && s.timezone.length > 0 ? s.timezone : "UTC",
+          ...(usesInstructorSegment
+            ? {
+                usesInstructorSegment: true as const,
+                ...(spaceIdFromSlot != null ? { spaceId: spaceIdFromSlot } : {}),
+              }
+            : { spaceId: spaceIdFromSlot ?? resourceId }),
         };
         const next = new Map(prev);
         next.set(key, picked);
@@ -891,6 +940,7 @@ export function BookingExperience() {
       slotRules,
       entitlementAdjust,
       scheduleGridBlockedSlotKeys,
+      scheduleSettingsQuery.data,
       productsQuery.data,
       state?.productId,
       tb,
@@ -1010,11 +1060,14 @@ export function BookingExperience() {
       return;
     }
     if (pickedSlotsOrdered.length === 0) return;
-    setNavigateToCheckoutStep(null);
+    const uid = effectiveBookingUserId ?? null;
+    const sameParticipant = prevCheckoutUserIdRef.current != null && prevCheckoutUserIdRef.current === uid;
+    prevCheckoutUserIdRef.current = uid;
+    setNavigateToCheckoutStep(sameParticipant ? "syncCart" : null);
     setCheckoutDrawerMode("checkout");
     setSyncStepGoToCartEnabled(false);
     setCheckoutDrawerOpen(true);
-  }, [bondAuth, bondUserIdResolved, pickedSlotsOrdered.length]);
+  }, [bondAuth, bondUserIdResolved, pickedSlotsOrdered.length, effectiveBookingUserId]);
 
   useEffect(() => {
     if (
@@ -1023,8 +1076,11 @@ export function BookingExperience() {
       bondUserIdResolved != null &&
       pickedSlotsOrdered.length > 0
     ) {
+      const uid = bondUserIdResolved ?? null;
+      const sameParticipant = prevCheckoutUserIdRef.current != null && prevCheckoutUserIdRef.current === uid;
+      prevCheckoutUserIdRef.current = uid;
       setResumeCheckoutAfterAuth(false);
-      setNavigateToCheckoutStep(null);
+      setNavigateToCheckoutStep(sameParticipant ? "syncCart" : null);
       setCheckoutDrawerMode("checkout");
       setSyncStepGoToCartEnabled(false);
       setCheckoutDrawerOpen(true);
@@ -1110,16 +1166,21 @@ export function BookingExperience() {
       if (next.size === prev.size && [...next].every((id) => prev.has(id))) return prev;
       return next;
     });
+    setAddonQuantities((prev) => {
+      const next = new Map(prev);
+      for (const id of [...prev.keys()]) {
+        const addon = packageAddons.find((a) => a.id === id);
+        if (!addon || addon.level === "reservation") continue;
+        const eff = getEffectiveAddonSlotKeys(addonSlotTargeting[id], slotKeys);
+        if (eff.size === 0) next.delete(id);
+      }
+      return next;
+    });
   }, [selectedSlots, packageAddons, addonSlotTargeting]);
 
   const handleAddonToggle = useCallback((addon: PackageAddonLine) => {
-    setSelectedAddonIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(addon.id)) next.delete(addon.id);
-      else next.add(addon.id);
-      return next;
-    });
-  }, []);
+    setAddonQty(addon.id, selectedAddonIds.has(addon.id) ? 0 : 1);
+  }, [selectedAddonIds, setAddonQty]);
 
   /** Slot/hour add-ons need default targeting; keep in sync without nested setState in the toggle handler. */
   useEffect(() => {
@@ -1225,6 +1286,7 @@ export function BookingExperience() {
 
   const category = portal.options.categories.find((c) => c.id === state.categoryId) ?? portal.options.defaultCategory;
   const categoryApprovalRequired = categoryRequiresApproval(category);
+  categoryApprovalRequiredRef.current = categoryApprovalRequired;
   const durations =
     categoryRules?.durationOptionsMinutes?.length && categoryRules.durationOptionsMinutes.length > 0
       ? categoryRules.durationOptionsMinutes
@@ -1264,16 +1326,14 @@ export function BookingExperience() {
   };
   const portalViews = clientScheduleViews(portal.options.views);
   const setScheduleView = (view: OnlineBookingView) => {
-    clearSlotSelection();
     if (view === "calendar" || view === "matrix") pushBookingState({ ...state, view });
   };
   const setDate = (date: string) => {
     setPreferredStartTime(null);
-    clearSlotSelection();
+    setSlotBarError(null);
     pushBookingState({ ...state, date });
   };
   const setDuration = (duration: number) => {
-    clearSlotSelection();
     pushBookingState({ ...state, duration });
   };
 
@@ -1315,7 +1375,13 @@ export function BookingExperience() {
             aria-label="Open consumer flow diagram"
             title="Consumer flow diagram"
           >
-            📄
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+              <rect x="2" y="3" width="6" height="4" rx="1" stroke="currentColor" strokeWidth="1.5"/>
+              <rect x="9" y="10" width="6" height="4" rx="1" stroke="currentColor" strokeWidth="1.5"/>
+              <rect x="16" y="17" width="6" height="4" rx="1" stroke="currentColor" strokeWidth="1.5"/>
+              <path d="M5 7v3.5A1.5 1.5 0 0 0 6.5 12H9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+              <path d="M12 14v3.5A1.5 1.5 0 0 0 13.5 19H16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+            </svg>
           </a>
         </div>
         <div className="flex min-w-0 flex-col items-center justify-center px-1 text-center">
@@ -1388,8 +1454,8 @@ export function BookingExperience() {
               ▾
             </span>
           </button>
-          <span className="cb-breadcrumb-sep" aria-hidden>
-            ›
+          <span className="cb-breadcrumb-sep cb-breadcrumb-sep--chev" aria-hidden>
+            <BreadcrumbChevronRight className="cb-breadcrumb-chev-icon" />
           </span>
           <button type="button" className="cb-breadcrumb-trigger" onClick={() => setPicker("category")}>
             <IconCalendar className="size-3.5 shrink-0 text-[var(--cb-text-muted)]" />
@@ -1398,16 +1464,16 @@ export function BookingExperience() {
               ▾
             </span>
           </button>
-          <span className="cb-breadcrumb-sep" aria-hidden>
-            ›
+          <span className="cb-breadcrumb-sep cb-breadcrumb-sep--chev" aria-hidden>
+            <BreadcrumbChevronRight className="cb-breadcrumb-chev-icon" />
           </span>
           <button
             type="button"
             className="cb-breadcrumb-trigger cb-breadcrumb-trigger--current"
             onClick={() => setPicker("activity")}
           >
-            <span className="shrink-0 text-base leading-none" aria-hidden>
-              {activityEmoji(state.activity)}
+            <span className="shrink-0 leading-none" aria-hidden>
+              <ActivityGlyph activity={state.activity} className="text-[var(--cb-primary)]" />
             </span>
             <span className="truncate capitalize">{formatActivityLabel(state.activity)}</span>
             <span className="cb-faint text-[0.65rem]" aria-hidden>
@@ -1450,16 +1516,21 @@ export function BookingExperience() {
           {productsQuery.data && productsQuery.data.data.length === 0 && (
             <p className="cb-muted mt-2 text-sm">{tb("noProductsFilter")}</p>
           )}
-          <div className="cb-services-rail cb-hide-scrollbar mt-4">
+          <div className={soloProduct ? "cb-product-solo-group mt-4" : "contents"}>
+          <div className={soloProduct ? "cb-services-rail cb-services-rail--solo cb-hide-scrollbar" : "cb-services-rail cb-hide-scrollbar mt-4"}>
             {productsQuery.data?.data.map((p) => {
               const selected = state.productId === p.id;
               const heroCacheKey = `${p.id}__${state.activity}`;
               const heroFailStep = Math.min(2, heroLoadFailed[heroCacheKey] ?? 0) as ProductCardImageFallbackStep;
               const ent = p.entitlementDiscounts;
               const hasMemberBenefit = Array.isArray(ent) && ent.length > 0;
-              const durBadge = formatDurationPriceBadge(state.duration ?? 60);
+              const selectedDuration = state.duration ?? 60;
+              const durBadge = formatDurationPriceBadge(selectedDuration);
               const memberFreeChip = productCatalogShowsMemberFree(p);
               const catalogMin = productCatalogMinUnitPrice(p);
+              const catalogMinScaled = catalogMin
+                ? { min: catalogMin.min * (selectedDuration / 60), currency: catalogMin.currency }
+                : null;
               return (
                 <div
                   key={p.id}
@@ -1498,10 +1569,10 @@ export function BookingExperience() {
                         <span className="cb-product-chip-price-row">
                           {memberFreeChip ? (
                             <span className="cb-product-chip-price-amount">{tb("freeForMembers")}</span>
-                          ) : catalogMin ? (
+                          ) : catalogMinScaled ? (
                             <>
                               <span className="cb-product-chip-price-amount">
-                                {formatSlotCurrency(catalogMin.min, catalogMin.currency)}
+                                {formatSlotCurrency(catalogMinScaled.min, catalogMinScaled.currency)}
                               </span>
                               <span className="cb-product-chip-price-sep">/</span>
                               <span className="cb-product-chip-price-dur">{durBadge}</span>
@@ -1533,9 +1604,6 @@ export function BookingExperience() {
                             {tb("membersOnly")}
                           </span>
                         ) : null}
-                        {bookingOptionalAddons(p).length > 0 ? (
-                          <span className="cb-product-tag cb-product-tag--addon">{tb("optionalAddonsTag")}</span>
-                        ) : null}
                       </div>
                     </div>
                     <div className="cb-product-card-footer">
@@ -1560,6 +1628,34 @@ export function BookingExperience() {
                 </div>
               );
             })}
+          </div>
+          {soloProduct ? (
+            <aside className="cb-product-solo-info" aria-label={tb("productDetailAbout")}>
+              <h3 className="cb-product-solo-info-title">{tb("productDetailAbout")}</h3>
+              {soloProductDescriptionHtml ? (
+                <div
+                  className="cb-product-solo-info-desc cb-detail-html"
+                  dangerouslySetInnerHTML={{ __html: soloProductDescriptionHtml }}
+                />
+              ) : soloProduct.description ? (
+                <p className="cb-product-solo-info-desc">{soloProduct.description}</p>
+              ) : (
+                <p className="cb-product-solo-info-desc cb-muted">{tb("productDetailDescriptionFallback")}</p>
+              )}
+              {(() => {
+                const resources = scheduleSettingsQuery.data?.resources ?? [];
+                if (resources.length === 0) return null;
+                return (
+                  <div className="cb-product-solo-info-resources">
+                    <span className="cb-product-solo-info-resources-label">{tb("productDetailResources")}:</span>{" "}
+                    <span className="cb-product-solo-info-resources-list" title={resources.map((r) => r.name).join(", ")}>
+                      {resources.map((r) => r.name).join(", ")}
+                    </span>
+                  </div>
+                );
+              })()}
+            </aside>
+          ) : null}
           </div>
           {meta && totalPages > 1 && (
             <div className="cb-muted mt-4 flex items-center justify-between gap-4 text-sm">
@@ -1904,6 +2000,8 @@ export function BookingExperience() {
               onToggleExpand={() => setAddonsExpanded((x) => !x)}
               moreCount={packageAddons.length - ADDONS_PAGE}
               selectedAddonIds={selectedAddonIds}
+              addonQuantities={addonQuantities}
+              onSetAddonQty={setAddonQty}
               onToggleAddon={handleAddonToggle}
               addonSlotTargeting={addonSlotTargeting}
               onAddonSelectAllSlots={onAddonSelectAllSlots}
@@ -1981,7 +2079,6 @@ export function BookingExperience() {
               ]}
               selected={preferredStartTime ?? START_TIME_AUTO}
               onSelect={(v) => {
-                clearSlotSelection();
                 if (v === START_TIME_AUTO) {
                   setPreferredStartTime(null);
                   return;
@@ -2055,6 +2152,8 @@ export function BookingExperience() {
           userId={effectiveBookingUserId}
           pickedSlots={pickedSlotsOrdered}
           selectedAddonIds={selectedAddonIds}
+          addonQuantities={addonQuantities}
+          onSetAddonQty={setAddonQty}
           questionnaireIds={productQuestionnaireIds}
           onSubmittingChange={setCheckoutBusy}
           mode={checkoutDrawerMode}
@@ -2083,7 +2182,15 @@ export function BookingExperience() {
                 items.length > 0 &&
                 flattenBondCartItemNodes(items).length > 0;
               if (!stillHasLines || coerced == null) {
-                setSessionCartRows((prev) => prev.filter((_, i) => i !== index));
+                try { await closeCart(env.orgId, cid); } catch { /* ignore */ }
+                setSessionCartRows((prev) => {
+                  const next = prev.filter((_, i) => i !== index);
+                  if (next.length === 0) {
+                    setCheckoutDrawerOpen(false);
+                    clearSlotSelection();
+                  }
+                  return next;
+                });
                 return;
               }
               const segs = flatLineIndexSegmentsForMergedBookings(coerced);
@@ -2114,34 +2221,26 @@ export function BookingExperience() {
                 await settleAfterDeletes(updated);
                 return;
               }
-              const indices =
-                cartFlatLineIndices != null && cartFlatLineIndices.length > 0
-                  ? cartFlatLineIndices
-                  : allBondFlatLineIndices(row.cart);
-              const ids = bondRemovableCartItemIdsForIndices(row.cart, indices);
-              if (ids.length === 0) {
-                const fallback = bondRootCartItemIdForRemoval(row.cart, cartFlatLineIndices);
-                if (fallback == null) {
-                  await closeCart(env.orgId, cid);
-                  setSessionCartRows((prev) => prev.filter((_, i) => i !== index));
-                  return;
-                }
-                const updated = await removeCartItemWithIllegalPriceFallback(
-                  env.orgId,
-                  cid,
-                  fallback,
-                  row.cart,
-                  cartFlatLineIndices
-                );
-                await settleAfterDeletes(updated);
+              /** Subsection delete: Bond cascades addons off the reservation root, so one DELETE clears the segment. */
+              const rootId = bondRootCartItemIdForRemoval(row.cart, cartFlatLineIndices);
+              if (rootId == null) {
+                await closeCart(env.orgId, cid);
+                setSessionCartRows((prev) => {
+                  const next = prev.filter((_, i) => i !== index);
+                  if (next.length === 0) {
+                    setCheckoutDrawerOpen(false);
+                    clearSlotSelection();
+                  }
+                  return next;
+                });
                 return;
               }
-              const updated = await removeCartItemsSequentiallyWithFallback(
+              const updated = await removeCartItemWithIllegalPriceFallback(
                 env.orgId,
                 cid,
-                ids,
-                cartFlatLineIndices,
-                () => getOrganizationCart(env.orgId, cid)
+                rootId,
+                row.cart,
+                cartFlatLineIndices
               );
               await settleAfterDeletes(updated);
             } catch {
@@ -2170,6 +2269,7 @@ export function BookingExperience() {
                   cart: normalizedCart,
                   product: selectedProduct,
                   bookingForLabel,
+                  formatMoney: (amt) => formatPrice(amt, slotPriceCurrency ?? "USD"),
                 });
             flushSync(() => {
               setSessionCartRows((prev) => {
@@ -2204,6 +2304,8 @@ export function BookingExperience() {
                   return all.length > 1 ? all : undefined;
                 };
 
+                const currentProductId = state.productId;
+                const currentApproval = categoryApprovalRequiredRef.current === true;
                 if (mergedBondId != null) {
                   const mergedKeys = new Set<string>(newSlotKeys);
                   const siblings: SessionCartSnapshot[] = [];
@@ -2217,13 +2319,37 @@ export function BookingExperience() {
                     return true;
                   });
                   const reservationGroups = mergeReservationGroups(siblings, bookingForLabel, newSlotKeys);
+                  const approvalByProductId: Record<number, boolean> = {};
+                  for (const s of siblings) {
+                    if (s.approvalByProductId) Object.assign(approvalByProductId, s.approvalByProductId);
+                    else if (s.approvalRequired === true) {
+                      /** Seed legacy rows that only recorded row-level approvalRequired. */
+                      const items = Array.isArray(s.cart.cartItems) ? s.cart.cartItems : [];
+                      for (const it of flattenBondCartItemNodes(items as unknown[])) {
+                        const prod = (it as Record<string, unknown>).product as Record<string, unknown> | undefined;
+                        const pid = typeof prod?.id === "number" ? prod.id : null;
+                        if (pid != null && pid > 0) approvalByProductId[pid] = true;
+                      }
+                    }
+                  }
+                  if (typeof currentProductId === "number" && currentProductId > 0) {
+                    approvalByProductId[currentProductId] = currentApproval;
+                  }
+                  const anySiblingApproval = siblings.some((s) => s.approvalRequired === true);
+                  const hasApproval =
+                    currentApproval ||
+                    anySiblingApproval ||
+                    Object.values(approvalByProductId).some(Boolean);
                   return [
                     ...rest,
                     {
                       cart: normalizedCart,
                       productName: name,
                       bookingForLabel,
-                      approvalRequired: categoryApprovalRequired,
+                      approvalRequired: hasApproval,
+                      ...(Object.keys(approvalByProductId).length > 0
+                        ? { approvalByProductId }
+                        : {}),
                       reservedSlotKeys: [...mergedKeys],
                       participantHasQualifyingMembership,
                       ...(displayLines != null ? { displayLines } : {}),
@@ -2231,13 +2357,20 @@ export function BookingExperience() {
                     },
                   ];
                 }
+                const approvalByProductId: Record<number, boolean> =
+                  typeof currentProductId === "number" && currentProductId > 0
+                    ? { [currentProductId]: currentApproval }
+                    : {};
                 return [
                   ...prev,
                   {
                     cart: normalizedCart,
                     productName: name,
                     bookingForLabel,
-                    approvalRequired: categoryApprovalRequired,
+                    approvalRequired: currentApproval,
+                    ...(Object.keys(approvalByProductId).length > 0
+                      ? { approvalByProductId }
+                      : {}),
                     reservedSlotKeys: newSlotKeys,
                     participantHasQualifyingMembership,
                     ...(displayLines != null ? { displayLines } : {}),
@@ -2270,6 +2403,7 @@ export function BookingExperience() {
             setNavigateToCheckoutStep(null);
             setCheckoutDrawerMode("checkout");
             setSyncStepGoToCartEnabled(false);
+            prevCheckoutUserIdRef.current = null;
           }}
           onBackFromPayment={() => {
             setNavigateToCheckoutStep("syncCart");
@@ -2312,6 +2446,14 @@ export function BookingExperience() {
           requiredMembershipAlreadySatisfied={!participantNeedsMembershipForCheckout}
           onParticipantLockChange={setLockBookingForParticipant}
           onPruneSatisfiedAddonProductIds={pruneSatisfiedAddonProductIds}
+          onRemoveSlot={(key) =>
+            setSelectedSlots((prev) => {
+              const next = new Map(prev);
+              next.delete(key);
+              return next;
+            })
+          }
+          onRemoveReservationAddon={(addonId) => setAddonQty(addonId, 0)}
           onBookingForClick={
             lockBookingForParticipant ? undefined : () => setBookingForModalOpen(true)
           }
@@ -2323,9 +2465,52 @@ export function BookingExperience() {
         onClose={() => setBookingForModalOpen(false)}
         members={partyMembersForBookingFor}
         value={bookingTargetUserId ?? bondUserIdResolved ?? null}
-        onConfirm={(userId) => setBookingTargetUserId(userId)}
+        onConfirm={(userId) => {
+          const currentId = bookingTargetUserId ?? bondUserIdResolved ?? null;
+          if (userId !== currentId && selectedSlots.size > 0) {
+            setPendingParticipantUserId(userId);
+          } else {
+            setBookingTargetUserId(userId);
+          }
+        }}
         profileLoading={bondAuth.session.status === "authenticated" && bondProfileQuery.isPending}
       />
+
+      {pendingParticipantUserId !== undefined ? (
+        <div className="cb-confirm-overlay" role="dialog" aria-modal="true" aria-labelledby="cb-confirm-participant-title">
+          <div className="cb-confirm-panel">
+            <p id="cb-confirm-participant-title" className="cb-confirm-panel-title">
+              {tb("changeParticipantClearTitle")}
+            </p>
+            <p className="cb-confirm-panel-body cb-muted text-sm">
+              {tb("changeParticipantClearBody")}
+            </p>
+            <div className="cb-confirm-panel-actions">
+              <button
+                type="button"
+                className="cb-btn-outline"
+                onClick={() => {
+                  setBookingTargetUserId(pendingParticipantUserId ?? null);
+                  setPendingParticipantUserId(undefined);
+                }}
+              >
+                {tb("keepSlots")}
+              </button>
+              <button
+                type="button"
+                className="cb-btn-primary"
+                onClick={() => {
+                  clearSlotSelection();
+                  setBookingTargetUserId(pendingParticipantUserId ?? null);
+                  setPendingParticipantUserId(undefined);
+                }}
+              >
+                {tb("clearAndSwitch")}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <ProductDetailModal
         open={productInfoId != null}

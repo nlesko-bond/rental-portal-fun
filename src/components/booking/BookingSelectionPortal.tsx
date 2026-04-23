@@ -2,6 +2,8 @@
 
 import { createPortal } from "react-dom";
 import { useSyncExternalStore, type CSSProperties } from "react";
+import { useTranslations } from "next-intl";
+import { CbBusyInline } from "@/components/booking/primitives/CbBusyInline";
 import { IconCartShopping } from "./booking-icons";
 
 type Props = {
@@ -58,6 +60,8 @@ export function BookingSelectionPortal({
   bookBusy,
   bookDisabled,
 }: Props) {
+  /** Root namespace avoids Turbopack/client edge cases where nested `useTranslations(ns)` misses keys in portaled subtrees. */
+  const t = useTranslations();
   const isClient = useIsClient();
 
   if (!isClient || typeof document === "undefined") return null;
@@ -73,11 +77,10 @@ export function BookingSelectionPortal({
         ? cartLineItemCount
         : cartSessionCount
       : 0;
-  const fabBadge = cartSessionCount > 0 ? cartBadge : slotCount;
+  const fabBadge = cartBadge;
   /** Show draft slot CTA whenever slots are selected; cart FAB still opens bag when there are saved bookings. */
   const showSlotBar = slotCount > 0;
-  const primaryActionLabel =
-    slotCount === 1 ? "1 slot selected →" : `${slotCount} slots selected →`;
+  const primaryActionLabel = t("booking.slotsSelectedCompleteBooking", { count: slotCount });
   const fabOpensBag = cartSessionCount > 0 && onOpenCart != null;
   const fabOpensCheckout = slotCount > 0 && onBook != null;
   const fabClickable = fabOpensBag || fabOpensCheckout;
@@ -114,9 +117,11 @@ export function BookingSelectionPortal({
                 aria-label={cartFabLabel}
               >
                 <IconCartShopping className="text-[var(--cb-text-on-primary)]" aria-hidden />
-                <span className="cb-selection-fab-badge" aria-hidden>
-                  {fabBadge > 99 ? "99+" : fabBadge}
-                </span>
+                {fabBadge > 0 ? (
+                  <span className="cb-selection-fab-badge" aria-hidden>
+                    {fabBadge > 99 ? "99+" : fabBadge}
+                  </span>
+                ) : null}
               </button>
             ) : (
               <div
@@ -125,25 +130,28 @@ export function BookingSelectionPortal({
                 aria-label={`Shopping cart, ${fabBadge} ${fabBadge === 1 ? "item" : "items"}`}
               >
                 <IconCartShopping className="text-[var(--cb-text-on-primary)]" aria-hidden />
-                <span className="cb-selection-fab-badge" aria-hidden>
-                  {fabBadge > 99 ? "99+" : fabBadge}
-                </span>
+                {fabBadge > 0 ? (
+                  <span className="cb-selection-fab-badge" aria-hidden>
+                    {fabBadge > 99 ? "99+" : fabBadge}
+                  </span>
+                ) : null}
               </div>
             )}
           </div>
           {showSlotBar ? (
             <div className="cb-selection-bar cb-selection-bar--unified" role="status">
               <div className="cb-selection-actions">
-                <button type="button" className="cb-selection-clearlink" onClick={onClear}>
-                  Clear
+                <button type="button" className="cb-selection-clearbtn" onClick={onClear}>
+                  {t("common.clear")}
                 </button>
                 <button
                   type="button"
                   className="cb-selection-book cb-selection-book--unified cb-selection-slot-cta"
                   disabled={bookDisabled || bookBusy}
+                  aria-busy={bookBusy ? true : undefined}
                   onClick={onBook}
                 >
-                  {primaryActionLabel}
+                  <CbBusyInline busy={Boolean(bookBusy)}>{primaryActionLabel}</CbBusyInline>
                 </button>
               </div>
             </div>

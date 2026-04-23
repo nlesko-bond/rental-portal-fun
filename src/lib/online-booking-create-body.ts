@@ -12,6 +12,7 @@ import type { ExtendedProductDto } from "@/types/online-booking";
  * - `CreateBookingDto`: `userId`, `segments`, optional `addons`, `cartId`, `answers`, `requiredProducts`, `name`
  *   — **not** `onlineBookingPortalId` / `categoryId` (those are not in the schema).
  * - `CreateBookingTimeSlotDto`: **only** `startDate`, `startTime`, `endDate`, `endTime` (no `resourceId`, `price`, `timezone`).
+ * - `CreateBookingSegmentDto`: instructor categories need **`instructorId`** (selected schedule resource id); space-based rows use **`spaceId`** (and optional `spacesIds[0]` on the slot when the instructor also books a space).
  * - `CreateBookingAddonDto`: **only** `productId`, `quantity` (no `unitPrice`; `AddCartItemDto` for `requiredProducts` may still include `unitPrice`).
  *
  * Extra fields can cause Bond to throw **500** with an empty `message` if their DTO layer rejects the payload.
@@ -117,7 +118,6 @@ export function buildOnlineBookingCreateBody(opts: {
 
   const segments = opts.slots.map((s, i) => {
     const seg: Record<string, unknown> = {
-      spaceId: s.spaceId,
       activity,
       facilityId: opts.facilityId,
       productId: opts.productId,
@@ -130,6 +130,15 @@ export function buildOnlineBookingCreateBody(opts: {
         },
       ],
     };
+    if (s.usesInstructorSegment === true) {
+      seg.instructorId = s.resourceId;
+      const sid = s.spaceId;
+      if (sid != null && Number.isFinite(sid) && sid > 0) {
+        seg.spaceId = sid;
+      }
+    } else {
+      seg.spaceId = s.spaceId ?? s.resourceId;
+    }
     const segAddons = opts.segmentAddonProductIds?.[i];
     if (segAddons != null && segAddons.length > 0) {
       seg.addons = wireAddonsForCreate(addonProductIdsToAddonDtos(segAddons));
