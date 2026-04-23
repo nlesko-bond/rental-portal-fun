@@ -326,31 +326,59 @@ body {
   }
 }
 
-/* Wide inline calendar fills the 300px left column */
-.consumer-booking .cb-schedule-inline-cal--wide {
+/* Left-column section title */
+.consumer-booking .cb-schedule-when-wide-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--cb-text);
+}
+
+/* Calendar wrapped in a card */
+.consumer-booking .cb-schedule-cal-card {
+  border: 1px solid var(--cb-border);
+  border-radius: 0.75rem;
+  padding: 0.75rem;
+  background: var(--cb-bg-surface);
   width: 100%;
-  max-width: 100%;
 }
 
 /* Duration dropdown (desktop wide layout) */
 .consumer-booking .cb-duration-select {
   appearance: none;
   -webkit-appearance: none;
-  background-color: var(--cb-surface, #fff);
+  display: flex;
+  align-items: center;
+  background-color: var(--cb-bg-surface, #fff);
   border: 1px solid var(--cb-border, #d1d5db);
-  border-radius: 0.5rem;
+  border-radius: 0.625rem;
   color: inherit;
   cursor: pointer;
-  font-size: 0.875rem;
-  padding: 0.5rem 2rem 0.5rem 0.75rem;
+  font-size: 0.9rem;
+  font-family: inherit;
+  padding: 0.65rem 2.25rem 0.65rem 0.9rem;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236b7280' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
-  background-position: right 0.6rem center;
+  background-position: right 0.75rem center;
+  text-align: left;
 }
 
 .consumer-booking .cb-duration-select:focus {
   outline: 2px solid var(--cb-primary, #2563eb);
   outline-offset: 2px;
+}
+
+/* Preferred start button styled identically to the duration select */
+.consumer-booking .cb-preferred-start-select {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--cb-text-muted);
+}
+
+.consumer-booking .cb-preferred-start-select[aria-expanded="true"],
+.consumer-booking .cb-preferred-start-select:has(.cb-preferred-start-select-value:not(:empty)) {
+  color: var(--cb-text);
 }
 
 /* Timeline matrix date navigation row */
@@ -3140,6 +3168,231 @@ body {
   font-size: 0.65rem;
   font-weight: 600;
   color: var(--cb-text-muted);
+}
+
+/* ── Addon list redesign (vertical rows, grouped by tier) ── */
+
+.consumer-booking .cb-addon-group {
+  margin-top: 1rem;
+}
+
+.consumer-booking .cb-addon-group:first-child {
+  margin-top: 0.5rem;
+}
+
+.consumer-booking .cb-addon-group-title {
+  margin: 0 0 0.5rem;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cb-text-muted);
+}
+
+.consumer-booking .cb-addon-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+/* Base row — reservation tier */
+.consumer-booking .cb-addon-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--cb-border);
+  border-radius: 0.6rem;
+  background: var(--cb-bg-surface);
+  transition: border-color 0.15s;
+}
+
+.consumer-booking .cb-addon-row--selected {
+  border-color: var(--cb-primary);
+  background: color-mix(in srgb, var(--cb-primary) 5%, var(--cb-bg-surface));
+}
+
+.consumer-booking .cb-addon-row-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.consumer-booking .cb-addon-row-checkbox {
+  flex-shrink: 0;
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--cb-primary);
+  cursor: pointer;
+}
+
+.consumer-booking .cb-addon-row-name {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--cb-text);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.consumer-booking .cb-addon-row-price {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--cb-text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* Inline qty stepper */
+.consumer-booking .cb-addon-qty {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+
+.consumer-booking .cb-addon-qty-btn {
+  width: 1.5rem;
+  height: 1.5rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  border: 1.5px solid var(--cb-primary);
+  background: var(--cb-bg-surface);
+  color: var(--cb-primary);
+  font-weight: 800;
+  font-size: 0.9rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.consumer-booking .cb-addon-qty-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.consumer-booking .cb-addon-qty-btn:not(:disabled):hover {
+  background: color-mix(in srgb, var(--cb-primary) 10%, transparent);
+}
+
+.consumer-booking .cb-addon-qty-val {
+  min-width: 1.5rem;
+  text-align: center;
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: var(--cb-text);
+}
+
+/* Slot-level targeting (per slot / per hour) */
+.consumer-booking .cb-addon-row-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.consumer-booking .cb-addon-slot-rows {
+  margin: 0.2rem 0 0 1rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px dashed color-mix(in srgb, var(--cb-primary) 35%, var(--cb-border));
+  border-top: none;
+  border-radius: 0 0 0.6rem 0.6rem;
+  background: color-mix(in srgb, var(--cb-primary) 4%, var(--cb-bg-surface));
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.consumer-booking .cb-addon-slot-all-label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--cb-text);
+  cursor: pointer;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid var(--cb-border);
+}
+
+.consumer-booking .cb-addon-slot-all-label input {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--cb-primary);
+}
+
+.consumer-booking .cb-addon-slot-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: 0.45rem;
+  border: 1px solid transparent;
+  cursor: pointer;
+  font-size: 0.82rem;
+  transition: background 0.12s;
+}
+
+.consumer-booking .cb-addon-slot-row input {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--cb-primary);
+  flex-shrink: 0;
+}
+
+.consumer-booking .cb-addon-slot-row--on {
+  border-color: var(--cb-primary);
+  background: color-mix(in srgb, var(--cb-primary) 8%, var(--cb-bg-surface));
+}
+
+.consumer-booking .cb-addon-slot-row-time {
+  font-weight: 700;
+  color: var(--cb-text);
+  flex: 1;
+}
+
+.consumer-booking .cb-addon-slot-row-resource {
+  font-size: 0.75rem;
+  color: var(--cb-text-muted);
+  white-space: nowrap;
+}
+
+.consumer-booking .cb-addon-slot-hint {
+  margin: 0.25rem 0 0 1rem;
+  font-size: 0.78rem;
+  color: var(--cb-text-muted);
+  font-style: italic;
+}
+
+/* No-slots empty state */
+.consumer-booking .cb-slots-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.65rem;
+  padding: 1.25rem 0;
+}
+
+.consumer-booking .cb-slots-empty-msg {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--cb-text-muted);
+}
+
+.consumer-booking .cb-slots-empty-jump {
+  border: none;
+  background: none;
+  padding: 0;
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--cb-primary);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 /* Selection bar — portaled to body, fixed bottom-right */
