@@ -1559,6 +1559,13 @@ export function BookingExperience() {
               const heroFailStep = Math.min(2, heroLoadFailed[heroCacheKey] ?? 0) as ProductCardImageFallbackStep;
               const ent = p.entitlementDiscounts;
               const hasMemberBenefit = Array.isArray(ent) && ent.length > 0;
+              const cardTag = productMembershipGated(p)
+                ? ({ icon: <IconLockDetail className="size-3.5 shrink-0 opacity-95" />, label: tb("membersOnly") } as const)
+                : hasMemberBenefit
+                ? ({ icon: <IconPercentBadge className="shrink-0 opacity-95" />, label: tb("memberBenefits") } as const)
+                : p.isPunchPass
+                ? ({ icon: <IconPassTicket className="shrink-0 opacity-95" />, label: tb("passTag") } as const)
+                : null;
               const selectedDuration = state.duration ?? 60;
               const durBadge = formatDurationPriceBadge(selectedDuration);
               const memberFreeChip = productCatalogShowsMemberFree(p);
@@ -1621,22 +1628,10 @@ export function BookingExperience() {
                         </span>
                       </div>
                       <div className="cb-product-tag-row">
-                        {hasMemberBenefit ? (
+                        {cardTag ? (
                           <span className="cb-product-tag">
-                            <IconPercentBadge className="shrink-0 opacity-95" />
-                            {tb("memberBenefits")}
-                          </span>
-                        ) : null}
-                        {p.isPunchPass ? (
-                          <span className="cb-product-tag">
-                            <IconPassTicket className="shrink-0 opacity-95" />
-                            {tb("passTag")}
-                          </span>
-                        ) : null}
-                        {productMembershipGated(p) ? (
-                          <span className="cb-product-tag">
-                            <IconLockDetail className="size-3.5 shrink-0 opacity-95" />
-                            {tb("membersOnly")}
+                            {cardTag.icon}
+                            {cardTag.label}
                           </span>
                         ) : null}
                       </div>
