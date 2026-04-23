@@ -139,7 +139,7 @@ function IconUserCircle() {
 
 const START_TIME_AUTO = "__auto__";
 
-type PickerKind = "facility" | "category" | "activity" | "date" | "start" | null;
+type PickerKind = "facility" | "category" | "activity" | "date" | "start" | "duration" | null;
 
 type BondEnv =
   | { ok: true; orgId: number; portalId: number; devTheme?: BookingThemeUrlOverrides }
@@ -1762,19 +1762,17 @@ export function BookingExperience() {
                         signedIn={bondAuth.session.status === "authenticated"}
                       />
                     </div>
-                    <select
+                    <button
                       id="duration-select-wide"
+                      type="button"
                       className="cb-duration-select w-full"
-                      value={state.duration ?? durations[0] ?? 60}
-                      onChange={(e) => setDuration(Number(e.target.value))}
+                      aria-haspopup="dialog"
+                      aria-expanded={picker === "duration"}
                       aria-label={tb("selectDuration")}
+                      onClick={() => setPicker("duration")}
                     >
-                      {durations.map((m) => (
-                        <option key={m} value={m}>
-                          {formatDurationLabel(m)}
-                        </option>
-                      ))}
-                    </select>
+                      {formatDurationLabel(state.duration ?? durations[0] ?? 60)}
+                    </button>
                     {showPreferredStart ? (
                       <button
                         type="button"
@@ -1784,12 +1782,9 @@ export function BookingExperience() {
                         aria-label={tb("preferredStartTitle")}
                         onClick={() => setPicker("start")}
                       >
-                        <span className="cb-preferred-start-select-value">
-                          {preferredStartTime == null
-                            ? tb("selectStartTime")
-                            : formatPreferredStartOptionLabel(preferredStartTime)}
-                        </span>
-                        <span aria-hidden>›</span>
+                        {preferredStartTime == null
+                          ? tb("selectStartTime")
+                          : formatPreferredStartOptionLabel(preferredStartTime)}
                       </button>
                     ) : null}
                   </>
@@ -2114,6 +2109,17 @@ export function BookingExperience() {
               onSelect={(v) => setDate(v)}
               onClose={() => setPicker(null)}
               signedIn={bondAuth.session.status === "authenticated"}
+            />
+          </ModalShell>
+          <ModalShell open={picker === "duration"} title={tb("selectDuration")} onClose={() => setPicker(null)}>
+            <ListPickerBody
+              items={durations.map((m) => ({ value: String(m), label: formatDurationLabel(m) }))}
+              selected={String(state?.duration ?? durations[0] ?? 60)}
+              onSelect={(v) => {
+                setDuration(Number(v));
+                setPicker(null);
+              }}
+              onClose={() => setPicker(null)}
             />
           </ModalShell>
           <ModalShell open={picker === "start"} title={tb("preferredStartTitle")} onClose={() => setPicker(null)}>

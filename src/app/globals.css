@@ -307,13 +307,9 @@ body {
   }
 }
 
-/* Right column: available times — match card outline (split layout). */
+/* Right column: available times — no card box, just content */
 .consumer-booking .cb-schedule-available-times-shell {
-  border-radius: 0.75rem;
-  border: 1px solid var(--cb-border);
-  background: var(--cb-bg-surface);
-  box-shadow: var(--cb-shadow-card);
-  padding: 1rem 1.1rem 1.15rem;
+  padding: 0;
 }
 
 .consumer-booking .cb-schedule-available-times-shell .cb-matrix-wrap--in-shell {
@@ -380,10 +376,8 @@ body {
 
 /* Preferred start button styled identically to the duration select */
 .consumer-booking .cb-preferred-start-select {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   color: var(--cb-text-muted);
+  text-align: left;
 }
 
 .consumer-booking .cb-preferred-start-select[aria-expanded="true"],
