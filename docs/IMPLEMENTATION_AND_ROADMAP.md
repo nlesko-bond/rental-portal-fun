@@ -22,8 +22,9 @@
 | E2E / automation test plan | TBD |
 | SSO / full Bond auth beyond BFF cookies | In progress / TBD |
 | Payment methods (fetch + integration) | **Partial** — list via `/api/bond-payment/...`; add-card TBD |
-| Purchase / checkout APIs | **Partial** — `finalizeCart` + `getCart` / `closeCart` |
-| Remove cart line items API | **`removeCartItem` in `bond-cart-api.ts`**; UI uses **`closeCart`** for whole-row bag remove |
+| Purchase / checkout APIs | **Partial** — `finalizeCart` + `getCart` / `closeCart`; **mixed-cart `amountToPay` bug open** (see Known issues) |
+| Remove cart line items API | **Done** — per-line `removeCartItem` + subsection cascade via reservation-root DELETE (`bond-cart-removal.ts`); whole-row fallback still uses `closeCart` |
+| **Per-product approval / deposit badges** (mixed cart) | **Done** — `approvalByProductId` on `SessionCartSnapshot`; `bagApprovalPolicy` per-product; dual CTAs on mixed |
 | Mixed category products + divergent rulesets | Design TBD |
 | Runtime config (org/portal/API host without hardcoding for prod) | Admin / host config TBD |
 | Embed in third-party pages | Future |
@@ -158,7 +159,7 @@ Checkout persists via `POST …/online-booking/create`; Bond may return richer l
 
 - **BFF** to Bond only; `POST .../online-booking/create` via `online-booking-user-api.ts` (`buildOnlineBookingCreateBody` — `segments` + flat `addonProductIds` + optional `answers` per Bond DTO). Hosted OpenAPI may omit `requestBody` for this operation; see `online-booking-create-body.ts`. Optional `cartId` when merge/update is documented.
 - **Flow:** Bottom bar opens checkout → user completes add-ons / membership / forms (if any) → **`POST …/online-booking/create`** (optional `cartId` merge). Parent then **`GET …/cart/{cartId}`** (`src/lib/bond-cart-api.ts`) to refresh authoritative lines/totals; opening the **bag** drawer triggers the same refresh per cart id.
-- **Cart lifecycle:** **`DELETE …/cart/{cartId}`** (`closeCart`) when removing a bag row (server cart abandoned); **`POST …/cart/{cartId}/finalize`** on payment/submit with `paymentMethodId` when Bond returns consumer payment options from **`GET /api/bond-payment/organization/{orgId}/user/{userId}/options`** (proxies Bond **`v4/payment/.../options?platform=consumer`**). The payment proxy defaults **`BOND_PAYMENT_API_BASE_URL`** to **`BOND_AUTH_BASE_URL`** (v4 is not on the trimmed public `v1` gateway). Override when Bond documents a different host.
+- **Cart lifecycle:** Bag remove now uses **per-line** + **subsection** DELETEs (`bond-cart-removal.ts` → `bagRemovePolicyForBondItem`): rental lines → `{ kind: "subsection" }` → `DELETE …/cart-item/{rootId}` (Bond cascades attached add-ons); add-on lines → `{ kind: "line", cartItemId }` → `DELETE …/cart-item/{cartItemId}`. Falls back to **`DELETE …/cart/{cartId}`** (`closeCart`) when the subsection empties. **`POST …/cart/{cartId}/finalize`** on payment/submit with `paymentMethodId` when Bond returns consumer payment options from **`GET /api/bond-payment/organization/{orgId}/user/{userId}/options`** (proxies Bond **`v4/payment/.../options?platform=consumer`**). The payment proxy defaults **`BOND_PAYMENT_API_BASE_URL`** to **`BOND_AUTH_BASE_URL`** (v4 is not on the trimmed public `v1` gateway). Override when Bond documents a different host.
 - **Approval:** create deferred until checkout **Submit request**; **finalize** completes purchase/submit; then clear session cart + slot selection + invalidate schedule query.
 - **Payment:** Consumer **saved instruments** list from v4 proxy; **deposit / pay-in-full modal** still placeholder when product has down payment (finalize body extensions TBD).
 
@@ -258,6 +259,9 @@ Everything below assumes **hosted Bond public APIs** and existing BFF patterns.
 
 ## Known issues / deferred
 
+- **Missing confirmation screen after pay / submit (production):** After `finalizeCart` resolves successfully, the "Booking Confirmed" / "Booking Submitted" success view is not rendering in production. Reported 2026-04-23; reproduction path + root cause TBD. Entry points to audit: `BookingCheckoutDrawer.tsx` `submitBookingRequestMutation.onSuccess` (sets `finalizeSuccess` via `parseFinalizeCartResponse`), `parseFinalizeCartResponse` in the same file, and the confirmation-view render gate. Candidates: (a) response shape mismatch so `parseFinalizeCartResponse` returns `null`; (b) `answersStaleAfterFinalizeRef` / parent `onFinalizeBookingSuccess` clearing session cart before the success screen mounts; (c) Bond returning `204`/no-body in prod vs `201` in dev.
+- **Mixed-cart `finalize` → 400 "invalid payment information":** When a cart mixes **approval-required** products with **pay-now** products, `bondCartPayableTotalForFinalize` (and `computedDepositDollars`) currently sum the **entire** cart. Approval products must be **excluded** from `amountToPay` because they submit separately as a request. Both "Pay in full" and "Pay minimum due" on a mixed cart fail until this is corrected. Next-up fix: filter the finalize amount and deposit sum to **non-approval** cart-items only (`src/lib/checkout-bag-totals.ts` + `BookingCheckoutDrawer.tsx` deposit memo).
+- **Spurious 2nd `DELETE cart-item` (400):** After a subsection DELETE returns 200 and Bond cascades child add-ons, a second DELETE on a now-orphaned child id sometimes fires and 400s. Cart clears correctly; noise only. Root cause still under investigation (candidates: legacy per-line X button at `BookingCheckoutDrawer.tsx:2964` has no `disabled` guard; rapid-fire clicks may race).
 - **Lessons / instructor-as-resource:** Same bad responses observed in **Swagger** and the app; **no further lesson-specific fixes** until API behavior is confirmed. `fetchBookingScheduleRecovering` already tries query variants; `resourcesIds` / duration / date combos may need API-side clarity.
 - **BFF hardening:** Plan item — stricter allowlists, logging, rate limits — not fully done.
 - **OpenAPI-generated client:** Not adopted; hand-maintained types + fetch.
@@ -295,4 +299,4 @@ Everything below assumes **hosted Bond public APIs** and existing BFF patterns.
 
 ---
 
-*Last updated: 2026-03-27 — i18n (`next-intl`), booking URL hook, persist-via-create cart sync (no separate summary step), checkout primitives, branding DTO/neutral tokens, ESLint overrides for React Compiler hook rules, FE design draft; see Open questions for cart/reservation and server totals.*
+*Last updated: 2026-04-23 — cart bag-row X remove (per-line + subsection cascade via `bond-cart-removal.ts`), per-product approval & deposit badges on mixed carts, `bagApprovalPolicy` per-product → dual "Pay in full" / "Pay minimum due" CTAs, $0-product deposit pill removed, "Membership charge" subtitle removed. Open: mixed-cart `finalize` `amountToPay` must exclude approval products (see Known issues).*
