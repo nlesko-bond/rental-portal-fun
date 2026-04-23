@@ -315,14 +315,7 @@ body {
   padding: 0;
 }
 
-/* lg+: calendar column + timing column — schedule split breakpoint = 1068px (keep aligned with BookingExperience min-[1068px]). */
-.consumer-booking .cb-schedule-when-wide-grid {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 1.25rem 1.75rem;
-  align-items: start;
-}
-
+/* lg+: stacked left col — calendar fills its 300px column */
 @media (min-width: 1068px) {
   .consumer-booking .cb-booking-schedule-shell-left {
     position: sticky;
@@ -333,12 +326,76 @@ body {
   }
 }
 
-.consumer-booking .cb-schedule-when-wide-cal {
-  min-width: 0;
+/* Wide inline calendar fills the 300px left column */
+.consumer-booking .cb-schedule-inline-cal--wide {
+  width: 100%;
+  max-width: 100%;
 }
 
-.consumer-booking .cb-schedule-when-wide-timing {
-  min-width: 0;
+/* Duration dropdown (desktop wide layout) */
+.consumer-booking .cb-duration-select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: var(--cb-surface, #fff);
+  border: 1px solid var(--cb-border, #d1d5db);
+  border-radius: 0.5rem;
+  color: inherit;
+  cursor: pointer;
+  font-size: 0.875rem;
+  padding: 0.5rem 2rem 0.5rem 0.75rem;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236b7280' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.6rem center;
+}
+
+.consumer-booking .cb-duration-select:focus {
+  outline: 2px solid var(--cb-primary, #2563eb);
+  outline-offset: 2px;
+}
+
+/* Timeline matrix date navigation row */
+.consumer-booking .cb-matrix-date-nav-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding-bottom: 0.5rem;
+}
+
+.consumer-booking .cb-matrix-date-nav-label {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--cb-text, inherit);
+}
+
+.consumer-booking .cb-matrix-date-nav-arrows {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.consumer-booking .cb-matrix-date-nav-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 0.375rem;
+  border: 1px solid var(--cb-border, #d1d5db);
+  background: var(--cb-surface, #fff);
+  color: var(--cb-text, inherit);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.consumer-booking .cb-matrix-date-nav-btn:hover:not(:disabled) {
+  background: var(--cb-surface-hover, #f3f4f6);
+}
+
+.consumer-booking .cb-matrix-date-nav-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 
 .consumer-booking .cb-duration-chips-wrap {
@@ -3205,7 +3262,7 @@ body {
   box-sizing: border-box;
   border-radius: 0.65rem;
   border: 2px solid var(--cb-primary);
-  background: transparent;
+  background: #fff;
   padding: 0.52rem 0.85rem;
   font-size: 0.76rem;
   font-weight: 800;

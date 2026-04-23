@@ -76,9 +76,11 @@ import {
   aggregateBagSnapshotsByLabel,
   BOND_KIND_LINE_MIN,
   bondCartPayableTotalForFinalize,
+  cartItemLineAmountFromDto,
   estimateAmountDue,
   flattenBondCartItemNodes,
 } from "@/lib/checkout-bag-totals";
+import { classifyCartItemLineKind } from "@/lib/bond-cart-item-classify";
 import {
   describeEntitlementsForDisplay,
   reverseEntitlementDiscountsToUnitPrice,
@@ -1176,7 +1178,11 @@ export function BookingCheckoutDrawer({
         body.amountToPay = overrideAmount;
       } else {
         const freshCart = await getOrganizationCart(orgId, cartId);
-        let amount = bondCartPayableTotalForFinalize(freshCart);
+        const combinedApprovalMap: Record<number, boolean> = {};
+        for (const row of bagSnapshots) {
+          if (row.approvalByProductId) Object.assign(combinedApprovalMap, row.approvalByProductId);
+        }
+        let amount = bondCartPayableTotalForFinalize(freshCart, combinedApprovalMap);
         if (amount == null || amount <= 0) {
           const ui = estimatedAmountDueRef.current;
           if (ui != null && Number.isFinite(ui) && ui > 0) {
@@ -1398,21 +1404,34 @@ export function BookingCheckoutDrawer({
       if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) return null;
       return v;
     };
-    let total = 0;
+    // Only show a "Pay minimum" option when at least one booking line carries a downPayment.
+    // When it does, the minimum charge = booking deposit(s) + full price of all memberships + addons.
     const currentDp = readDp(product?.downPayment) ?? readDp(product?.downpayment);
-    if (currentDp != null) total += currentDp;
+    let bookingDepositSum = currentDp ?? 0;
+    let hasDeposit = currentDp != null;
+    let payNowExtrasSum = 0;
     for (const row of bagSnapshots) {
-      const items = (row.cart?.cartItems ?? []) as Array<Record<string, unknown>>;
-      for (const it of items) {
+      const flat = flattenBondCartItemNodes((row.cart?.cartItems ?? []) as unknown[]);
+      for (const it of flat) {
         const prod = (it?.product as Record<string, unknown> | undefined) ?? undefined;
-        const dp =
-          readDp(prod?.downPayment) ??
-          readDp(prod?.downpayment) ??
-          readDp((it as Record<string, unknown>)?.downPayment) ??
-          readDp((it as Record<string, unknown>)?.downpayment);
-        if (dp != null) total += dp;
+        const pid = typeof prod?.id === "number" && (prod.id as number) > 0 ? (prod.id as number) : null;
+        if (pid != null && row.approvalByProductId?.[pid] === true) continue;
+        const kind = classifyCartItemLineKind(it);
+        if (kind === "membership" || kind === "addon") {
+          const lineAmt = cartItemLineAmountFromDto(it);
+          if (lineAmt != null && lineAmt > 0) payNowExtrasSum += lineAmt;
+        } else if (kind === "booking") {
+          const dp =
+            readDp(prod?.downPayment) ??
+            readDp(prod?.downpayment) ??
+            readDp(it.downPayment) ??
+            readDp(it.downpayment);
+          if (dp != null) { bookingDepositSum += dp; hasDeposit = true; }
+        }
       }
     }
+    if (!hasDeposit) return null;
+    const total = bookingDepositSum + payNowExtrasSum;
     return total > 0 ? total : null;
   }, [product, bagSnapshots]);
 

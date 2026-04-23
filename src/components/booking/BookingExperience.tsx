@@ -186,6 +186,12 @@ function formatBookingDateShort(isoDate: string): string {
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
+function formatBookingDateLong(isoDate: string): string {
+  const d = new Date(`${isoDate}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return isoDate;
+  return d.toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+}
+
 function ScheduleRequestError({ error }: { error: Error }) {
   const t = useTranslations("errors");
   if (error instanceof BondBffError) {
@@ -759,6 +765,16 @@ export function BookingExperience() {
     const rows = scheduleSettingsQuery.data?.dates ?? [];
     return filterDatesByAdvanceWindow(rows, effectiveAdvanceBookingWindowDays);
   }, [scheduleSettingsQuery.data, effectiveAdvanceBookingWindowDays]);
+
+  const scheduleNavDates = useMemo(() => {
+    const list = filteredScheduleDates.map((d) => d.date);
+    const currentDate = state?.date;
+    const idx = currentDate ? list.indexOf(currentDate) : -1;
+    return {
+      prev: idx > 0 ? list[idx - 1]! : null,
+      next: idx >= 0 && idx < list.length - 1 ? list[idx + 1]! : null,
+    };
+  }, [filteredScheduleDates, state?.date]);
 
   const bookingInfoDateRange = useMemo(() => {
     const dates = filteredScheduleDates.map((x) => x.date).sort();
@@ -1701,8 +1717,8 @@ export function BookingExperience() {
         <div
           className={
             state.productId != null
-              ? /* Schedule split 1068px — align with globals: .cb-booking-schedule-shell-left sticky + .cb-schedule-when-wide-grid */
-                "flex flex-col gap-6 min-[1068px]:grid min-[1068px]:grid-cols-2 min-[1068px]:gap-8 min-[1068px]:items-start"
+              ? /* Schedule split 1068px — left col fixed 300px (calendar width), right gets remaining space */
+                "flex flex-col gap-6 min-[1068px]:grid min-[1068px]:grid-cols-[300px_1fr] min-[1068px]:gap-8 min-[1068px]:items-start"
               : undefined
           }
         >
@@ -1710,15 +1726,15 @@ export function BookingExperience() {
             <div className="cb-booking-schedule-shell-left flex min-w-0 flex-col gap-4">
               <div className="cb-schedule-when-band -mx-4 px-4 py-5 sm:mx-0 sm:rounded-xl sm:px-5">
                 <section className="text-left" aria-label={tb("whenSectionLabel")}>
-              {/* min-[1068px]: calendar left; duration (wrap) + preferred start on the right — matches split grid breakpoint */}
-              <div className="cb-schedule-when-wide hidden min-[1068px]:block">
+              {/* min-[1068px]: stacked left col — calendar → duration dropdown → preferred start */}
+              <div className="cb-schedule-when-wide hidden min-[1068px]:flex min-[1068px]:flex-col min-[1068px]:gap-4">
                 {filteredScheduleDates.length > 0 ? (
-                  <div className="cb-schedule-when-wide-grid">
-                    <div className="cb-schedule-when-wide-cal">
+                  <>
+                    <div>
                       <h3 id="pick-date-heading-wide" className="cb-schedule-step-title cb-schedule-step-title--first">
                         {tb("selectDate")}
                       </h3>
-                      <div className="cb-schedule-inline-cal mt-3 max-w-[calc(100vw-2rem)] sm:max-w-[20rem]">
+                      <div className="cb-schedule-inline-cal cb-schedule-inline-cal--wide mt-3">
                         <AvailableDateCalendarBody
                           availableDates={filteredScheduleDates.map((d) => d.date)}
                           vipEarlyAccessDates={vipEarlyAccessDates}
@@ -1731,62 +1747,50 @@ export function BookingExperience() {
                         />
                       </div>
                     </div>
-                    <div className="cb-schedule-when-wide-timing">
-                      <h3 id="pick-duration-heading-wide" className="cb-schedule-step-title">
+                    <div>
+                      <label htmlFor="duration-select-wide" className="cb-schedule-step-title block">
                         {tb("selectDuration")}
-                      </h3>
-                      <div
-                        className="cb-duration-chips-wrap mt-2 flex flex-wrap gap-2"
-                        role="tablist"
-                        aria-labelledby="pick-duration-heading-wide"
+                      </label>
+                      <select
+                        id="duration-select-wide"
+                        className="cb-duration-select mt-2 w-full"
+                        value={state.duration ?? durations[0] ?? 60}
+                        onChange={(e) => setDuration(Number(e.target.value))}
                       >
-                        {durations.map((m) => {
-                          const active = (state.duration ?? durations[0] ?? 60) === m;
-                          return (
-                            <button
-                              key={m}
-                              type="button"
-                              role="tab"
-                              aria-selected={active}
-                              className={`cb-date-chip cb-duration-chip ${active ? "cb-date-chip--active" : ""}`}
-                              onClick={() => setDuration(m)}
-                            >
-                              {formatDurationLabel(m)}
-                            </button>
-                          );
-                        })}
-                      </div>
-                      {showPreferredStart ? (
-                        <>
-                          <h3
-                            id="pick-start-heading-wide"
-                            className="cb-schedule-step-title mt-6"
-                          >
-                            {tb("preferredStartTitle")}{" "}
-                            <span className="cb-schedule-step-optional">{tb("optional")}</span>
-                          </h3>
-                          <button
-                            type="button"
-                            className="cb-preferred-start-field mt-2 w-full max-w-md"
-                            aria-haspopup="dialog"
-                            aria-expanded={picker === "start"}
-                            aria-labelledby="pick-start-heading-wide"
-                            onClick={() => setPicker("start")}
-                          >
-                            <IconClockDetail className="cb-preferred-start-field-icon h-5 w-5 shrink-0 text-[var(--cb-primary)]" />
-                            <span className="cb-preferred-start-field-value min-w-0 flex-1 truncate text-left">
-                              {preferredStartTime == null
-                                ? tb("anyTime")
-                                : formatPreferredStartOptionLabel(preferredStartTime)}
-                            </span>
-                            <span className="cb-faint shrink-0 text-[0.65rem]" aria-hidden>
-                              ▾
-                            </span>
-                          </button>
-                        </>
-                      ) : null}
+                        {durations.map((m) => (
+                          <option key={m} value={m}>
+                            {formatDurationLabel(m)}
+                          </option>
+                        ))}
+                      </select>
                     </div>
-                  </div>
+                    {showPreferredStart ? (
+                      <div>
+                        <h3 id="pick-start-heading-wide" className="cb-schedule-step-title">
+                          {tb("preferredStartTitle")}{" "}
+                          <span className="cb-schedule-step-optional">{tb("optional")}</span>
+                        </h3>
+                        <button
+                          type="button"
+                          className="cb-preferred-start-field mt-2 w-full"
+                          aria-haspopup="dialog"
+                          aria-expanded={picker === "start"}
+                          aria-labelledby="pick-start-heading-wide"
+                          onClick={() => setPicker("start")}
+                        >
+                          <IconClockDetail className="cb-preferred-start-field-icon h-5 w-5 shrink-0 text-[var(--cb-primary)]" />
+                          <span className="cb-preferred-start-field-value min-w-0 flex-1 truncate text-left">
+                            {preferredStartTime == null
+                              ? tb("anyTime")
+                              : formatPreferredStartOptionLabel(preferredStartTime)}
+                          </span>
+                          <span className="cb-faint shrink-0 text-[0.65rem]" aria-hidden>
+                            ▾
+                          </span>
+                        </button>
+                      </div>
+                    ) : null}
+                  </>
                 ) : null}
               </div>
 
@@ -1956,8 +1960,33 @@ export function BookingExperience() {
             </p>
           ) : null}
 
+          {scheduleQuery.data && state.view === "matrix" && state.date ? (
+            <div className="cb-matrix-date-nav-row mt-4">
+              <span className="cb-matrix-date-nav-label">{formatBookingDateLong(state.date)}</span>
+              <div className="cb-matrix-date-nav-arrows">
+                <button
+                  type="button"
+                  className="cb-matrix-date-nav-btn"
+                  disabled={scheduleNavDates.prev == null}
+                  onClick={() => scheduleNavDates.prev && setDate(scheduleNavDates.prev)}
+                  aria-label={tb("previousDay")}
+                >
+                  ‹
+                </button>
+                <button
+                  type="button"
+                  className="cb-matrix-date-nav-btn"
+                  disabled={scheduleNavDates.next == null}
+                  onClick={() => scheduleNavDates.next && setDate(scheduleNavDates.next)}
+                  aria-label={tb("nextDay")}
+                >
+                  ›
+                </button>
+              </div>
+            </div>
+          ) : null}
           {scheduleQuery.data && state.view === "matrix" && (
-            <div className="cb-matrix-wrap cb-matrix-wrap--in-shell mt-4">
+            <div className="cb-matrix-wrap cb-matrix-wrap--in-shell mt-2">
               <ScheduleMatrix
                 schedule={scheduleQuery.data}
                 product={selectedProduct}

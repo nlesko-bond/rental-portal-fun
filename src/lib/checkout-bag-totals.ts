@@ -464,22 +464,63 @@ export function getBondCartTotalsSummary(cart: OrganizationCartDto): {
   };
 }
 
+/** Extract `product.id` from a Bond cart item — used to match against `approvalByProductId`. */
+function cartItemProductId(it: Record<string, unknown>): number | null {
+  const prod = it.product as Record<string, unknown> | undefined;
+  const pid = typeof prod?.id === "number" ? prod.id : null;
+  return pid != null && Number.isFinite(pid) && pid > 0 ? pid : null;
+}
+
 /**
  * Dollar amount to send as `amountToPay` on `POST …/cart/{id}/finalize`.
  * Uses **Bond cart fields only** (including cart-level fees), not client-estimated card-processing fees.
+ *
+ * When `approvalByProductId` is supplied (mixed cart), only sums lines whose product is **not**
+ * approval-required — approval items are submitted as a request and invoiced separately.
  */
-export function bondCartPayableTotalForFinalize(cart: OrganizationCartDto): number | null {
-  const summary = getBondCartTotalsSummary(cart);
-  if (summary.grandTotal != null && summary.grandTotal > BOND_KIND_LINE_MIN) {
-    return Math.round(summary.grandTotal * 100) / 100;
+export function bondCartPayableTotalForFinalize(
+  cart: OrganizationCartDto,
+  approvalByProductId?: Record<number, boolean>
+): number | null {
+  const hasApprovalFilter =
+    approvalByProductId != null && Object.values(approvalByProductId).some(Boolean);
+
+  if (!hasApprovalFilter) {
+    const summary = getBondCartTotalsSummary(cart);
+    if (summary.grandTotal != null && summary.grandTotal > BOND_KIND_LINE_MIN) {
+      return Math.round(summary.grandTotal * 100) / 100;
+    }
+    const b = getOrganizationCartNumericBreakdown(cart);
+    if (b.line == null) return null;
+    const afterDisc = Math.max(0, b.line - (b.discount ?? 0));
+    const withTax = afterDisc + (b.tax ?? 0);
+    const withBondFees = withTax + (b.fee ?? 0);
+    if (withBondFees <= BOND_KIND_LINE_MIN) return null;
+    return Math.round(withBondFees * 100) / 100;
   }
+
+  // Mixed cart: sum only payable (non-approval) line amounts line-by-line.
+  const items = cart.cartItems;
+  if (!Array.isArray(items) || items.length === 0) return null;
+  const flat = flattenBondCartItemNodes(items);
+  let payableSum = 0;
+  let any = false;
+  for (const it of flat) {
+    const pid = cartItemProductId(it);
+    if (pid != null && approvalByProductId![pid] === true) continue;
+    const amt = getCartItemLineAmount(it);
+    if (amt == null) continue;
+    payableSum += amt;
+    any = true;
+  }
+  if (!any || payableSum <= BOND_KIND_LINE_MIN) return null;
+
   const b = getOrganizationCartNumericBreakdown(cart);
-  if (b.line == null) return null;
-  const afterDisc = Math.max(0, b.line - (b.discount ?? 0));
+  const afterDisc = Math.max(0, payableSum - (b.discount ?? 0));
   const withTax = afterDisc + (b.tax ?? 0);
-  const withBondFees = withTax + (b.fee ?? 0);
-  if (withBondFees <= BOND_KIND_LINE_MIN) return null;
-  return Math.round(withBondFees * 100) / 100;
+  const withFees = withTax + (b.fee ?? 0);
+  if (withFees <= BOND_KIND_LINE_MIN) return null;
+  return Math.round(withFees * 100) / 100;
 }
 
 /**

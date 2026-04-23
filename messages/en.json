@@ -72,6 +72,8 @@
     "preferredStartTitle": "Preferred start time",
     "optional": "(optional)",
     "anyTime": "Any time",
+    "previousDay": "Previous day",
+    "nextDay": "Next day",
     "availableTimes": "Available times",
     "listOrTimeline": "List or Timeline",
     "viewList": "List",
