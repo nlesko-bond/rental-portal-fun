@@ -118,16 +118,51 @@ function pickString(o: Record<string, unknown> | undefined | null, keys: readonl
   return null;
 }
 
+/** "9999-..." / "2199-..." / "2200-..." dates Bond uses as "no expiration" sentinels. */
+const FAR_FUTURE_YEAR_THRESHOLD = 2100;
+
+/** True if `iso` parses to a year >= 2100 (Bond's "no real expiration" sentinel). */
+function isFarFutureSentinelDate(iso: string | null): boolean {
+  if (!iso) return false;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return false;
+  return d.getUTCFullYear() >= FAR_FUTURE_YEAR_THRESHOLD;
+}
+
+/** `durationMonths` / `lengthMonths` / `months` etc. → `"month"` / `"quarter"` / `"year"` / `"N months"`. */
+function monthsToCadenceLabel(months: number | null): string | null {
+  if (months == null || !Number.isFinite(months) || months <= 0) return null;
+  if (months === 1) return "month";
+  if (months === 3) return "quarter";
+  if (months === 12) return "year";
+  if (months % 12 === 0) return `${months / 12} years`;
+  return `${months} months`;
+}
+
+/** Bond-style renewal-interval enum value (`"MONTHLY"` / `"QUARTERLY"` / `"YEARLY"` / etc.) → cadence label. */
+function intervalEnumToCadenceLabel(raw: string | null): string | null {
+  if (!raw) return null;
+  const s = raw.trim().toLowerCase();
+  if (!s) return null;
+  if (s.startsWith("month")) return "month";
+  if (s.startsWith("quarter")) return "quarter";
+  if (s.startsWith("year") || s.startsWith("annual")) return "year";
+  if (s.startsWith("week")) return "week";
+  if (s.startsWith("day")) return "day";
+  return null;
+}
+
 /**
- * Returns a customer-facing **renewal-period or expiration** label for a membership product:
- *   - `"month"` / `"quarter"` / `"year"` / `"3 months"` for recurring memberships
- *   - `"exp Dec 24, 2026"` for fixed-price-until-date memberships
- *   - `null` when nothing useful can be derived
+ * Returns a customer-facing **renewal-period** label for a membership product:
+ *   - `"month"` / `"quarter"` / `"year"` / `"N months"` when Bond exposes a real cadence
+ *     (looked up across `packages[]` first — that's where Bond stores membership renewal
+ *     packages — then a few legacy `resource.membership.*` shapes for cart-time payloads)
+ *   - `null` when no real cadence can be derived (caller renders the price without the
+ *     "/ period" suffix rather than fabricating a sentinel like "exp Dec 31, 2199")
  *
- * Reads from common Bond shapes (`product.resource.membership.durationMonths`,
- * `expirationDate` / `endDate`, etc.) — falls back to nothing rather than echoing the product
- * name (which the old `prices[0].name` path was doing and is what the membership UI was
- * accidentally displaying).
+ * Bond's `endDate` on a membership product is a far-future sentinel (`2200-01-01`) for any
+ * auto-renewing membership, so we **never** treat `endDate` as an expiration display. A real
+ * fixed-end-date membership would have `endDate < year 2100`.
  */
 export function membershipFrequencyLabel(node: ExtendedRequiredProductNode): string | null {
   const o = node as Record<string, unknown>;
@@ -138,23 +173,35 @@ export function membershipFrequencyLabel(node: ExtendedRequiredProductNode): str
   const months =
     pickNumber(membership, ["durationMonths", "months", "lengthMonths"]) ??
     pickNumber(o, ["durationMonths"]);
-  if (months != null) {
-    if (months === 1) return "month";
-    if (months === 3) return "quarter";
-    if (months === 12) return "year";
-    if (months % 12 === 0) return `${months / 12} years`;
-    return `${months} months`;
+  const monthsLabel = monthsToCadenceLabel(months);
+  if (monthsLabel) return monthsLabel;
+
+  const intervalLabel = intervalEnumToCadenceLabel(
+    pickString(membership, ["interval", "recurrenceInterval", "renewalInterval", "cadence", "frequency"]) ??
+    pickString(o, ["interval", "recurrenceInterval", "renewalInterval", "cadence", "frequency"])
+  );
+  if (intervalLabel) return intervalLabel;
+
+  const packages = Array.isArray(o.packages) ? (o.packages as Array<Record<string, unknown>>) : [];
+  for (const pkg of packages) {
+    const pkgMonths =
+      pickNumber(pkg, ["durationMonths", "lengthMonths", "months"]);
+    const pkgMonthsLabel = monthsToCadenceLabel(pkgMonths);
+    if (pkgMonthsLabel) return pkgMonthsLabel;
+    const pkgIntervalLabel = intervalEnumToCadenceLabel(
+      pickString(pkg, ["renewalInterval", "recurrenceInterval", "interval", "cadence", "frequency"])
+    );
+    if (pkgIntervalLabel) return pkgIntervalLabel;
   }
 
-  const expirationDate =
-    pickString(membership, ["expirationDate", "endDate", "validUntil", "expiresAt"]) ??
-    pickString(product, ["expirationDate", "endDate", "validUntil", "expiresAt"]) ??
-    pickString(o, ["expirationDate", "endDate", "validUntil", "expiresAt"]);
-  if (expirationDate) {
-    const d = new Date(expirationDate);
+  const realExpiration = pickString(membership, ["expirationDate", "validUntil", "expiresAt"])
+    ?? pickString(product, ["expirationDate", "validUntil", "expiresAt"])
+    ?? pickString(o, ["expirationDate", "validUntil", "expiresAt"]);
+  if (realExpiration && !isFarFutureSentinelDate(realExpiration)) {
+    const d = new Date(realExpiration);
     if (!Number.isNaN(d.getTime())) {
-      const mmm = d.toLocaleString("en-US", { month: "short" });
-      return `exp ${mmm} ${d.getDate()}, ${d.getFullYear()}`;
+      const mmm = d.toLocaleString("en-US", { month: "short", timeZone: "UTC" });
+      return `exp ${mmm} ${d.getUTCDate()}, ${d.getUTCFullYear()}`;
     }
   }
   return null;

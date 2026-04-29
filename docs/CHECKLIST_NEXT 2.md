@@ -6,23 +6,6 @@
 
 ---
 
-## 0a. STILL OPEN: Membership renewal cadence — confirm Bond field name
-
-**What we know from the BFF logs (`/products/:id/user/:uid/required`):**
-- Each membership product node has these top-level keys:
-  `id, organizationId, name, quantity, description, downpayment, startDate, endDate, prices, isAll, isProRated, taxes, timezone, productType, required, requiredProducts, isGated, isPunchPass, packages`
-- `endDate: "2200-01-01"` is a **sentinel** ("no real expiration" — auto-renewing). Do **not** display.
-- `prices[].name` is the product name, not the cadence (the prior bug).
-- `membership` / `resource.membership.durationMonths` is **not** present on this endpoint — that field only shows up after the membership is added to a cart.
-
-**Almost certainly:** the cadence lives on `packages[]` (Bond models renewal as a "renewal package"). The current BFF debug now dumps `packages[].durationMonths`, `renewalInterval`, `recurrenceInterval`, `interval`, `cadence`, `frequency`, `isRenewing` plus the full package object — refresh the membership step in the running dev server, copy a `[bond-bff] required products shape` log line, and we'll know the exact field.
-
-`membershipFrequencyLabel` already tries: node `durationMonths` → node interval enum → packages `durationMonths` → packages interval enum → real expirationDate (rejecting `>= year 2100`). Once we confirm the actual field name we can prune the speculative ones.
-
-**Until then:** memberships with no derivable cadence render `"$44"` alone (no `/ period`), which is the correct conservative output rather than the prior bogus `"exp Dec 31, 2199"`.
-
----
-
 ## 0. STILL OPEN: "Pay minimum due" returns "invalid payment information"
 
 **Symptom (user-reported, persists after the cart-only `cartChargeableMinimum = cart.minimumPrice` fix):**

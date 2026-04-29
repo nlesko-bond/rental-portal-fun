@@ -188,12 +188,27 @@ async function forward(
         const product = n.product as Record<string, unknown> | undefined;
         const resource = (n.resource ?? product?.resource) as Record<string, unknown> | undefined;
         const membership = (resource?.membership ?? n.membership) as Record<string, unknown> | undefined;
+        const pkgs = Array.isArray(n.packages) ? (n.packages as Array<Record<string, unknown>>) : [];
+        const packagesSummary = pkgs.length === 0 ? null : pkgs.map((p) => ({
+          id: p.id,
+          name: p.name,
+          allKeys: Object.keys(p),
+          durationMonths: p.durationMonths ?? p.lengthMonths ?? p.months,
+          renewalInterval: p.renewalInterval ?? p.recurrenceInterval ?? p.interval ?? p.cadence ?? p.frequency,
+          renewalCount: p.renewalCount ?? p.recurrenceCount,
+          isRenewing: p.isRenewing ?? p.autoRenew,
+          startDate: p.startDate,
+          endDate: p.endDate,
+          full: p,
+        }));
         return {
           id: n.id,
           name: n.name,
           productType: n.productType,
           productSubType: n.productSubType,
           required: n.required,
+          quantity: n.quantity,
+          description: typeof n.description === "string" ? (n.description as string).slice(0, 240) : n.description,
           allKeys: Object.keys(n),
           membershipKeys: membership ? Object.keys(membership) : null,
           durationMonths: membership?.durationMonths ?? n.durationMonths,
@@ -201,7 +216,8 @@ async function forward(
           expirationDate:
             membership?.expirationDate ?? n.expirationDate ?? product?.expirationDate,
           validUntil: membership?.validUntil ?? n.validUntil ?? product?.validUntil,
-          pricesPreview: Array.isArray(n.prices) ? (n.prices as unknown[]).slice(0, 2) : null,
+          pricesFull: Array.isArray(n.prices) ? n.prices : null,
+          packagesSummary,
           nestedSummary: Array.isArray(n.requiredProducts)
             ? (n.requiredProducts as Array<Record<string, unknown>>).map(summarize)
             : null,
