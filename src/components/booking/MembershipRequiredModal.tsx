@@ -46,23 +46,20 @@ export function MembershipRequiredPanel({
   const currency = primaryListPrice(options[0])?.currency ?? "USD";
 
   const renderPriceWithFreq = (
-    price: { amount: number; currency: string; label?: string },
+    price: { amount: number; currency: string },
     freqLabel: string | null
-  ) => {
-    const label = freqLabel ?? price.label ?? null;
-    return (
-      <span className="cb-membership-card-price">
-        <span className="cb-membership-card-price-amount">{formatPrice(price.amount, price.currency)}</span>
-        {label ? <span className="cb-membership-card-freq"> / {label}</span> : null}
-      </span>
-    );
-  };
+  ) => (
+    <span className="cb-membership-card-price">
+      <span className="cb-membership-card-price-amount">{formatPrice(price.amount, price.currency)}</span>
+      {freqLabel ? <span className="cb-membership-card-freq"> / {freqLabel}</span> : null}
+    </span>
+  );
 
   return (
     <div className="cb-membership-modal">
       <div className="cb-membership-modal-hero">
         <div className="cb-membership-modal-hero-icon" aria-hidden>
-          <IconMembershipCard className="h-6 w-6 text-white" />
+          <IconMembershipCard className="h-6 w-6" />
         </div>
         <p className="cb-membership-modal-hero-title">{tc("membershipPanelHeroTitle")}</p>
       </div>
@@ -142,8 +139,8 @@ export function MembershipRequiredPanel({
                                     {" "}
                                     {tc("membershipAlreadyOwnedSuffix")}
                                   </span>
-                                ) : childFreq ?? cp.label ? (
-                                  <span className="cb-membership-card-freq"> / {childFreq ?? cp.label}</span>
+                                ) : childFreq ? (
+                                  <span className="cb-membership-card-freq"> / {childFreq}</span>
                                 ) : null}
                               </span>
                             ) : null}
