@@ -130,6 +130,31 @@ export function formatSlotPriceDisplay(
   return formatSlotCurrency(amount, currency);
 }
 
+/**
+ * Booking-summary / cart price string. Mirrors the product-card behaviour:
+ *  - amount ~ $0 + membership-gated → `freeForMembersLabel` (e.g. "Free for members")
+ *  - amount ~ $0 + not gated → `freeLabel` (e.g. "Free")
+ *  - otherwise → caller's `formatPrice(amount, currency)`
+ *
+ * `formatPrice` is passed in (rather than re-implemented here) so the caller's existing
+ * locale / fraction-digit rules apply when the value is non-zero.
+ */
+export function formatBookingPriceOrFree(
+  amount: number,
+  currency: string,
+  formatPrice: (amount: number, currency: string) => string,
+  options: {
+    membershipGated?: boolean;
+    freeLabel: string;
+    freeForMembersLabel: string;
+  }
+): string {
+  if (Number.isFinite(amount) && Math.abs(amount) < EPS) {
+    return options.membershipGated ? options.freeForMembersLabel : options.freeLabel;
+  }
+  return formatPrice(amount, currency);
+}
+
 /** Lowest listed unit price for catalog chips (whole units). */
 export function productCatalogMinUnitPrice(product: ExtendedProductDto): {
   min: number;

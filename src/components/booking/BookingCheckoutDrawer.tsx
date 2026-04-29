@@ -28,7 +28,7 @@ import {
   postOnlineBookingCreate,
 } from "@/lib/online-booking-user-api";
 import { buildOnlineBookingCreateBody, splitAddonPayloadForCreate } from "@/lib/online-booking-create-body";
-import { productMembershipGated } from "@/lib/booking-pricing";
+import { formatBookingPriceOrFree, productMembershipGated } from "@/lib/booking-pricing";
 import {
   bookingContactSnapshot,
   findProfilePersonById,
@@ -452,6 +452,7 @@ export function BookingCheckoutDrawer({
   const tAddons = useTranslations("addons");
   const te = useTranslations("errors");
   const tc = useTranslations("common");
+  const tb = useTranslations("booking");
   const [step, setStep] = useState<CheckoutStep>(() =>
     packageAddons.length > 0 ? "addons" : "membership"
   );
@@ -2311,14 +2312,21 @@ export function BookingCheckoutDrawer({
         );
       }
       const m = syntheticBookingReviewModel;
+      const productGated = productMembershipGated(product);
+      const fmtBookingMoney = (amount: number) =>
+        formatBookingPriceOrFree(amount, bagCurrency, formatPrice, {
+          membershipGated: productGated,
+          freeLabel: tb("free"),
+          freeForMembersLabel: tb("freeForMembers"),
+        });
       const reviewMoney = (strike: number | undefined, net: number) =>
         strike != null && strike > net + 0.005 ? (
           <>
             <span className="cb-checkout-price-strike">{formatPrice(strike, bagCurrency)}</span>{" "}
-            <strong>{formatPrice(net, bagCurrency)}</strong>
+            <strong>{fmtBookingMoney(net)}</strong>
           </>
         ) : (
-          <strong>{formatPrice(net, bagCurrency)}</strong>
+          <strong>{fmtBookingMoney(net)}</strong>
         );
 
       const REVIEW_ADDON_MAX_QTY = 50;
@@ -2336,7 +2344,7 @@ export function BookingCheckoutDrawer({
           <div key={`${x.addonId}-${x.slotKey}`} className="cb-checkout-review-addon-pill">
             <span className="cb-checkout-review-addon-pill-name" title={x.name}>{x.name}</span>
             <span className="cb-checkout-review-addon-pill-price">
-              {formatPrice(x.perUnitAmount, bagCurrency)}
+              {fmtBookingMoney(x.perUnitAmount)}
             </span>
             {canStep ? (
               <span className="cb-checkout-review-addon-pill-qty" role="group" aria-label={tx("quantity")}>
@@ -2409,7 +2417,7 @@ export function BookingCheckoutDrawer({
           ) : null}
           <div className="cb-checkout-review-item-total">
             <span className="cb-checkout-review-item-total-label">{tx("itemTotal")}</span>
-            <span className="cb-checkout-review-item-total-value">{formatPrice(amount, bagCurrency)}</span>
+            <span className="cb-checkout-review-item-total-value">{fmtBookingMoney(amount)}</span>
           </div>
         </li>
       );
@@ -2538,9 +2546,8 @@ export function BookingCheckoutDrawer({
                 <div className="cb-checkout-review-item-total">
                   <span className="cb-checkout-review-item-total-label">{tx("itemTotal")}</span>
                   <span className="cb-checkout-review-item-total-value">
-                    {formatPrice(
-                      s.amount + s.nestedAddons.reduce((sum, a) => sum + a.amount, 0),
-                      bagCurrency
+                    {fmtBookingMoney(
+                      s.amount + s.nestedAddons.reduce((sum, a) => sum + a.amount, 0)
                     )}
                   </span>
                 </div>
@@ -2582,7 +2589,7 @@ export function BookingCheckoutDrawer({
                     <div className="cb-checkout-review-addon-stack">
                       <div className="cb-checkout-review-addon-pill">
                         <span className="cb-checkout-review-addon-pill-name" title={x.name}>{x.name}</span>
-                        <span className="cb-checkout-review-addon-pill-price">{formatPrice(perUnitAmount, bagCurrency)}</span>
+                        <span className="cb-checkout-review-addon-pill-price">{fmtBookingMoney(perUnitAmount)}</span>
                         {canStep ? (
                           <span className="cb-checkout-review-addon-pill-qty" role="group" aria-label={tx("quantity")}>
                             <button
@@ -2612,7 +2619,7 @@ export function BookingCheckoutDrawer({
                   </div>
                   <div className="cb-checkout-review-item-total">
                     <span className="cb-checkout-review-item-total-label">{tx("itemTotal")}</span>
-                    <span className="cb-checkout-review-item-total-value">{formatPrice(x.amount, bagCurrency)}</span>
+                    <span className="cb-checkout-review-item-total-value">{fmtBookingMoney(x.amount)}</span>
                   </div>
                 </li>
               );
