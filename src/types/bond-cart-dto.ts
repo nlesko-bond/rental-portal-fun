@@ -19,10 +19,20 @@ export type CartItemDescriptionEnum =
   | "membership_package_child_item"
   | "league_registration";
 
-/** `CartItemMetadataDto` on each `cartItems[]` row (when Bond sends it). */
+/** Per-item purchase intent — mirrors `OrganizationCartDto.purchaseType` at the line level. */
+export type CartItemPurchaseTypeEnum = "order" | "purchase";
+
+/**
+ * `CartItemMetadataDto` on each `cartItems[]` row (when Bond sends it).
+ *
+ * `purchaseType` is the spec-blessed signal for whether this specific line requires approval
+ * (`"order"`) or pays immediately (`"purchase"`). Prefer it over walking parent `categorySettings`
+ * — Bond computes it server-side using the same rules.
+ */
 export type CartItemMetadataDto = {
   description?: CartItemDescriptionEnum | string;
   isAddon?: boolean;
+  purchaseType?: CartItemPurchaseTypeEnum | string;
 } & Record<string, unknown>;
 
 /** Loose cart line — Bond `CartItemDto` / nested product; not every field is in the public spec snapshot. */

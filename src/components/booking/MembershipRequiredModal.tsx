@@ -6,6 +6,7 @@ import { IconMembershipCard } from "@/components/booking/SlotMemberPriceLabel";
 import type { ExtendedRequiredProductNode } from "@/lib/required-products-extended";
 import {
   collectProductAndNestedIds,
+  membershipFrequencyLabel,
   primaryListPrice,
   sumNodeTotalUsd,
 } from "@/lib/required-products-extended";
@@ -19,6 +20,15 @@ export type MembershipRequiredPanelProps = {
   /** Shown under the title so the member knows whose membership they are choosing. */
   bookingForLabel?: string;
 };
+
+/** Pretty-prints `productSubType` as a card subtitle (e.g. "Individual", "Family"). */
+function membershipSubTypeLabel(node: ExtendedRequiredProductNode): string | null {
+  const raw = node.productSubType;
+  if (typeof raw !== "string") return null;
+  const cleaned = raw.replace(/[_-]+/g, " ").trim();
+  if (!cleaned || /gating[_\s]*membership/i.test(cleaned)) return null;
+  return cleaned.replace(/\b\w/g, (c) => c.toUpperCase());
+}
 
 /** Inline or modal body: pick a membership OR option + nested fees. */
 export function MembershipRequiredPanel({
@@ -34,6 +44,19 @@ export function MembershipRequiredPanel({
   const selected = options.find((o) => o.id === selectedRootId) ?? null;
   const addedProductCount = selected ? collectProductAndNestedIds(selected).length : 0;
   const currency = primaryListPrice(options[0])?.currency ?? "USD";
+
+  const renderPriceWithFreq = (
+    price: { amount: number; currency: string; label?: string },
+    freqLabel: string | null
+  ) => {
+    const label = freqLabel ?? price.label ?? null;
+    return (
+      <span className="cb-membership-card-price">
+        <span className="cb-membership-card-price-amount">{formatPrice(price.amount, price.currency)}</span>
+        {label ? <span className="cb-membership-card-freq"> / {label}</span> : null}
+      </span>
+    );
+  };
 
   return (
     <div className="cb-membership-modal">
@@ -55,6 +78,8 @@ export function MembershipRequiredPanel({
           const price = primaryListPrice(opt);
           const total = sumNodeTotalUsd(opt);
           const nested = opt.requiredProducts ?? [];
+          const subType = membershipSubTypeLabel(opt);
+          const hasNested = nested.length > 0;
           return (
             <li key={opt.id}>
               <button
@@ -65,26 +90,61 @@ export function MembershipRequiredPanel({
                 onClick={() => onSelectRoot(opt.id)}
               >
                 <div className="cb-membership-card-head">
-                  <span className="cb-membership-card-title">{opt.name ?? `Product ${opt.id}`}</span>
-                  {price ? (
-                    <span className="cb-membership-card-price">
-                      {formatPrice(price.amount, price.currency)}
-                      {price.label ? <span className="cb-membership-card-freq"> {price.label}</span> : null}
-                    </span>
-                  ) : null}
+                  <div className="cb-membership-card-head-text">
+                    <span className="cb-membership-card-title">{opt.name ?? `Product ${opt.id}`}</span>
+                    {subType ? (
+                      <span className="cb-membership-card-subtype">{subType}</span>
+                    ) : null}
+                  </div>
+                  {price ? renderPriceWithFreq(price, membershipFrequencyLabel(opt)) : null}
                 </div>
-                {nested.length > 0 ? (
+                {hasNested && !sel ? (
+                  <span className="cb-membership-card-additional-pill">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden>
+                      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.75" />
+                      <path d="M12 8v4M12 16h.01" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+                    </svg>
+                    {tc("membershipAdditionalRequiredPill")}
+                  </span>
+                ) : null}
+                {hasNested && sel ? (
                   <div className="cb-membership-card-requires">
-                    <p className="cb-membership-card-requires-label">{tc("membershipRequiresLabel")}</p>
+                    <div className="cb-membership-card-requires-banner">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
+                        <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.75" />
+                        <path d="M12 8v4M12 16h.01" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+                      </svg>
+                      <span>{tc("membershipRequiresLabel")}</span>
+                    </div>
                     <ul className="cb-membership-card-requires-list">
                       {nested.map((child) => {
                         const cp = primaryListPrice(child);
+                        const childFreq = membershipFrequencyLabel(child);
+                        const childSubType = membershipSubTypeLabel(child);
+                        const alreadyOwned = child.required === false;
                         return (
                           <li key={child.id} className="cb-membership-card-requires-row">
-                            <span>{child.name ?? `Product ${child.id}`}</span>
+                            <div className="cb-membership-card-requires-row-text">
+                              <span className="cb-membership-card-requires-row-name">
+                                {child.name ?? `Product ${child.id}`}
+                              </span>
+                              {childSubType ? (
+                                <span className="cb-membership-card-requires-row-subtype">{childSubType}</span>
+                              ) : null}
+                            </div>
                             {cp ? (
                               <span className="cb-membership-card-requires-amt">
-                                {formatPrice(cp.amount, cp.currency)}
+                                <span className="cb-membership-card-price-amount">
+                                  {alreadyOwned ? formatPrice(0, cp.currency) : formatPrice(cp.amount, cp.currency)}
+                                </span>
+                                {alreadyOwned ? (
+                                  <span className="cb-membership-card-already-owned">
+                                    {" "}
+                                    {tc("membershipAlreadyOwnedSuffix")}
+                                  </span>
+                                ) : childFreq ?? cp.label ? (
+                                  <span className="cb-membership-card-freq"> / {childFreq ?? cp.label}</span>
+                                ) : null}
                               </span>
                             ) : null}
                           </li>
@@ -93,10 +153,12 @@ export function MembershipRequiredPanel({
                     </ul>
                   </div>
                 ) : null}
-                <div className="cb-membership-card-total">
-                  <span>{tc("membershipCardTotalLabel")}</span>
-                  <strong>{formatPrice(total, currency)}</strong>
-                </div>
+                {sel ? (
+                  <div className="cb-membership-card-total">
+                    <span>{tc("membershipCardTotalLabel")}</span>
+                    <strong>{formatPrice(total, currency)}</strong>
+                  </div>
+                ) : null}
               </button>
             </li>
           );

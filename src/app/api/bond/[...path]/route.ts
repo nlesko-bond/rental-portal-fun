@@ -90,6 +90,192 @@ async function forward(
 
   const contentType = res.headers.get("content-type") ?? "application/json";
   const body = await res.arrayBuffer();
+
+  /**
+   * Temporary BFF debug: when a `finalize` call returns 4xx/5xx, log both the request body we
+   * forwarded and the Bond response so we can diagnose `INVALID_PAYMENT_AMOUNT` and friends in
+   * dev. Remove once the deposit-amount math is locked.
+   */
+  if (segments[3] === "cart" && segments[5] === "finalize" && res.status >= 400) {
+    let reqBodyText = "(no body)";
+    if (typeof init.body === "string") reqBodyText = init.body;
+    const respText = new TextDecoder().decode(body);
+    // eslint-disable-next-line no-console
+    console.error("[bond-bff] finalize failed", {
+      status: res.status,
+      cartPath: path,
+      reqBody: reqBodyText,
+      respBody: respText.slice(0, 1000),
+    });
+  }
+
+  /**
+   * Temporary BFF debug: snapshot Bond's price-shape fields on every cart GET so we can compare
+   * `minimumDownpayment` / `minimumPrice` / `price` to whatever we eventually send on finalize.
+   * Remove once the deposit-amount math is locked.
+   */
+  if (
+    init.method === "GET" &&
+    segments[3] === "cart" &&
+    segments.length === 5 &&
+    res.status === 200
+  ) {
+    try {
+      const json = JSON.parse(new TextDecoder().decode(body)) as Record<string, unknown>;
+      const flattenForLog = (
+        nodes: unknown[] | undefined,
+      ): Array<Record<string, unknown>> => {
+        if (!Array.isArray(nodes)) return [];
+        const out: Array<Record<string, unknown>> = [];
+        for (const raw of nodes) {
+          if (!raw || typeof raw !== "object") continue;
+          const it = raw as Record<string, unknown>;
+          const meta = (it.metadata as Record<string, unknown> | undefined) ?? null;
+          const prod = (it.product as Record<string, unknown> | undefined) ?? null;
+          out.push({
+            id: it.id,
+            itemName: it.name,
+            itemTitle: it.title,
+            productId: it.productId ?? prod?.id,
+            productName: prod?.name,
+            productExtraNameKeys: prod
+              ? Object.keys(prod).filter((k) => /name/i.test(k) && k !== "name")
+              : [],
+            amount: it.amount ?? it.price ?? it.subtotal,
+            purchaseType: meta?.purchaseType ?? it.purchaseType,
+            isAddon: it.isAddon,
+            itemDownPayment: it.downPayment ?? it.downpayment,
+            productDownPayment: prod?.downPayment ?? prod?.downpayment,
+          });
+          if (Array.isArray(it.children)) out.push(...flattenForLog(it.children as unknown[]));
+        }
+        return out;
+      };
+      // eslint-disable-next-line no-console
+      console.log("[bond-bff] cart GET shape", JSON.stringify({
+        cartPath: path,
+        price: json.price,
+        minimumPrice: json.minimumPrice,
+        downpayment: json.downpayment ?? (json as { downPayment?: unknown }).downPayment,
+        minimumDownpayment: json.minimumDownpayment,
+        purchaseType: json.purchaseType,
+        topLevelKeys: Object.keys(json),
+        items: flattenForLog(json.cartItems as unknown[] | undefined),
+      }, null, 2));
+    } catch {
+      /* ignore non-JSON payloads */
+    }
+  }
+
+  /**
+   * Temporary BFF debug: snapshot the required-products tree so we can confirm where Bond stores
+   * membership renewal cadence (`durationMonths`?) vs fixed-price expiration (`endDate`?). Used by
+   * `membershipFrequencyLabel` in `src/lib/required-products-extended.ts`. Remove once verified.
+   */
+  if (
+    init.method === "GET" &&
+    /\/products\/\d+\/user\/\d+\/required/.test(path) &&
+    body.byteLength > 0
+  ) {
+    try {
+      const json = JSON.parse(new TextDecoder().decode(body)) as unknown;
+      const rows: Array<Record<string, unknown>> = Array.isArray(json)
+        ? (json as Array<Record<string, unknown>>)
+        : Array.isArray((json as { data?: unknown })?.data)
+          ? ((json as { data: Array<Record<string, unknown>> }).data)
+          : [];
+      const summarize = (n: Record<string, unknown>): unknown => {
+        const product = n.product as Record<string, unknown> | undefined;
+        const resource = (n.resource ?? product?.resource) as Record<string, unknown> | undefined;
+        const membership = (resource?.membership ?? n.membership) as Record<string, unknown> | undefined;
+        return {
+          id: n.id,
+          name: n.name,
+          productType: n.productType,
+          productSubType: n.productSubType,
+          required: n.required,
+          allKeys: Object.keys(n),
+          membershipKeys: membership ? Object.keys(membership) : null,
+          durationMonths: membership?.durationMonths ?? n.durationMonths,
+          endDate: membership?.endDate ?? n.endDate ?? product?.endDate,
+          expirationDate:
+            membership?.expirationDate ?? n.expirationDate ?? product?.expirationDate,
+          validUntil: membership?.validUntil ?? n.validUntil ?? product?.validUntil,
+          pricesPreview: Array.isArray(n.prices) ? (n.prices as unknown[]).slice(0, 2) : null,
+          nestedSummary: Array.isArray(n.requiredProducts)
+            ? (n.requiredProducts as Array<Record<string, unknown>>).map(summarize)
+            : null,
+        };
+      };
+      // eslint-disable-next-line no-console
+      console.log("[bond-bff] required products shape", JSON.stringify({
+        path,
+        count: rows.length,
+        rows: rows.map(summarize),
+      }, null, 2));
+    } catch {
+      /* ignore non-JSON */
+    }
+  }
+
+  /**
+   * Temporary BFF debug: snapshot product list response so we can identify which name field the
+   * online (consumer) UI should use vs the back-office name, and which downpayment field the
+   * deposit logic should read. Remove after the cart-naming + deposit fix.
+   */
+  if (
+    init.method === "GET" &&
+    /\/category\/\d+\/products/.test(path) &&
+    body.byteLength > 0
+  ) {
+    try {
+      const json = JSON.parse(new TextDecoder().decode(body)) as Record<string, unknown>;
+      const data = Array.isArray(json.data) ? (json.data as Array<Record<string, unknown>>) : [];
+      const findDeepDeposit = (
+        v: unknown,
+        breadcrumbs: string,
+        out: Array<{ path: string; value: unknown }>,
+        depth = 0,
+      ): void => {
+        if (depth > 4 || !v) return;
+        if (Array.isArray(v)) {
+          for (let i = 0; i < Math.min(v.length, 4); i++) {
+            findDeepDeposit(v[i], `${breadcrumbs}[${i}]`, out, depth + 1);
+          }
+          return;
+        }
+        if (typeof v !== "object") return;
+        for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+          if (/down\s*payment|deposit|min(imum)?\s*pay|min(imum)?\s*price/i.test(k)) {
+            out.push({ path: `${breadcrumbs}.${k}`, value: val });
+          }
+          findDeepDeposit(val, `${breadcrumbs}.${k}`, out, depth + 1);
+        }
+      };
+
+      const sample = data.map((p) => {
+        const nameFields: Record<string, unknown> = {};
+        for (const k of Object.keys(p)) {
+          if (/name|title|displayName|consumer|online/i.test(k)) nameFields[k] = p[k];
+        }
+        const depositFinds: Array<{ path: string; value: unknown }> = [];
+        findDeepDeposit(p, "$", depositFinds);
+        return {
+          id: p.id,
+          name: p.name,
+          allKeys: Object.keys(p),
+          nameFields,
+          depositFinds,
+          pricesPreview: Array.isArray(p.prices) ? (p.prices as unknown[]).slice(0, 3) : undefined,
+        };
+      });
+      // eslint-disable-next-line no-console
+      console.log("[bond-bff] products shape", JSON.stringify({ path, count: data.length, sample }, null, 2));
+    } catch {
+      /* ignore non-JSON */
+    }
+  }
+
   return new NextResponse(body, {
     status: res.status,
     headers: { "Content-Type": contentType },

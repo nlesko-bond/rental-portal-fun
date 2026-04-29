@@ -815,6 +815,28 @@ body {
   background: color-mix(in srgb, #f8fafc 92%, var(--cb-bg-slot));
 }
 
+/* Dark mode: light tints (#fff7ed, #f8fafc) on a dark base produce near-white surfaces; force dark tile bgs instead. */
+.consumer-booking.consumer-booking--dark .cb-slot-btn--standard {
+  background: var(--cb-bg-slot);
+}
+.consumer-booking.consumer-booking--dark .cb-slot-btn--peak {
+  background: color-mix(in srgb, #f59e0b 18%, var(--cb-bg-slot));
+}
+.consumer-booking.consumer-booking--dark .cb-slot-btn--offpeak {
+  background: color-mix(in srgb, var(--cb-primary) 25%, var(--cb-bg-slot));
+}
+@media (prefers-color-scheme: dark) {
+  .consumer-booking:not(.consumer-booking--light) .cb-slot-btn--standard {
+    background: var(--cb-bg-slot);
+  }
+  .consumer-booking:not(.consumer-booking--light) .cb-slot-btn--peak {
+    background: color-mix(in srgb, #f59e0b 18%, var(--cb-bg-slot));
+  }
+  .consumer-booking:not(.consumer-booking--light) .cb-slot-btn--offpeak {
+    background: color-mix(in srgb, var(--cb-primary) 25%, var(--cb-bg-slot));
+  }
+}
+
 .consumer-booking .cb-slot-btn-time {
   max-width: 100%;
   font-size: 0.88rem;
@@ -3268,7 +3290,7 @@ body {
   border-radius: 9999px;
   border: 1.5px solid var(--cb-primary);
   background: var(--cb-bg-surface);
-  color: var(--cb-primary);
+  color: var(--cb-text);
   font-weight: 800;
   font-size: 0.9rem;
   line-height: 1;
@@ -3378,6 +3400,822 @@ body {
   font-size: 0.78rem;
   color: var(--cb-text-muted);
   font-style: italic;
+}
+
+/* ── Addon panel v2 — card-rail layout (per-booking + per-time-slot) ── */
+
+.consumer-booking .cb-addon-panel-v2 {
+  margin-top: 1.5rem;
+  border-radius: 0.85rem;
+  border: 1px solid color-mix(in srgb, var(--cb-primary) 18%, var(--cb-border));
+  background: color-mix(in srgb, var(--cb-primary) 4%, var(--cb-bg-surface));
+  padding: 1rem 1.15rem 1.15rem;
+  animation: cb-addon-in 0.25s ease-out;
+}
+
+.consumer-booking .cb-addon-panel-v2-title {
+  margin: 0 0 0.5rem;
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: var(--cb-text);
+}
+
+.consumer-booking .cb-addon-section {
+  margin-top: 1rem;
+}
+
+.consumer-booking .cb-addon-section:first-of-type {
+  margin-top: 0.25rem;
+}
+
+.consumer-booking .cb-addon-section-title {
+  margin: 0 0 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--cb-text);
+}
+
+.consumer-booking .cb-addon-card-rail {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0.6rem;
+  overflow-x: auto;
+  padding: 0.25rem 0.1rem 0.6rem;
+  scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
+}
+
+.consumer-booking .cb-addon-card-v2 {
+  position: relative;
+  flex: 0 0 auto;
+  width: 13rem;
+  min-height: 4.6rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.25rem;
+  padding: 0.7rem 0.85rem;
+  border-radius: 0.65rem;
+  border: 1.5px solid var(--cb-border);
+  background: var(--cb-bg-surface);
+  text-align: center;
+  cursor: pointer;
+  scroll-snap-align: start;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.05s ease;
+}
+
+.consumer-booking .cb-addon-card-v2:hover {
+  border-color: color-mix(in srgb, var(--cb-primary) 45%, var(--cb-border));
+}
+
+.consumer-booking .cb-addon-card-v2:focus-visible {
+  outline: 2px solid var(--cb-primary);
+  outline-offset: 2px;
+}
+
+.consumer-booking .cb-addon-card-v2--selected {
+  border-color: var(--cb-primary);
+  border-width: 2px;
+  box-shadow: 0 1px 6px color-mix(in srgb, var(--cb-primary) 22%, transparent);
+}
+
+.consumer-booking .cb-addon-card-v2-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.consumer-booking .cb-addon-card-v2-title {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--cb-text);
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.consumer-booking .cb-addon-card-v2-price {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: var(--cb-success, #16a34a);
+}
+
+.consumer-booking .cb-addon-card-v2-stepper {
+  margin-top: 0.45rem;
+  display: flex;
+  justify-content: center;
+}
+
+.consumer-booking .cb-addon-card-v2-badge {
+  position: absolute;
+  top: -0.45rem;
+  right: -0.45rem;
+  min-width: 1.4rem;
+  height: 1.4rem;
+  padding: 0 0.35rem;
+  border-radius: 9999px;
+  background: var(--cb-accent, #f7b500);
+  color: #1a1a1a;
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1.4rem;
+  text-align: center;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+  pointer-events: none;
+}
+
+/* Slot panel that expands below the rail when a per-slot/per-hour addon is selected */
+.consumer-booking .cb-addon-slot-panel {
+  margin-top: 0.55rem;
+  border-radius: 0.6rem;
+  border: 1px solid color-mix(in srgb, var(--cb-primary) 25%, var(--cb-border));
+  background: color-mix(in srgb, var(--cb-primary) 3%, var(--cb-bg-surface));
+  padding: 0.65rem 0.75rem;
+}
+
+.consumer-booking .cb-addon-slot-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--cb-primary) 18%, var(--cb-border));
+}
+
+.consumer-booking .cb-addon-slot-panel-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--cb-text);
+  cursor: pointer;
+}
+
+.consumer-booking .cb-addon-slot-panel-toggle input {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--cb-primary);
+}
+
+.consumer-booking .cb-addon-slot-panel-list {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.consumer-booking .cb-addon-slot-panel-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.45rem 0.55rem;
+  border-radius: 0.5rem;
+  border: 1.5px solid var(--cb-border);
+  background: var(--cb-bg-surface);
+}
+
+.consumer-booking .cb-addon-slot-panel-row--on {
+  border-color: var(--cb-primary);
+  background: color-mix(in srgb, var(--cb-primary) 6%, var(--cb-bg-surface));
+}
+
+.consumer-booking .cb-addon-slot-panel-row-check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.consumer-booking .cb-addon-slot-panel-row-check input {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--cb-primary);
+  flex-shrink: 0;
+}
+
+.consumer-booking .cb-addon-slot-panel-row-time {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--cb-text);
+  flex-shrink: 0;
+}
+
+.consumer-booking .cb-addon-slot-panel-row-resource {
+  font-size: 0.75rem;
+  color: var(--cb-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.consumer-booking .cb-addon-qty--sm .cb-addon-qty-btn {
+  width: 1.25rem;
+  height: 1.25rem;
+  font-size: 0.78rem;
+}
+
+.consumer-booking .cb-addon-qty--sm .cb-addon-qty-val {
+  min-width: 1.1rem;
+  font-size: 0.8rem;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Cart drawer redesign (Figma: cart states 1.1 / 1.2 / 1.3 / 1.4).
+   Class prefix: `.cb-co-` (consumer cart "checkout"). Owns hero, per-item cards,
+   totals box, info banners, action stack, and the Pay-Custom-Amount modal body.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.consumer-booking .cb-co-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  padding-bottom: 1rem;
+}
+
+.consumer-booking .cb-co-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.4rem;
+  padding-top: 0.5rem;
+}
+
+.consumer-booking .cb-co-hero-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 9999px;
+  background: var(--cb-accent, #f7b500);
+  color: #1a1a1a;
+}
+
+.consumer-booking .cb-co-hero-title {
+  margin: 0.35rem 0 0;
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--cb-primary);
+}
+
+.consumer-booking .cb-co-hero-sub {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--cb-text-muted);
+}
+
+.consumer-booking .cb-co-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.consumer-booking .cb-co-section-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--cb-text);
+}
+
+.consumer-booking .cb-co-divider {
+  width: 100%;
+  height: 1px;
+  background: var(--cb-border);
+}
+
+.consumer-booking .cb-co-card-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+/* Single per-item card. */
+.consumer-booking .cb-co-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.75rem;
+  border-radius: 0.75rem;
+  border: 1px solid var(--cb-border);
+  background: var(--cb-bg-surface);
+}
+
+.consumer-booking .cb-co-card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  justify-content: space-between;
+}
+
+.consumer-booking .cb-co-card-title {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--cb-text);
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  flex: 1;
+  min-width: 0;
+}
+
+.consumer-booking .cb-co-card-remove {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 9999px;
+  border: none;
+  background: transparent;
+  color: var(--cb-text-muted);
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.consumer-booking .cb-co-card-remove:hover {
+  background: color-mix(in srgb, var(--cb-error-text, #e02020) 14%, transparent);
+  color: var(--cb-error-text, #e02020);
+}
+
+.consumer-booking .cb-co-card-meta {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.consumer-booking .cb-co-card-meta-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  font-size: 0.75rem;
+  color: var(--cb-text-muted);
+  line-height: 1.4;
+  min-width: 0;
+}
+
+.consumer-booking .cb-co-card-meta-icon {
+  flex-shrink: 0;
+  display: inline-flex;
+  margin-top: 0.05rem;
+  color: var(--cb-primary);
+}
+
+.consumer-booking .cb-co-card-meta-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.consumer-booking .cb-co-card-badge-price-row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-height: 1.25rem;
+}
+
+.consumer-booking .cb-co-card-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.consumer-booking .cb-co-card-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 9999px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.consumer-booking .cb-co-card-badge--approval {
+  background: #fbe4e4;
+  color: #9b1c1c;
+}
+
+.consumer-booking .cb-co-card-badge--deposit {
+  background: #edf4fc;
+  color: var(--cb-primary);
+}
+
+.consumer-booking .cb-co-card-badge--promo {
+  background: #e9e9fb;
+  color: #1a1d6d;
+}
+
+.consumer-booking .cb-co-card-badge-icon {
+  display: inline-flex;
+  align-items: center;
+}
+
+.consumer-booking .cb-co-card-base-price {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--cb-text);
+  white-space: nowrap;
+}
+
+.consumer-booking .cb-co-card-base-price-strike {
+  font-weight: 500;
+  color: var(--cb-text-muted);
+  text-decoration: line-through;
+  text-decoration-thickness: from-font;
+}
+
+.consumer-booking .cb-co-card-base-price-current {
+  font-weight: 600;
+  color: var(--cb-text);
+}
+
+.consumer-booking .cb-co-card-divider {
+  height: 1px;
+  background: var(--cb-border);
+  margin: 0.1rem 0;
+}
+
+.consumer-booking .cb-co-card-extras-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.75rem;
+  color: var(--cb-text-muted);
+}
+
+.consumer-booking .cb-co-card-extras-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--cb-primary);
+}
+
+.consumer-booking .cb-co-card-extras-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.consumer-booking .cb-co-card-extras-amount {
+  flex-shrink: 0;
+  font-weight: 600;
+  color: var(--cb-text);
+  font-size: 0.875rem;
+}
+
+.consumer-booking .cb-co-card-total {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.consumer-booking .cb-co-card-total-label {
+  font-size: 0.75rem;
+  color: var(--cb-text-muted);
+}
+
+.consumer-booking .cb-co-card-total-value {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--cb-text);
+}
+
+/* Totals summary box (Figma `cart-summary`). */
+.consumer-booking .cb-co-totals-box {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--cb-border);
+  background: color-mix(in srgb, var(--cb-primary) 4%, var(--cb-bg-surface));
+}
+
+.consumer-booking .cb-co-totals-box + .cb-co-totals-box {
+  margin-top: 0.6rem;
+}
+
+.consumer-booking .cb-co-totals-box-label {
+  margin: 0 0 0.1rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--cb-text-muted);
+}
+
+/**
+ * Approval-themed totals box — same orange palette as the legacy `cb-co-banner--approval`,
+ * driving the "Approval items" sub-box on mixed carts and the entire box for the request-only
+ * state.
+ */
+.consumer-booking .cb-co-totals-box--approval {
+  background: #feede2;
+  border-color: color-mix(in srgb, #9a4a17 18%, transparent);
+}
+
+.consumer-booking .cb-co-totals-box--approval .cb-co-totals-box-label,
+.consumer-booking .cb-co-totals-box--approval .cb-co-totals-row,
+.consumer-booking .cb-co-totals-box--approval .cb-co-totals-row-label,
+.consumer-booking .cb-co-totals-box--approval .cb-co-totals-row--grand strong {
+  color: #9a4a17;
+}
+
+/**
+ * In-box explanatory note (replaces the standalone `cb-co-banner--*` blocks).
+ * Pulled out of the totals body with a top divider and a tinted background so the note still
+ * reads as part of the same card. The `--info` variant uses the same blue palette as the prior
+ * standalone deposit banner; `--approval` keeps the orange family.
+ */
+/**
+ * Hanging-icon layout: icon is absolutely positioned in the top-left, the text block has
+ * `padding-left` only big enough for the icon's first line. After the first line, text wraps
+ * back to the box's left padding (no flex indent). This stops the "narrow column with weird
+ * indentation" look where lines 2/3 hugged the right of the icon.
+ */
+.consumer-booking .cb-co-totals-box-note {
+  position: relative;
+  margin: 0.55rem -0.75rem -0.75rem;
+  padding: 0.55rem 0.75rem 0.6rem;
+  border-top: 1px solid color-mix(in srgb, var(--cb-text) 8%, transparent);
+  border-bottom-left-radius: 0.5rem;
+  border-bottom-right-radius: 0.5rem;
+  font-size: 0.78rem;
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--cb-text-muted);
+  text-wrap: pretty;
+}
+
+.consumer-booking .cb-co-totals-box-note-text {
+  display: block;
+  padding-left: 1.35rem;
+  text-indent: 0;
+}
+
+.consumer-booking .cb-co-totals-box-note-icon {
+  position: absolute;
+  top: 0.65rem;
+  left: 0.75rem;
+  width: 0.95rem;
+  height: 0.95rem;
+  color: currentColor;
+}
+
+.consumer-booking .cb-co-totals-box-note--info {
+  background: #e6f0fb;
+  color: var(--cb-primary);
+  font-weight: 500;
+  border-top-color: color-mix(in srgb, var(--cb-primary) 22%, transparent);
+}
+
+.consumer-booking .cb-co-totals-box--approval .cb-co-totals-box-note {
+  background: color-mix(in srgb, #9a4a17 10%, #feede2);
+  border-top-color: color-mix(in srgb, #9a4a17 22%, transparent);
+  color: #9a4a17;
+  font-weight: 500;
+}
+
+.consumer-booking .cb-co-totals-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  color: var(--cb-text);
+}
+
+.consumer-booking .cb-co-totals-row-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.75rem;
+  color: var(--cb-text);
+}
+
+.consumer-booking .cb-co-totals-row--grand {
+  margin-top: 0.1rem;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.consumer-booking .cb-co-totals-row--grand strong {
+  font-weight: 700;
+}
+
+/* Info / approval banners (Figma `indication / message / banner`). */
+.consumer-booking .cb-co-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.consumer-booking .cb-co-banner--approval {
+  background: #feede2;
+  color: #9a4a17;
+}
+
+.consumer-booking .cb-co-banner--info {
+  background: #edf4fc;
+  color: var(--cb-primary);
+}
+
+.consumer-booking .cb-co-banner-icon {
+  flex-shrink: 0;
+  display: inline-flex;
+}
+
+.consumer-booking .cb-co-banner p {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Footer action stack (Figma cart states 1.1–1.4). */
+.consumer-booking .cb-co-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  margin-top: 0.5rem;
+}
+
+.consumer-booking .cb-co-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  min-height: 3rem;
+  padding: 0.6rem 1rem;
+  border-radius: 0.75rem;
+  border: 1px solid transparent;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+}
+
+.consumer-booking .cb-co-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.consumer-booking .cb-co-btn--primary {
+  background: var(--cb-primary);
+  color: var(--cb-text-on-primary, #fff);
+  border-color: var(--cb-primary);
+}
+
+.consumer-booking .cb-co-btn--primary:hover:not(:disabled) {
+  opacity: 0.92;
+}
+
+.consumer-booking .cb-co-btn--success {
+  background: var(--cb-success, #24c875);
+  color: #1a1a1a;
+  border-color: var(--cb-success, #24c875);
+}
+
+.consumer-booking .cb-co-btn--success:hover:not(:disabled) {
+  opacity: 0.92;
+}
+
+.consumer-booking .cb-co-btn--outline {
+  background: var(--cb-bg-surface);
+  color: var(--cb-primary);
+  border-color: var(--cb-primary);
+}
+
+.consumer-booking .cb-co-btn--outline:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--cb-primary) 8%, var(--cb-bg-surface));
+}
+
+/* Pay Custom Amount modal body. */
+.consumer-booking .cb-co-custom-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  padding: 0.5rem 0.25rem;
+}
+
+.consumer-booking .cb-co-custom-modal-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--cb-text);
+}
+
+.consumer-booking .cb-co-custom-modal-input {
+  width: 100%;
+  height: 2.75rem;
+  padding: 0 0.85rem;
+  border-radius: 0.6rem;
+  border: 1.5px solid var(--cb-border);
+  background: var(--cb-bg-surface);
+  color: var(--cb-text);
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.consumer-booking .cb-co-custom-modal-input:focus-visible {
+  outline: 2px solid var(--cb-primary);
+  outline-offset: 1px;
+  border-color: var(--cb-primary);
+}
+
+.consumer-booking .cb-co-custom-modal-error {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--cb-error-text, #e02020);
+}
+
+.consumer-booking .cb-co-custom-modal-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  padding-top: 0.25rem;
+}
+
+/* Empty cart state — shown when the user removes the last item from the bag drawer. */
+.consumer-booking .cb-bag-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.65rem;
+  padding: 2.5rem 1.25rem 1.5rem;
+}
+
+.consumer-booking .cb-bag-empty-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 4rem;
+  height: 4rem;
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--cb-primary) 10%, var(--cb-bg-surface));
+  color: var(--cb-primary);
+  margin-bottom: 0.4rem;
+}
+
+.consumer-booking .cb-bag-empty-title {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: var(--cb-text);
+}
+
+.consumer-booking .cb-bag-empty-subtitle {
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
+  color: var(--cb-text-muted);
+  line-height: 1.4;
+  max-width: 18rem;
+}
+
+.consumer-booking .cb-bag-empty-cta {
+  min-width: 12rem;
+  margin-top: 0.5rem;
 }
 
 /* No-slots empty state */
@@ -3740,23 +4578,21 @@ body {
   }
 }
 
+/* Drawer panel width — Stripe/Shopify-style side cart, fixed at ~384px (24rem) on every screen
+   wide enough to accommodate it. Below 24rem viewport width, the panel collapses to fill the
+   viewport so the cart is still usable on narrow phones. We do NOT scale by `vw` — that produced
+   the prior "huge sheet on 640px" complaint. */
 .consumer-booking .cb-drawer-panel {
   position: relative;
   z-index: 2;
   display: flex;
   flex-direction: column;
-  width: min(100%, 28rem);
-  max-width: 100%;
+  width: min(100vw, 24rem);
+  max-width: 24rem;
   height: 100%;
   background: var(--cb-bg-surface);
   box-shadow: -8px 0 32px color-mix(in srgb, var(--cb-primary) 12%, transparent);
   animation: cb-drawer-slide 0.28s ease;
-}
-
-@media (min-width: 640px) {
-  .consumer-booking .cb-drawer-panel {
-    width: min(40vw, 28rem);
-  }
 }
 
 @keyframes cb-drawer-slide {
@@ -4270,7 +5106,7 @@ body {
 }
 
 .consumer-booking .cb-checkout-drawer--wide {
-  max-width: min(100vw - 1rem, 28rem);
+  max-width: min(100vw - 1rem, 24rem);
 }
 
 .consumer-booking .cb-checkout-progress {
@@ -4709,22 +5545,31 @@ body {
   line-height: 1.45;
 }
 
+/* Hanging-icon layout, same pattern as `.cb-co-totals-box-note`. */
 .consumer-booking .cb-checkout-presummary-tax-panel {
-  display: flex;
-  align-items: center;
-  gap: 0.55rem;
-  margin: 0.75rem 0 0.55rem;
-  padding: 0.75rem 0.9rem;
-  border-radius: 0.7rem;
+  position: relative;
+  margin: 0.7rem 0 0.55rem;
+  padding: 0.6rem 0.85rem 0.65rem;
+  border-radius: 0.6rem;
   background: #E7F1FF;
   color: #0B3B8C;
-  font-size: 0.85rem;
-  line-height: 1.35;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  text-wrap: pretty;
 }
 
 .consumer-booking .cb-checkout-presummary-tax-icon {
-  flex-shrink: 0;
+  position: absolute;
+  top: 0.65rem;
+  left: 0.85rem;
+  width: 0.95rem;
+  height: 0.95rem;
   color: #1E5FD6;
+}
+
+.consumer-booking .cb-checkout-presummary-tax-text {
+  display: block;
+  padding-left: 1.4rem;
 }
 
 .consumer-booking .cb-checkout-post-create {
@@ -5252,17 +6097,21 @@ body {
   font-size: 0.9rem;
 }
 
+/* Sticky drawer footer — extend the actions row past the drawer-body's padding-bottom so the
+   buttons sit flush with the drawer floor (no orphaned whitespace below them). Negative
+   margin-bottom equals the parent `cb-drawer-body` padding-bottom (1.5rem) and the side
+   margins reach the panel edge for a true full-width footer. */
 .consumer-booking .cb-checkout-actions {
   position: sticky;
-  bottom: 0;
+  bottom: -1.5rem;
   background: var(--cb-bg, #fff);
   z-index: 1;
-  margin-top: 1.25rem;
-  padding-top: 0.75rem;
-  padding-bottom: 0.5rem;
+  margin: 1.25rem -1.25rem -1.5rem;
+  padding: 0.75rem 1.25rem max(0.65rem, env(safe-area-inset-bottom));
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
+  border-top: 1px solid color-mix(in srgb, var(--cb-text) 7%, transparent);
 }
 
 .consumer-booking .cb-checkout-actions--split-equal {
@@ -5277,6 +6126,24 @@ body {
   flex: 1 1 0;
   min-width: 0;
   justify-content: center;
+  white-space: nowrap;
+}
+
+/* On narrow viewports, hide the cart icon so "Add to cart" stays on one line and "Back" doesn't wrap. */
+@media (max-width: 480px) {
+  .consumer-booking .cb-checkout-actions--split-equal > .cb-btn-add-to-cart {
+    padding-left: 0.7rem;
+    padding-right: 0.7rem;
+    font-size: 0.9rem;
+  }
+  .consumer-booking .cb-checkout-actions--split-equal > .cb-btn-add-to-cart .cb-btn-add-to-cart-icon {
+    display: none;
+  }
+  .consumer-booking .cb-checkout-actions--split-equal > .cb-btn-outline {
+    padding-left: 0.7rem;
+    padding-right: 0.7rem;
+    font-size: 0.9rem;
+  }
 }
 
 .consumer-booking .cb-checkout-back-chevron {
@@ -5557,6 +6424,37 @@ body {
   min-width: 0;
 }
 
+/* Higher-contrast meta rows (resource + date|time inside booking-summary slot card).
+   Use start-aligned items + normal whitespace so the full date/time string wraps onto
+   another line when the drawer is narrow, instead of being truncated with an ellipsis. */
+.consumer-booking .cb-checkout-review-meta-rows--strong .cb-checkout-review-meta-row {
+  align-items: flex-start;
+  color: var(--cb-text);
+  font-weight: 500;
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.consumer-booking .cb-checkout-review-meta-rows--strong .cb-checkout-review-meta-icon {
+  color: var(--cb-primary);
+  margin-top: 0.1rem;
+}
+
+.consumer-booking .cb-checkout-review-meta-rows--strong .cb-checkout-review-meta-line {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  word-break: normal;
+  overflow-wrap: anywhere;
+}
+
+/* Bumped reservation-addon unit subtitle so "$X | reservation × 1" is readable in dark mode. */
+.consumer-booking .cb-checkout-review-card-unit--strong {
+  color: var(--cb-text);
+  font-weight: 600;
+  margin-top: 0.1rem;
+}
+
 .consumer-booking .cb-checkout-review-meta-row > span:not(.cb-checkout-review-meta-icon):not(.cb-checkout-review-meta-price) {
   overflow: hidden;
   white-space: nowrap;
@@ -5681,6 +6579,89 @@ body {
   text-align: right;
   font-weight: 700;
   font-size: 0.85rem;
+}
+
+/* Per-slot inline addon rows in the booking summary card (image 3): name | green price | -N+ */
+.consumer-booking .cb-checkout-review-addon-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.consumer-booking .cb-checkout-review-addon-pill {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: 0.55rem;
+  border: 1.5px solid var(--cb-border);
+  background: var(--cb-bg-surface);
+  min-width: 0;
+}
+
+.consumer-booking .cb-checkout-review-addon-pill-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--cb-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.consumer-booking .cb-checkout-review-addon-pill-price {
+  flex-shrink: 0;
+  font-size: 0.85rem;
+  font-weight: 800;
+  color: var(--cb-success, #16a34a);
+}
+
+.consumer-booking .cb-checkout-review-addon-pill-qty {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.consumer-booking .cb-checkout-review-addon-pill-qty-btn {
+  width: 1.5rem;
+  height: 1.5rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  border: 1.5px solid var(--cb-primary);
+  background: var(--cb-bg-surface);
+  color: var(--cb-text);
+  font-weight: 800;
+  font-size: 0.95rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.consumer-booking .cb-checkout-review-addon-pill-qty-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.consumer-booking .cb-checkout-review-addon-pill-qty-btn:not(:disabled):hover {
+  background: color-mix(in srgb, var(--cb-primary) 10%, transparent);
+}
+
+.consumer-booking .cb-checkout-review-addon-pill-qty-val {
+  min-width: 1.4rem;
+  text-align: center;
+  font-weight: 800;
+  font-size: 0.9rem;
+  color: var(--cb-text);
+}
+
+.consumer-booking .cb-checkout-review-addon-pill-qty-static {
+  flex-shrink: 0;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--cb-text-muted);
 }
 
 .consumer-booking .cb-checkout-presummary-totals--review-box {
@@ -5903,9 +6884,9 @@ body {
   width: 100%;
   box-sizing: border-box;
   margin: 0;
-  padding: 0.9rem 1rem;
-  border: 1px solid var(--cb-border);
-  border-radius: 0.75rem;
+  padding: 0.95rem 1rem;
+  border: 1.5px solid var(--cb-border);
+  border-radius: 0.85rem;
   background: var(--cb-bg-surface);
   cursor: pointer;
   text-align: left;
@@ -5913,8 +6894,7 @@ body {
   color: inherit;
   transition:
     border-color 0.15s ease,
-    box-shadow 0.15s ease,
-    background-color 0.15s ease;
+    box-shadow 0.15s ease;
 }
 
 .consumer-booking .cb-membership-card:hover {
@@ -5923,8 +6903,8 @@ body {
 
 .consumer-booking .cb-membership-card--selected {
   border-color: var(--cb-primary);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--cb-primary) 35%, transparent);
-  background: color-mix(in srgb, var(--cb-primary) 6%, var(--cb-bg-surface));
+  border-width: 2px;
+  box-shadow: 0 1px 8px color-mix(in srgb, var(--cb-primary) 18%, transparent);
 }
 
 .consumer-booking .cb-membership-card-head {
@@ -5935,83 +6915,160 @@ body {
   gap: 0.75rem;
 }
 
-.consumer-booking .cb-membership-card-title {
+.consumer-booking .cb-membership-card-head-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
   flex: 1;
   min-width: 0;
+}
+
+.consumer-booking .cb-membership-card-title {
   font-weight: 700;
   font-size: 1rem;
   color: var(--cb-text);
-  line-height: 1.35;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.consumer-booking .cb-membership-card-subtype {
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--cb-text-muted);
 }
 
 .consumer-booking .cb-membership-card-price {
   flex-shrink: 0;
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: var(--cb-text-muted);
+  font-size: 0.85rem;
   white-space: nowrap;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0;
+}
+
+.consumer-booking .cb-membership-card-price-amount {
+  font-weight: 800;
+  font-size: 1rem;
+  color: var(--cb-success, #16a34a);
 }
 
 .consumer-booking .cb-membership-card-freq {
   font-weight: 500;
-  margin-left: 0.25rem;
+  font-size: 0.78rem;
+  color: var(--cb-text-muted);
+}
+
+/* Pill on UNSELECTED cards that have nested requirements (orange/warning style). */
+.consumer-booking .cb-membership-card-additional-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.55rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.4rem;
+  background: color-mix(in srgb, #f59e0b 18%, var(--cb-bg-surface));
+  color: color-mix(in srgb, #b45309 80%, var(--cb-text));
+  font-size: 0.72rem;
+  font-weight: 600;
 }
 
 .consumer-booking .cb-membership-card-requires {
-  margin-top: 0.65rem;
-  padding: 0.65rem 0.75rem;
-  border-radius: 0.5rem;
-  background: color-mix(in srgb, var(--cb-primary) 8%, var(--cb-bg-surface));
-  border: 1px solid color-mix(in srgb, var(--cb-primary) 22%, var(--cb-border));
+  margin-top: 0.7rem;
+  padding: 0.7rem 0.8rem;
+  border-radius: 0.6rem;
+  background: color-mix(in srgb, #f59e0b 10%, var(--cb-bg-surface));
+  border: 1px solid color-mix(in srgb, #f59e0b 25%, var(--cb-border));
 }
 
-.consumer-booking .cb-membership-card-requires-label {
-  margin: 0 0 0.4rem;
-  font-size: 0.7rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--cb-primary);
+.consumer-booking .cb-membership-card-requires-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.55rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: color-mix(in srgb, #b45309 80%, var(--cb-text));
 }
 
 .consumer-booking .cb-membership-card-requires-list {
   list-style: none;
   margin: 0;
   padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
 }
 
 .consumer-booking .cb-membership-card-requires-row {
   display: flex;
   justify-content: space-between;
+  align-items: flex-start;
   gap: 0.75rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: 0.45rem;
+  background: var(--cb-bg-surface);
+  border: 1px solid var(--cb-border);
   font-size: 0.85rem;
   color: var(--cb-text);
 }
 
-.consumer-booking .cb-membership-card-requires-row span:first-child {
+.consumer-booking .cb-membership-card-requires-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+  flex: 1;
   min-width: 0;
+}
+
+.consumer-booking .cb-membership-card-requires-row-name {
   font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.consumer-booking .cb-membership-card-requires-row-subtype {
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--cb-text-muted);
 }
 
 .consumer-booking .cb-membership-card-requires-amt {
   flex-shrink: 0;
-  font-weight: 600;
   white-space: nowrap;
+  display: inline-flex;
+  align-items: baseline;
+  font-size: 0.85rem;
+}
+
+.consumer-booking .cb-membership-card-already-owned {
+  font-weight: 500;
+  font-size: 0.75rem;
+  color: var(--cb-text-muted);
 }
 
 .consumer-booking .cb-membership-card-total {
-  margin-top: 0.65rem;
-  padding-top: 0.65rem;
-  border-top: 1px solid var(--cb-border);
+  margin-top: 0.7rem;
+  padding-top: 0.55rem;
+  border-top: 1px solid color-mix(in srgb, var(--cb-primary) 15%, var(--cb-border));
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  font-size: 0.9rem;
+  font-size: 0.95rem;
+}
+
+.consumer-booking .cb-membership-card-total > span:first-child {
+  font-weight: 700;
+  color: var(--cb-text);
 }
 
 .consumer-booking .cb-membership-card-total strong {
-  font-size: 1rem;
-  font-weight: 700;
+  font-size: 1.05rem;
+  font-weight: 800;
   color: var(--cb-text);
 }
 

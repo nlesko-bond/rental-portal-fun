@@ -642,14 +642,25 @@ export function expandSnapshotForPurchaseList(
       if (fromItem == null) return;
       const it = o as Record<string, unknown>;
       const kind = classifyCartItemLineKind(it);
-      /** Merged carts hold items from different products — prefer each item's own Bond name so line 1 doesn't inherit line 2's product. */
+      /**
+       * For rental (`booking`) lines Bond's `cart_item.name` is auto-generated as
+       * `"{firstName} Reservation"` — that's a back-office artifact, not a customer-facing
+       * label. Prefer the consumer-facing product name (the one we pulled from the products
+       * endpoint when the user picked the product) for those rows. For non-booking rows
+       * (add-ons, memberships, commerce) the cart-item name is what the back office set up
+       * for the consumer, so use that.
+       */
       const bondTitle = titleFromCartItem(it);
+      const productName = productNameFromCartItem(it);
       const title =
-        bondTitle !== "Item"
-          ? bondTitle
-          : kind === "booking" && typeof row.productName === "string" && row.productName.trim().length > 0
-            ? row.productName.trim()
-            : bondTitle;
+        kind === "booking"
+          ? productName ??
+            (typeof row.productName === "string" && row.productName.trim().length > 0
+              ? row.productName.trim()
+              : bondTitle)
+          : bondTitle !== "Item"
+            ? bondTitle
+            : (productName ?? bondTitle);
       const segIdx = segByFlat.get(i) ?? 0;
       const lineSchedSeg = lineScheduleSummaryForSegment(row, kind, segIdx);
       const meta = buildLineMeta({
@@ -750,6 +761,29 @@ export function titleFromCartItem(o: Record<string, unknown>): string {
     if (typeof pr.name === "string" && pr.name.length > 0) return pr.name;
   }
   return "Item";
+}
+
+/**
+ * Returns the product-table `name` for the cart item, preferring known Bond field names that
+ * carry the consumer-facing product name (set up in the back office for online listing) over
+ * generic per-item fields. Returns `null` if no product name is present on the item.
+ */
+export function productNameFromCartItem(o: Record<string, unknown>): string | null {
+  const p = o.product;
+  if (!p || typeof p !== "object") return null;
+  const pr = p as Record<string, unknown>;
+  for (const key of [
+    "consumerName",
+    "onlineName",
+    "publicName",
+    "displayName",
+    "name",
+    "title",
+  ]) {
+    const v = pr[key];
+    if (typeof v === "string" && v.trim().length > 0) return v.trim();
+  }
+  return null;
 }
 
 /** Line items for FAB / labels (Bond `cartItems`, optional `displayLines`, or one row per cart). */
