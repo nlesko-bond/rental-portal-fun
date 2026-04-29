@@ -199,14 +199,46 @@ export type PublicQuestionnaireDto = {
 
 export type PublicCheckoutQuestionnaireDto = PublicQuestionnaireDto & Record<string, unknown>;
 
-/** `POST .../online-booking/create` → 201 */
+/** Cart-level purchase intent — `"order"` = approval-required, `"purchase"` = immediate pay. */
+export type CartPurchaseTypeEnum = "order" | "purchase";
+
+/** Cart lifecycle state from Bond `CartStateEnum`. After `finalize` the state moves to `invoiced`. */
+export type CartStateEnum = "active" | "canceled" | "cleared" | "invoiced";
+
+/** Cart validity from Bond `CartStatusEnum`. */
+export type CartStatusEnum = "valid" | "invalid" | "unknown" | "processing";
+
+/**
+ * `POST .../online-booking/create` → 201, also returned by `GET .../cart/{cartId}`.
+ *
+ * Field reference (from hosted Bond Swagger `OrganizationCartDto`):
+ * - `price` — total cart price (includes approval items).
+ * - `minimumPrice` — purchasable items only (excludes `purchaseType: "order"` items). Drives "Pay full".
+ * - `downpayment` — whole-cart deposit (lowercase per spec).
+ * - `minimumDownpayment` — purchasable items only deposit. Drives "Pay minimum".
+ * - `subtotal` / `discountSubtotal` / `taxAmount` / `discountAmount` — pre/post-discount/tax totals.
+ * - `purchaseType` — `"order" | "purchase"`. Mixed carts have approval (`order`) **and** pay-now (`purchase`) items.
+ *
+ * The `total` / `tax` / legacy `downPayment` fields are kept as optional fallbacks for older payloads.
+ */
 export type OrganizationCartDto = {
   id: number;
   organizationId: number;
   price?: number;
-  status?: string;
+  /** Purchasable items only (excludes approval/order items). Use for "Pay full" amount on finalize. */
+  minimumPrice?: number;
+  status?: CartStatusEnum | string;
+  state?: CartStateEnum | string;
   currency?: string;
   subtotal?: number;
+  discountSubtotal?: number;
+  /** Whole-cart deposit (Bond spelling — lowercase `p`). */
+  downpayment?: number;
+  /** Purchasable items only deposit. Use for "Pay minimum" amount on finalize. */
+  minimumDownpayment?: number;
+  /** Cart-level intent: `"order"` = all items require approval, `"purchase"` = immediate pay. */
+  purchaseType?: CartPurchaseTypeEnum | string;
+  tippableAmount?: number;
   /** When Bond returns tax breakdown (names vary; see `checkout-bag-totals`). */
   tax?: number;
   taxAmount?: number;

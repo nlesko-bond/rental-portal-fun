@@ -43,6 +43,14 @@ export type SessionCartSnapshot = {
    * category setting — approval badges and dual CTAs then follow the product, not the cart row.
    */
   approvalByProductId?: Record<number, boolean>;
+  /**
+   * Per-product online name (the consumer-facing product name the user clicked on the picker).
+   * Bond's `cartItem.product.name` echoes the back-office name; the cart UI must show the same
+   * label the user just saw on the schedule, so we store the picker name keyed by `productId`
+   * and look it up when rendering booking lines. Falls back to Bond's `product.name` when no
+   * mapping is present (e.g. legacy session rows from before this field existed).
+   */
+  productNameByProductId?: Record<number, string>;
   /** At add-to-cart time: GET …/required had no unpaid membership for this product (member rate for this rental). */
   participantHasQualifyingMembership?: boolean;
   /** Slot keys (`slotControlKey`) already committed with this cart row — hide from re-selection on the schedule. */
@@ -175,6 +183,17 @@ function normalizeRow(x: unknown, rowIndex: number): SessionCartSnapshot | null 
       }
       if (Object.keys(acc).length > 0) approvalByProductId = acc;
     }
+    let productNameByProductId: Record<number, string> | undefined;
+    if (o.productNameByProductId && typeof o.productNameByProductId === "object") {
+      const acc: Record<number, string> = {};
+      for (const [k, v] of Object.entries(o.productNameByProductId as Record<string, unknown>)) {
+        const id = /^\d+$/.test(k) ? Number(k) : NaN;
+        if (Number.isFinite(id) && id > 0 && typeof v === "string" && v.trim().length > 0) {
+          acc[id] = v.trim();
+        }
+      }
+      if (Object.keys(acc).length > 0) productNameByProductId = acc;
+    }
     const participantHasQualifyingMembership =
       o.participantHasQualifyingMembership === true ? true : undefined;
     const scheduleSummary =
@@ -187,6 +206,7 @@ function normalizeRow(x: unknown, rowIndex: number): SessionCartSnapshot | null 
       ...(bookingForLabel != null ? { bookingForLabel } : {}),
       ...(approvalRequired === true ? { approvalRequired: true } : {}),
       ...(approvalByProductId != null ? { approvalByProductId } : {}),
+      ...(productNameByProductId != null ? { productNameByProductId } : {}),
       ...(participantHasQualifyingMembership === true ? { participantHasQualifyingMembership: true } : {}),
       ...(reservedSlotKeys != null ? { reservedSlotKeys } : {}),
       ...(displayLines != null ? { displayLines } : {}),

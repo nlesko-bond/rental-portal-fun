@@ -163,9 +163,20 @@ function useBondEnv(searchParamsKey: string): BondEnv {
   }, [searchParamsKey]);
 }
 
+/**
+ * Currency formatter for cart/summary line items.
+ * Drops the `.00` when the amount is a whole number so common rental prices read as `$100`
+ * instead of `$100.00`. Prices with cents (e.g. taxes, $9.99 add-ons) keep the two decimals.
+ */
 function formatPrice(amount: number, currency: string): string {
+  const isWhole = Number.isFinite(amount) && Math.abs(amount - Math.round(amount)) < 0.005;
   try {
-    return new Intl.NumberFormat(undefined, { style: "currency", currency }).format(amount);
+    return new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency,
+      minimumFractionDigits: isWhole ? 0 : 2,
+      maximumFractionDigits: 2,
+    }).format(amount);
   } catch {
     return `${amount} ${currency}`;
   }
@@ -277,8 +288,15 @@ export function BookingExperience() {
       });
     }
   }, []);
+  /**
+   * `qty = 0` means "user removed this slot's add-on". We **keep** the 0 entry in the inner map
+   * so downstream filters (e.g. `syntheticBookingReviewModel`) can distinguish "explicit zero"
+   * from "no entry yet" — the latter falls back to the default qty of 1 for newly-selected
+   * add-ons. Without this, dropping a slot to 0 silently re-defaulted it back to 1 on the next
+   * render and the line refused to disappear from the booking summary.
+   */
   const setAddonSlotQty = useCallback((addonId: number, slotKey: string, qty: number) => {
-    const clamped = Math.max(1, Math.min(ADDON_MAX_QTY, Math.floor(qty)));
+    const clamped = Math.max(0, Math.min(ADDON_MAX_QTY, Math.floor(qty)));
     setAddonSlotQuantities((prev) => {
       const next = new Map(prev);
       const inner = new Map(next.get(addonId) ?? []);
@@ -2203,6 +2221,8 @@ export function BookingExperience() {
           selectedAddonIds={selectedAddonIds}
           addonQuantities={addonQuantities}
           onSetAddonQty={setAddonQty}
+          addonSlotQuantities={addonSlotQuantities}
+          onSetAddonSlotQty={setAddonSlotQty}
           questionnaireIds={productQuestionnaireIds}
           onSubmittingChange={setCheckoutBusy}
           mode={checkoutDrawerMode}
@@ -2234,10 +2254,8 @@ export function BookingExperience() {
                 try { await closeCart(env.orgId, cid); } catch { /* ignore */ }
                 setSessionCartRows((prev) => {
                   const next = prev.filter((_, i) => i !== index);
-                  if (next.length === 0) {
-                    setCheckoutDrawerOpen(false);
-                    clearSlotSelection();
-                  }
+                  /** Keep the drawer open when the bag empties so the user sees the empty state instead of a sudden close. */
+                  if (next.length === 0) clearSlotSelection();
                   return next;
                 });
                 return;
@@ -2276,10 +2294,8 @@ export function BookingExperience() {
                 await closeCart(env.orgId, cid);
                 setSessionCartRows((prev) => {
                   const next = prev.filter((_, i) => i !== index);
-                  if (next.length === 0) {
-                    setCheckoutDrawerOpen(false);
-                    clearSlotSelection();
-                  }
+                  /** Keep the drawer open when the bag empties so the user sees the empty state instead of a sudden close. */
+                  if (next.length === 0) clearSlotSelection();
                   return next;
                 });
                 return;

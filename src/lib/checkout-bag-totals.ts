@@ -471,17 +471,228 @@ function cartItemProductId(it: Record<string, unknown>): number | null {
   return pid != null && Number.isFinite(pid) && pid > 0 ? pid : null;
 }
 
+/** Round to 2 decimal places (matches the rest of the cart math). */
+function roundCents(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+function finiteNonNegative(n: unknown): number | null {
+  if (typeof n !== "number" || !Number.isFinite(n) || n < 0) return null;
+  return n;
+}
+
+/**
+ * Per-item approval classification.
+ *
+ * Bond's `OrganizationCartItemDto` carries `metadata.purchaseType: "order" | "purchase"` —
+ * `"order"` means the item is gated on facility approval and won't be charged unless approved.
+ * Older payloads omit it; we fall back to the snapshot's `approvalByProductId` map (set at
+ * add-to-cart time from the category's `requireApproval` flag).
+ *
+ * The historical `cartHasApprovalSplit = (minimumPrice < price)` heuristic was wrong — that
+ * comparison is also true for any deposit-required cart, so deposit-only categories were being
+ * shown as "approval split", which surfaced a bogus orange "Approval items" totals box.
+ */
+function isApprovalCartItem(
+  it: Record<string, unknown>,
+  approvalByProductId: Record<number, boolean> | undefined,
+): boolean {
+  const meta =
+    it.metadata && typeof it.metadata === "object"
+      ? (it.metadata as Record<string, unknown>)
+      : null;
+  const pt = meta?.purchaseType ?? it.purchaseType;
+  if (pt === "order") return true;
+  if (pt === "purchase") return false;
+  const pid = cartItemProductId(it);
+  if (pid != null && approvalByProductId?.[pid] === true) return true;
+  return false;
+}
+
+type ApprovalSplitInfo = {
+  /** True when at least one cart item is classified as approval. */
+  hasApprovalItems: boolean;
+  /** True when the cart is **mixed** — at least one approval AND at least one purchasable item. */
+  hasMixedSplit: boolean;
+  /** Sum of approval-classified line amounts (best-effort; null when no approval items). */
+  approvalAmount: number | null;
+  /** Sum of purchasable (non-approval) line amounts (best-effort; null when no purchasable items). */
+  purchasableAmount: number | null;
+};
+
+/** Walk all cart items once and split them into approval vs purchasable buckets. */
+function classifyCartApproval(
+  cart: OrganizationCartDto,
+  approvalByProductId?: Record<number, boolean>,
+): ApprovalSplitInfo {
+  const items = cart.cartItems;
+  if (!Array.isArray(items) || items.length === 0) {
+    return { hasApprovalItems: false, hasMixedSplit: false, approvalAmount: null, purchasableAmount: null };
+  }
+  const flat = flattenBondCartItemNodes(items);
+  let approvalAmount = 0;
+  let purchasableAmount = 0;
+  let approvalCount = 0;
+  let purchasableCount = 0;
+  for (const it of flat) {
+    const amt = getCartItemLineAmount(it) ?? 0;
+    if (isApprovalCartItem(it, approvalByProductId)) {
+      approvalAmount += amt;
+      approvalCount += 1;
+    } else {
+      purchasableAmount += amt;
+      purchasableCount += 1;
+    }
+  }
+  return {
+    hasApprovalItems: approvalCount > 0,
+    hasMixedSplit: approvalCount > 0 && purchasableCount > 0,
+    approvalAmount: approvalCount > 0 ? roundCents(approvalAmount) : null,
+    purchasableAmount: purchasableCount > 0 ? roundCents(purchasableAmount) : null,
+  };
+}
+
+/**
+ * "Pay full" amount — what the user is actually charged when paying in full from the bag.
+ *
+ * For a non-mixed cart we return Bond's whole-cart `price` (full payable). For a **mixed** cart
+ * (some items require approval, some don't) we return `cart.price - approvalAmount` so the user
+ * is not asked to pay for items still pending facility approval (this preserves proportional
+ * tax / fees that Bond rolled into `cart.price`).
+ *
+ * When `cart.price` isn't on the payload (older / pending shapes), returns `null` so callers
+ * like `bondCartPayableTotalForFinalize` can fall back to a line-walk sum that explicitly adds
+ * cart-level tax / discount / fee.
+ *
+ * Note: Bond's `minimumPrice` / `minimumDownpayment` are the *minimum chargeable amount*
+ * (i.e. the deposit), not "purchasable items minus approval items". Using `minimumPrice` for
+ * "Pay full" caused the "Pay deposit" amount to show up where "Pay full" belonged.
+ */
+export function cartChargeableTotal(
+  cart: OrganizationCartDto,
+  approvalByProductId?: Record<number, boolean>,
+): number | null {
+  const split = classifyCartApproval(cart, approvalByProductId);
+  if (split.hasApprovalItems && split.purchasableAmount == null) {
+    return null;
+  }
+  const total = finiteNonNegative(cart.price);
+  if (split.hasMixedSplit) {
+    if (total == null || total <= BOND_KIND_LINE_MIN || split.approvalAmount == null) {
+      return null;
+    }
+    const remaining = total - split.approvalAmount;
+    if (remaining <= BOND_KIND_LINE_MIN) return null;
+    return roundCents(remaining);
+  }
+  if (total == null || total <= BOND_KIND_LINE_MIN) return null;
+  return roundCents(total);
+}
+
+/**
+ * "Pay minimum due" amount — the **smallest `amountToPay` Bond will accept** on
+ * `POST .../finalize`.
+ *
+ * Bond's contract (verified by the live `CART.INVALID_PAYMENT_AMOUNT` rejection on cart 296785):
+ *   - `cart.price`         → full cart total (used for "Pay full")
+ *   - `cart.minimumPrice`  → minimum amount Bond will accept on finalize (used for "Pay min")
+ *   - `cart.downpayment`   → informational accounting field (deposit total)
+ *   - `cart.minimumDownpayment` → informational accounting field; NOT the value to send
+ *
+ * Sending `minimumDownpayment` got us a 400 even when it equaled what the UI displayed. Bond
+ * gates finalize on `minimumPrice`, so that's the value the cart "Pay min" button must use both
+ * for display and for the request body.
+ *
+ * Two signals must agree before we expose a minimum payment option:
+ *   1. **The product is configured for a deposit** (`cart.downpayment` or per-item
+ *      `product.downpayment` on a booking line) — guards against carts where Bond's
+ *      `minimumPrice` is just the add-on subtotal with no real deposit.
+ *   2. **`minimumPrice` is genuinely lower than `price`** — otherwise "Pay min" and "Pay full"
+ *      would land on the same number and the button is redundant.
+ *
+ * Returns `null` when either signal is missing.
+ */
+export function cartChargeableMinimum(cart: OrganizationCartDto): number | null {
+  if (!productHasDownpayment(cart)) return null;
+  const price = finiteNonNegative(cart.price);
+  const minPrice = finiteNonNegative(cart.minimumPrice);
+  if (minPrice == null || minPrice <= BOND_KIND_LINE_MIN) return null;
+  if (price != null && price <= minPrice + BOND_KIND_LINE_MIN) return null;
+  return roundCents(minPrice);
+}
+
+/**
+ * True when at least one booking item in the cart has a non-zero deposit configured (either at
+ * the cart level via `cart.downpayment` or on the per-item product). Add-on / membership lines
+ * are excluded — only the rental booking opts a cart into the deposit flow.
+ */
+function productHasDownpayment(cart: OrganizationCartDto): boolean {
+  const o = cart as Record<string, unknown>;
+  const cartLevel =
+    finiteNonNegative(cart.downpayment) ??
+    finiteNonNegative((o as { downPayment?: unknown }).downPayment);
+  if (cartLevel != null && cartLevel > BOND_KIND_LINE_MIN) return true;
+
+  const items = cart.cartItems;
+  if (!Array.isArray(items) || items.length === 0) return false;
+  const flat = flattenBondCartItemNodes(items);
+  for (const raw of flat) {
+    if (!raw || typeof raw !== "object") continue;
+    const it = raw as Record<string, unknown>;
+    if (classifyCartItemLineKind(it) !== "booking") continue;
+    const prod = (it.product as Record<string, unknown> | undefined) ?? null;
+    const dp =
+      finiteNonNegative(prod?.downpayment) ??
+      finiteNonNegative(prod?.downPayment) ??
+      finiteNonNegative(it.downpayment) ??
+      finiteNonNegative(it.downPayment);
+    if (dp != null && dp > BOND_KIND_LINE_MIN) return true;
+  }
+  return false;
+}
+
+/**
+ * Dollar amount of approval-required items in the cart. Drives the "Approval items" subtotal
+ * box on the mixed (deposit + approval) cart state. Returns `null` when the cart has no
+ * approval items.
+ */
+export function cartApprovalSubtotal(
+  cart: OrganizationCartDto,
+  approvalByProductId?: Record<number, boolean>,
+): number | null {
+  return classifyCartApproval(cart, approvalByProductId).approvalAmount;
+}
+
+/**
+ * True when the cart has **both** approval-required AND purchasable items. Use to switch the bag
+ * rendering into the split / mixed state (state 1.3 in the cart designs).
+ *
+ * Pure-approval carts (`bagPolicy === "all_submission"`) and pure-purchasable carts return false.
+ */
+export function cartHasApprovalSplit(
+  cart: OrganizationCartDto,
+  approvalByProductId?: Record<number, boolean>,
+): boolean {
+  return classifyCartApproval(cart, approvalByProductId).hasMixedSplit;
+}
+
 /**
  * Dollar amount to send as `amountToPay` on `POST …/cart/{id}/finalize`.
  * Uses **Bond cart fields only** (including cart-level fees), not client-estimated card-processing fees.
  *
- * When `approvalByProductId` is supplied (mixed cart), only sums lines whose product is **not**
- * approval-required — approval items are submitted as a request and invoiced separately.
+ * Routes through `cartChargeableTotal` (which now does per-item approval classification) so mixed
+ * carts pay only the purchasable subset and pure deposit carts pay the full price.
+ *
+ * **Defensive fallback:** when the cart has no items / no payload data, keeps the historical
+ * `approvalByProductId` line-walk path so in-flight carts don't regress.
  */
 export function bondCartPayableTotalForFinalize(
   cart: OrganizationCartDto,
   approvalByProductId?: Record<number, boolean>
 ): number | null {
+  const fromSpec = cartChargeableTotal(cart, approvalByProductId);
+  if (fromSpec != null) return fromSpec;
+
   const hasApprovalFilter =
     approvalByProductId != null && Object.values(approvalByProductId).some(Boolean);
 

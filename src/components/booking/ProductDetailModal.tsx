@@ -28,8 +28,14 @@ import {
 import { describeEntitlementsForDisplay } from "@/lib/entitlement-discount";
 
 function formatPrice(amount: number, currency: string): string {
+  const isWhole = Number.isFinite(amount) && Math.abs(amount - Math.round(amount)) < 0.005;
   try {
-    return new Intl.NumberFormat(undefined, { style: "currency", currency }).format(amount);
+    return new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency,
+      minimumFractionDigits: isWhole ? 0 : 2,
+      maximumFractionDigits: 2,
+    }).format(amount);
   } catch {
     return `${amount} ${currency}`;
   }

@@ -119,7 +119,7 @@ function WaiverBlock({
       ) : null}
       <span className="cb-checkout-field-label">
         {label}
-        {mandatory ? <span className="cb-q-req"> *</span> : null}
+        {mandatory ? <span className="cb-q-req">{"\u00A0*"}</span> : null}
       </span>
       {safeHtml ? (
         <div className="cb-q-waiver-scroll-wrap">
@@ -145,7 +145,7 @@ function WaiverBlock({
         />
         <span className="text-sm leading-snug text-[var(--cb-text)]">
           {tc("waiverAgree")}
-          {mandatory ? <span className="cb-q-req"> *</span> : null}
+          {mandatory ? <span className="cb-q-req">{"\u00A0*"}</span> : null}
         </span>
       </label>
     </div>
@@ -191,7 +191,7 @@ export function CheckoutQuestionField({
       <fieldset className="cb-checkout-field">
         <legend className="cb-checkout-field-label">
           {q.label}
-          {required ? <span className="cb-q-req"> *</span> : null}
+          {required ? <span className="cb-q-req">{"\u00A0*"}</span> : null}
         </legend>
         <div className="flex flex-col gap-2">
           <label className="flex cursor-pointer items-center gap-2">
@@ -227,7 +227,7 @@ export function CheckoutQuestionField({
           <div className="cb-q-field-main">
             <label className="cb-checkout-field-label flex items-baseline gap-1" htmlFor={id}>
               {q.label}
-              {required ? <span className="cb-q-req"> *</span> : null}
+              {required ? <span className="cb-q-req">{"\u00A0*"}</span> : null}
             </label>
             <input
               id={id}
@@ -256,7 +256,7 @@ export function CheckoutQuestionField({
           <div className="cb-q-field-main">
             <label className="cb-checkout-field-label flex items-baseline gap-1" htmlFor={id}>
               {q.label}
-              {required ? <span className="cb-q-req"> *</span> : null}
+              {required ? <span className="cb-q-req">{"\u00A0*"}</span> : null}
             </label>
             <input
               id={id}
@@ -285,7 +285,7 @@ export function CheckoutQuestionField({
           <div className="cb-q-field-main">
             <label className="cb-checkout-field-label flex items-baseline gap-1" htmlFor={id}>
               {q.label}
-              {required ? <span className="cb-q-req"> *</span> : null}
+              {required ? <span className="cb-q-req">{"\u00A0*"}</span> : null}
             </label>
             <input
               id={id}
@@ -314,7 +314,7 @@ export function CheckoutQuestionField({
           <div className="cb-q-field-main">
             <label className="cb-checkout-field-label flex items-baseline gap-1" htmlFor={id}>
               {q.label}
-              {required ? <span className="cb-q-req"> *</span> : null}
+              {required ? <span className="cb-q-req">{"\u00A0*"}</span> : null}
             </label>
             <input
               id={id}
@@ -340,7 +340,7 @@ export function CheckoutQuestionField({
       <label className="cb-checkout-field" htmlFor={id}>
         <span className="cb-checkout-field-label">
           {q.label}
-          {required ? <span className="cb-q-req"> *</span> : null}
+          {required ? <span className="cb-q-req">{"\u00A0*"}</span> : null}
         </span>
         {min != null && max != null ? (
           <p className="cb-q-helper mb-1 text-xs text-[var(--cb-text-muted)]">
@@ -371,7 +371,7 @@ export function CheckoutQuestionField({
         <div className="cb-checkout-field">
           <label className="cb-checkout-field-label" htmlFor={id}>
             {q.label}
-            {required ? <span className="cb-q-req"> *</span> : null}
+            {required ? <span className="cb-q-req">{"\u00A0*"}</span> : null}
           </label>
           <select
             id={id}
@@ -395,7 +395,7 @@ export function CheckoutQuestionField({
       <fieldset className="cb-checkout-field">
         <legend className="cb-checkout-field-label">
           {q.label}
-          {required ? <span className="cb-q-req"> *</span> : null}
+          {required ? <span className="cb-q-req">{"\u00A0*"}</span> : null}
         </legend>
         <div className="cb-q-radio-list flex flex-col gap-2">
           {q.options.map((o) => (
@@ -429,7 +429,7 @@ export function CheckoutQuestionField({
       <fieldset className="cb-checkout-field">
         <legend className="cb-checkout-field-label mb-1">
           {q.label}
-          {required ? <span className="cb-q-req"> *</span> : null}
+          {required ? <span className="cb-q-req">{"\u00A0*"}</span> : null}
         </legend>
         <p className="cb-q-helper mb-2 text-xs text-[var(--cb-text-muted)]">{tc("pickAllThatApply")}</p>
         <div className="flex flex-col gap-2">
@@ -461,7 +461,7 @@ export function CheckoutQuestionField({
       <div className="cb-checkout-field">
         <span className="cb-checkout-field-label">
           {q.label}
-          {required ? <span className="cb-q-req"> *</span> : null}
+          {required ? <span className="cb-q-req">{"\u00A0*"}</span> : null}
         </span>
         <label className="cb-q-file-drop mt-1 flex cursor-pointer flex-col items-center gap-2 rounded-lg border border-dashed border-[var(--cb-border)] bg-[var(--cb-bg-field)] px-4 py-6">
           <span className="text-2xl" aria-hidden>
@@ -492,7 +492,7 @@ export function CheckoutQuestionField({
     <label className="cb-checkout-field" htmlFor={id}>
       <span className="cb-checkout-field-label">
         {q.label}
-        {required ? <span className="cb-q-req"> *</span> : null}
+        {required ? <span className="cb-q-req">{"\u00A0*"}</span> : null}
       </span>
       <input
         id={id}

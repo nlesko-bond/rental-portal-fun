@@ -28,35 +28,43 @@ type Props = {
   onToggleAddonSlot: (addonId: number, slotKey: string, allSlotKeys: string[]) => void;
   pickedSlots: PickedSlot[];
   formatPrice: (amount: number, currency: string) => string;
+  /** Hide the panel-level heading; subsection headings still render. Used by the checkout step. */
   omitPanelHeading?: boolean;
 };
 
 const ADDON_MAX_QTY = 50;
+const ADDON_MIN_QTY = 0;
+const DEFAULT_SLOT_QTY = 1;
+const DEFAULT_RESERVATION_QTY = 1;
 
-function QtyStepperInline({
-  qty,
-  addonId,
-  addonName,
-  slotKey,
-  onSet,
-}: {
+function clampQty(n: number): number {
+  if (!Number.isFinite(n)) return ADDON_MIN_QTY;
+  return Math.min(ADDON_MAX_QTY, Math.max(ADDON_MIN_QTY, Math.round(n)));
+}
+
+type StepperProps = {
   qty: number;
-  addonId: number;
-  addonName: string;
-  slotKey?: string;
-  onSet: ((id: number, qty: number) => void) | ((id: number, key: string, qty: number) => void);
-}) {
-  const fire = (next: number) => {
-    if (slotKey !== undefined) (onSet as (id: number, key: string, qty: number) => void)(addonId, slotKey, next);
-    else (onSet as (id: number, qty: number) => void)(addonId, next);
+  onChange: (next: number) => void;
+  ariaLabel: string;
+  size?: "sm" | "md";
+  /** Stop click propagation so steppers inside clickable cards don't toggle selection. */
+  stopPropagation?: boolean;
+};
+
+function QtyStepper({ qty, onChange, ariaLabel, size = "md", stopPropagation }: StepperProps) {
+  const handler = (next: number) => (e: React.MouseEvent) => {
+    if (stopPropagation) e.stopPropagation();
+    onChange(clampQty(next));
   };
+  const cls = size === "sm" ? "cb-addon-qty cb-addon-qty--sm" : "cb-addon-qty";
   return (
-    <span className="cb-addon-qty" role="group" aria-label={`Quantity for ${addonName}`}>
+    <span className={cls} role="group" aria-label={ariaLabel}>
       <button
         type="button"
         className="cb-addon-qty-btn"
         aria-label="Decrease"
-        onClick={(e) => { e.stopPropagation(); fire(qty - 1); }}
+        disabled={qty <= ADDON_MIN_QTY}
+        onClick={handler(qty - 1)}
       >
         −
       </button>
@@ -66,7 +74,7 @@ function QtyStepperInline({
         className="cb-addon-qty-btn"
         aria-label="Increase"
         disabled={qty >= ADDON_MAX_QTY}
-        onClick={(e) => { e.stopPropagation(); fire(qty + 1); }}
+        onClick={handler(qty + 1)}
       >
         +
       </button>
@@ -74,140 +82,235 @@ function QtyStepperInline({
   );
 }
 
-function ReservationAddonRow({
-  addon,
-  selected,
-  qty,
-  onToggle,
-  onSetQty,
-  formatPrice,
-}: {
+type ReservationCardProps = {
   addon: PackageAddonLine;
   selected: boolean;
   qty: number;
   onToggle: () => void;
   onSetQty?: (id: number, qty: number) => void;
   formatPrice: (amount: number, currency: string) => string;
-}) {
+  qtyAria: string;
+};
+
+function ReservationAddonCard({
+  addon,
+  selected,
+  qty,
+  onToggle,
+  onSetQty,
+  formatPrice,
+  qtyAria,
+}: ReservationCardProps) {
   const resolved = resolveAddonDisplayPrice(addon);
+  const priceLabel = resolved
+    ? `${formatPrice(resolved.price, resolved.currency)}${addonPriceSuffixForLevel(addon.level)}`
+    : null;
+
   return (
-    <div className={`cb-addon-row ${selected ? "cb-addon-row--selected" : ""}`}>
-      <label className="cb-addon-row-label">
-        <input
-          type="checkbox"
-          className="cb-addon-row-checkbox"
-          checked={selected}
-          onChange={onToggle}
-          aria-label={addon.name}
-        />
-        <span className="cb-addon-row-name">{addon.name}</span>
-      </label>
-      <span className="cb-addon-row-price">
-        {resolved
-          ? `+${formatPrice(resolved.price, resolved.currency)}${addonPriceSuffixForLevel(addon.level)}`
-          : null}
-      </span>
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onToggle}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onToggle();
+        }
+      }}
+      aria-pressed={selected}
+      className={`cb-addon-card-v2 ${selected ? "cb-addon-card-v2--selected" : ""}`}
+    >
+      <div className="cb-addon-card-v2-body">
+        <p className="cb-addon-card-v2-title" title={addon.name}>{addon.name}</p>
+        {priceLabel ? <p className="cb-addon-card-v2-price">${priceLabel.replace(/^\$/, "")}</p> : null}
+      </div>
       {selected && onSetQty ? (
-        <QtyStepperInline qty={qty} addonId={addon.id} addonName={addon.name} onSet={onSetQty} />
+        <div className="cb-addon-card-v2-stepper">
+          <QtyStepper
+            qty={qty}
+            onChange={(next) => onSetQty(addon.id, Math.max(1, next))}
+            ariaLabel={qtyAria}
+            stopPropagation
+          />
+        </div>
       ) : null}
     </div>
   );
 }
 
-function SlotAddonRow({
-  addon,
-  selected,
-  allSlotKeys,
-  slotKeySet,
-  pickedSlots,
-  targeting,
-  slotQuantities,
-  onToggle,
-  onToggleSlot,
-  onSelectAllSlots,
-  onSetSlotQty,
-  formatPrice,
-  ta,
-}: {
+type SlotCardProps = {
   addon: PackageAddonLine;
   selected: boolean;
-  allSlotKeys: string[];
   slotKeySet: Set<string>;
-  pickedSlots: PickedSlot[];
   targeting: AddonSlotTargeting;
   slotQuantities?: ReadonlyMap<string, number>;
   onToggle: () => void;
+  formatPrice: (amount: number, currency: string) => string;
+  copy: ReturnType<typeof useTranslations>;
+};
+
+function SlotAddonCard({
+  addon,
+  selected,
+  slotKeySet,
+  targeting,
+  slotQuantities,
+  onToggle,
+  formatPrice,
+  copy,
+}: SlotCardProps) {
+  const resolved = resolveAddonDisplayPrice(addon);
+  const priceLabel = resolved
+    ? `${formatPrice(resolved.price, resolved.currency)}${addonPriceSuffixForLevel(addon.level)}`
+    : null;
+
+  const spec = targeting[addon.id];
+  const eff = getEffectiveAddonSlotKeys(spec, slotKeySet);
+  const totalQty = (() => {
+    if (!selected) return 0;
+    let sum = 0;
+    for (const key of eff) {
+      const q = slotQuantities?.get(key) ?? DEFAULT_SLOT_QTY;
+      if (q > 0) sum += q;
+    }
+    return sum;
+  })();
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onToggle}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onToggle();
+        }
+      }}
+      aria-pressed={selected}
+      className={`cb-addon-card-v2 ${selected ? "cb-addon-card-v2--selected" : ""}`}
+    >
+      {selected && totalQty > 0 ? (
+        <span
+          className="cb-addon-card-v2-badge"
+          aria-label={copy("totalQtyAria", { count: totalQty, name: addon.name })}
+        >
+          {totalQty}
+        </span>
+      ) : null}
+      <div className="cb-addon-card-v2-body">
+        <p className="cb-addon-card-v2-title" title={addon.name}>{addon.name}</p>
+        {priceLabel ? <p className="cb-addon-card-v2-price">${priceLabel.replace(/^\$/, "")}</p> : null}
+      </div>
+    </div>
+  );
+}
+
+type SlotPanelProps = {
+  addon: PackageAddonLine;
+  pickedSlots: PickedSlot[];
+  allSlotKeys: string[];
+  slotKeySet: Set<string>;
+  targeting: AddonSlotTargeting;
+  slotQuantities?: ReadonlyMap<string, number>;
   onToggleSlot: (addonId: number, slotKey: string, allKeys: string[]) => void;
   onSelectAllSlots: (addonId: number, checked: boolean, allKeys: string[]) => void;
   onSetSlotQty?: (addonId: number, slotKey: string, qty: number) => void;
-  formatPrice: (amount: number, currency: string) => string;
-  ta: ReturnType<typeof useTranslations>;
-}) {
-  const resolved = resolveAddonDisplayPrice(addon);
+  copy: ReturnType<typeof useTranslations>;
+};
+
+function SlotPanel({
+  addon,
+  pickedSlots,
+  allSlotKeys,
+  slotKeySet,
+  targeting,
+  slotQuantities,
+  onToggleSlot,
+  onSelectAllSlots,
+  onSetSlotQty,
+  copy,
+}: SlotPanelProps) {
+  /** Intent-based: reflects whether the user explicitly enabled "Add to all", not derived from per-slot membership. */
+  const allOn = targeting[addon.id]?.all === true;
   const eff = getEffectiveAddonSlotKeys(targeting[addon.id], slotKeySet);
-  const allSelected =
-    eff != null && eff.size > 0 && pickedSlots.length > 0 && pickedSlots.every((p) => eff.has(p.key));
+
+  /** When "Add to all" is on, the bulk stepper is the single source of truth for qty. */
+  const bulkQty = (() => {
+    if (!allOn) return DEFAULT_SLOT_QTY;
+    let candidate = 0;
+    for (const p of pickedSlots) {
+      const q = slotQuantities?.get(p.key) ?? DEFAULT_SLOT_QTY;
+      if (q > candidate) candidate = q;
+    }
+    return Math.max(DEFAULT_SLOT_QTY, candidate);
+  })();
+
+  const setBulkQty = (next: number) => {
+    if (!onSetSlotQty) return;
+    const v = clampQty(next);
+    for (const p of pickedSlots) onSetSlotQty(addon.id, p.key, v);
+  };
+
+  /** Per-slot interaction while "Add to all" is on auto-converts to manual mode so bulk stops mirroring individual edits. */
+  const ensureManualMode = () => {
+    if (allOn) onSelectAllSlots(addon.id, false, allSlotKeys);
+  };
 
   return (
-    <div className="cb-addon-row-wrap">
-      <div className={`cb-addon-row ${selected ? "cb-addon-row--selected" : ""}`}>
-        <label className="cb-addon-row-label">
+    <div className="cb-addon-slot-panel" role="group" aria-label={copy("slotsForAddonAria", { name: addon.name })}>
+      <div className="cb-addon-slot-panel-head">
+        <label className="cb-addon-slot-panel-toggle">
           <input
             type="checkbox"
-            className="cb-addon-row-checkbox"
-            checked={selected}
-            onChange={onToggle}
-            aria-label={addon.name}
+            checked={allOn}
+            onChange={(e) => onSelectAllSlots(addon.id, e.target.checked, allSlotKeys)}
           />
-          <span className="cb-addon-row-name">{addon.name}</span>
+          <span>{copy("addToAllTimeSlots")}</span>
         </label>
-        <span className="cb-addon-row-price">
-          {resolved
-            ? `+${formatPrice(resolved.price, resolved.currency)}${addonPriceSuffixForLevel(addon.level)}`
-            : null}
-        </span>
+        {allOn && onSetSlotQty ? (
+          <QtyStepper
+            qty={bulkQty}
+            onChange={setBulkQty}
+            ariaLabel={copy("qtyForAria", { name: addon.name })}
+          />
+        ) : null}
       </div>
 
-      {selected && pickedSlots.length > 0 ? (
-        <div className="cb-addon-slot-rows" role="group" aria-label={ta("slotsForAddonAria", { name: addon.name })}>
-          <label className="cb-addon-slot-all-label">
-            <input
-              type="checkbox"
-              checked={allSelected}
-              onChange={(e) => onSelectAllSlots(addon.id, e.target.checked, allSlotKeys)}
-            />
-            <span>{ta("selectAllSlots")}</span>
-          </label>
-          {pickedSlots.map((p, idx) => {
-            const on = eff?.has(p.key) ?? false;
-            const slotQty = slotQuantities?.get(p.key) ?? 1;
-            return (
-              <div key={`${p.key}#${idx}`} className={`cb-addon-slot-row ${on ? "cb-addon-slot-row--on" : ""}`}>
-                <label className="cb-addon-slot-row-check">
-                  <input
-                    type="checkbox"
-                    checked={on}
-                    onChange={() => onToggleSlot(addon.id, p.key, allSlotKeys)}
-                  />
-                  <span className="cb-addon-slot-row-time">{formatPickedSlotTimeRange(p)}</span>
-                  <span className="cb-addon-slot-row-resource">{p.resourceName}</span>
-                </label>
-                {on && onSetSlotQty ? (
-                  <QtyStepperInline
-                    qty={slotQty}
-                    addonId={addon.id}
-                    addonName={`${addon.name} – ${formatPickedSlotTimeRange(p)}`}
-                    slotKey={p.key}
-                    onSet={onSetSlotQty}
-                  />
-                ) : null}
-              </div>
-            );
-          })}
-        </div>
-      ) : selected && pickedSlots.length === 0 ? (
-        <p className="cb-addon-slot-hint">{ta("selectSlotsFirst")}</p>
-      ) : null}
+      <ul className="cb-addon-slot-panel-list">
+        {pickedSlots.map((p, idx) => {
+          const on = eff.has(p.key);
+          const slotQty = slotQuantities?.get(p.key) ?? DEFAULT_SLOT_QTY;
+          const slotLabel = `${formatPickedSlotTimeRange(p)} ${p.resourceName}`.trim();
+          return (
+            <li
+              key={`${p.key}#${idx}`}
+              className={`cb-addon-slot-panel-row ${on ? "cb-addon-slot-panel-row--on" : ""}`}
+            >
+              <label className="cb-addon-slot-panel-row-check">
+                <input
+                  type="checkbox"
+                  checked={on}
+                  onChange={() => {
+                    ensureManualMode();
+                    onToggleSlot(addon.id, p.key, allSlotKeys);
+                  }}
+                />
+                <span className="cb-addon-slot-panel-row-time">{formatPickedSlotTimeRange(p)}</span>
+                <span className="cb-addon-slot-panel-row-resource">{p.resourceName}</span>
+              </label>
+              {on && onSetSlotQty && !allOn ? (
+                <QtyStepper
+                  qty={slotQty}
+                  onChange={(next) => onSetSlotQty(addon.id, p.key, next)}
+                  ariaLabel={copy("qtyForSlotAria", { name: addon.name, slot: slotLabel })}
+                  size="sm"
+                />
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }
@@ -235,31 +338,34 @@ export function BookingAddonPanel({
   const allSlotKeys = pickedSlots.map((s) => s.key);
   const slotKeySet = new Set(allSlotKeys);
 
-  const byLevel = {
-    reservation: visibleAddons.filter((a) => a.level === "reservation"),
-    slot: visibleAddons.filter((a) => a.level === "slot"),
-    hour: visibleAddons.filter((a) => a.level === "hour"),
-  };
+  const reservation = visibleAddons.filter((a) => a.level === "reservation");
+  const slot = visibleAddons.filter((a) => a.level === "slot");
+  const hour = visibleAddons.filter((a) => a.level === "hour");
 
-  const hasAny =
-    byLevel.reservation.length > 0 || byLevel.slot.length > 0 || byLevel.hour.length > 0;
-
+  const hasAny = reservation.length > 0 || slot.length > 0 || hour.length > 0;
   if (!hasAny) return null;
 
-  const renderGroup = (
-    label: string,
-    items: PackageAddonLine[],
-    isSlotLevel: boolean,
-  ) => (
-    <div className="cb-addon-group" key={label}>
-      <h4 className="cb-addon-group-title">{label}</h4>
-      <div className="cb-addon-list">
-        {items.map((a) => {
-          const sel = selectedAddonIds.has(a.id);
-          const qty = sel ? Math.max(1, addonQuantities?.get(a.id) ?? 1) : 1;
-          if (!isSlotLevel) {
+  /** Find the first selected addon in a list — its slot panel renders below the rail. */
+  const firstSelected = (items: PackageAddonLine[]): PackageAddonLine | null => {
+    for (const a of items) if (selectedAddonIds.has(a.id)) return a;
+    return null;
+  };
+
+  const renderReservationSection = () => {
+    if (reservation.length === 0) return null;
+    return (
+      <section className="cb-addon-section" aria-labelledby="addon-section-reservation">
+        <h4 id="addon-section-reservation" className="cb-addon-section-title">
+          {ta("extrasPerBooking", { count: reservation.length })}
+        </h4>
+        <div className="cb-addon-card-rail">
+          {reservation.map((a) => {
+            const sel = selectedAddonIds.has(a.id);
+            const qty = sel
+              ? Math.max(DEFAULT_RESERVATION_QTY, addonQuantities?.get(a.id) ?? DEFAULT_RESERVATION_QTY)
+              : DEFAULT_RESERVATION_QTY;
             return (
-              <ReservationAddonRow
+              <ReservationAddonCard
                 key={a.id}
                 addon={a}
                 selected={sel}
@@ -267,53 +373,80 @@ export function BookingAddonPanel({
                 onToggle={() => onToggleAddon(a)}
                 onSetQty={onSetAddonQty}
                 formatPrice={formatPrice}
+                qtyAria={ta("qtyForAria", { name: a.name })}
               />
             );
-          }
-          return (
-            <SlotAddonRow
-              key={a.id}
-              addon={a}
-              selected={sel}
-              allSlotKeys={allSlotKeys}
-              slotKeySet={slotKeySet}
-              pickedSlots={pickedSlots}
-              targeting={addonSlotTargeting}
-              slotQuantities={addonSlotQuantities?.get(a.id)}
-              onToggle={() => onToggleAddon(a)}
-              onToggleSlot={onToggleAddonSlot}
-              onSelectAllSlots={onAddonSelectAllSlots}
-              onSetSlotQty={onSetAddonSlotQty}
-              formatPrice={formatPrice}
-              ta={ta}
-            />
-          );
-        })}
-      </div>
-    </div>
-  );
+          })}
+        </div>
+      </section>
+    );
+  };
+
+  const renderSlotLikeSection = (
+    items: PackageAddonLine[],
+    titleKey: "extrasPerTimeSlot" | "extrasPerHour"
+  ) => {
+    if (items.length === 0) return null;
+    const sectionId = `addon-section-${titleKey}`;
+    const active = firstSelected(items);
+    return (
+      <section className="cb-addon-section" aria-labelledby={sectionId}>
+        <h4 id={sectionId} className="cb-addon-section-title">
+          {ta(titleKey, { count: items.length })}
+        </h4>
+        <div className="cb-addon-card-rail">
+          {items.map((a) => {
+            const sel = selectedAddonIds.has(a.id);
+            return (
+              <SlotAddonCard
+                key={a.id}
+                addon={a}
+                selected={sel}
+                slotKeySet={slotKeySet}
+                targeting={addonSlotTargeting}
+                slotQuantities={addonSlotQuantities?.get(a.id)}
+                onToggle={() => onToggleAddon(a)}
+                formatPrice={formatPrice}
+                copy={ta}
+              />
+            );
+          })}
+        </div>
+        {active && pickedSlots.length > 0 ? (
+          <SlotPanel
+            addon={active}
+            pickedSlots={pickedSlots}
+            allSlotKeys={allSlotKeys}
+            slotKeySet={slotKeySet}
+            targeting={addonSlotTargeting}
+            slotQuantities={addonSlotQuantities?.get(active.id)}
+            onToggleSlot={onToggleAddonSlot}
+            onSelectAllSlots={onAddonSelectAllSlots}
+            onSetSlotQty={onSetAddonSlotQty}
+            copy={ta}
+          />
+        ) : active && pickedSlots.length === 0 ? (
+          <p className="cb-addon-slot-hint">{ta("selectSlotsFirst")}</p>
+        ) : null}
+      </section>
+    );
+  };
 
   return (
     <section
-      className="cb-addon-panel text-left"
+      className="cb-addon-panel-v2 text-left"
       aria-label={omitPanelHeading ? ta("panelHeading") : undefined}
       {...(omitPanelHeading ? {} : { "aria-labelledby": "addons-heading" })}
     >
       {omitPanelHeading ? null : (
-        <h3 id="addons-heading" className="cb-addon-panel-title">
-          {ta("panelHeading")}
+        <h3 id="addons-heading" className="cb-addon-panel-v2-title">
+          {ta("panelHeadingWithCount", { count: visibleAddons.length })}
         </h3>
       )}
 
-      {byLevel.reservation.length > 0
-        ? renderGroup(ta("withReservation"), byLevel.reservation, false)
-        : null}
-      {byLevel.slot.length > 0
-        ? renderGroup(ta("perSlot"), byLevel.slot, true)
-        : null}
-      {byLevel.hour.length > 0
-        ? renderGroup(ta("perHour"), byLevel.hour, true)
-        : null}
+      {renderReservationSection()}
+      {renderSlotLikeSection(slot, "extrasPerTimeSlot")}
+      {renderSlotLikeSection(hour, "extrasPerHour")}
 
       {hasMoreAddons ? (
         <button type="button" className="cb-addon-more" onClick={onToggleExpand}>

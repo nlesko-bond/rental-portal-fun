@@ -76,11 +76,12 @@ import {
   aggregateBagSnapshotsByLabel,
   BOND_KIND_LINE_MIN,
   bondCartPayableTotalForFinalize,
-  cartItemLineAmountFromDto,
+  cartApprovalSubtotal,
+  cartChargeableMinimum,
+  cartChargeableTotal,
+  cartHasApprovalSplit,
   estimateAmountDue,
-  flattenBondCartItemNodes,
 } from "@/lib/checkout-bag-totals";
-import { classifyCartItemLineKind } from "@/lib/bond-cart-item-classify";
 import {
   describeEntitlementsForDisplay,
   reverseEntitlementDiscountsToUnitPrice,
@@ -95,6 +96,11 @@ import {
   type CartPurchaseDisplayLine,
 } from "@/lib/cart-purchase-lines";
 import type { BagRemovePolicy } from "@/lib/bond-cart-removal";
+import { CheckoutItemCard } from "@/components/booking/CheckoutItemCard";
+import {
+  checkoutCardsFromBag,
+  type CheckoutCardModel,
+} from "@/lib/checkout-card-model";
 
 function bagCartMetaRowsUl(
   bagMetaRows: NonNullable<CartPurchaseDisplayLine["bagMetaRows"]>,
@@ -277,6 +283,9 @@ type Props = {
   selectedAddonIds: ReadonlySet<number>;
   addonQuantities?: ReadonlyMap<number, number>;
   onSetAddonQty?: (addonId: number, qty: number) => void;
+  /** Per-slot qty for slot/hour-level add-ons; required for inline qty controls in the booking summary. */
+  addonSlotQuantities?: ReadonlyMap<number, ReadonlyMap<string, number>>;
+  onSetAddonSlotQty?: (addonId: number, slotKey: string, qty: number) => void;
   questionnaireIds: number[];
   onSuccess: (cart: OrganizationCartDto) => void;
   onSubmittingChange?: (pending: boolean) => void;
@@ -363,6 +372,24 @@ type Props = {
   onRemoveReservationAddon?: (addonId: number) => void;
 };
 
+/** Outlined info-circle for the totals-box callouts (deposit + approval notes). */
+function TotalsBoxNoteInfoIcon() {
+  return (
+    <svg
+      className="cb-co-totals-box-note-icon"
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden
+    >
+      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.7" />
+      <path d="M12 11v5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+      <circle cx="12" cy="8" r="1.1" fill="currentColor" />
+    </svg>
+  );
+}
+
 export function BookingCheckoutDrawer({
   open,
   onClose,
@@ -379,6 +406,8 @@ export function BookingCheckoutDrawer({
   selectedAddonIds,
   addonQuantities,
   onSetAddonQty,
+  addonSlotQuantities,
+  onSetAddonSlotQty,
   questionnaireIds,
   onSuccess,
   onSubmittingChange,
@@ -436,7 +465,10 @@ export function BookingCheckoutDrawer({
   /** After `finalizeCart` succeeds — show confirmation (invoice / reservation) before parent clears session. */
   const [finalizeSuccess, setFinalizeSuccess] = useState<FinalizeSuccessDisplay | null>(null);
   /** Which submit button triggered the in-flight mutation — "full" or "deposit". */
-  const [submitKind, setSubmitKind] = useState<"full" | "deposit" | null>(null);
+  const [submitKind, setSubmitKind] = useState<"full" | "deposit" | "custom" | null>(null);
+  /** Pay-custom-amount modal (cart drawer state 1.2/1.3 third option). Inputs in dollars. */
+  const [customAmountModalOpen, setCustomAmountModalOpen] = useState(false);
+  const [customAmountInput, setCustomAmountInput] = useState<string>("");
   /** `submit` = venue approval flow (no invoice row); `pay` = paid / standard finalize. */
   const [finalizeCheckoutKind, setFinalizeCheckoutKind] = useState<"pay" | "submit" | null>(null);
   const finalizeCheckoutKindRef = useRef<"pay" | "submit">("pay");
@@ -1399,40 +1431,37 @@ export function BookingCheckoutDrawer({
     return { kind: "multi" as const, text: unique.join(", ") };
   }, [bagSnapshots, bookingForLabel]);
 
+  /**
+   * "Pay minimum due" amount across the bag.
+   *
+   * **Single source of truth:** when the bag has any cart snapshot, we use ONLY the cart-level
+   * `minimumDownpayment` from Bond. Adding the product-level `downpayment` on top would
+   * double-count the deposit and trigger `CART.INVALID_PAYMENT_AMOUNT` on finalize (Bond knows
+   * the correct minimum — we just relay it). The product-level `downpayment` is only used as a
+   * pre-cart "draft" hint when no cart exists yet.
+   */
   const depositAmount = useMemo(() => {
     const readDp = (v: unknown): number | null => {
       if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) return null;
       return v;
     };
-    // Only show a "Pay minimum" option when at least one booking line carries a downPayment.
-    // When it does, the minimum charge = booking deposit(s) + full price of all memberships + addons.
-    const currentDp = readDp(product?.downPayment) ?? readDp(product?.downpayment);
-    let bookingDepositSum = currentDp ?? 0;
-    let hasDeposit = currentDp != null;
-    let payNowExtrasSum = 0;
-    for (const row of bagSnapshots) {
-      const flat = flattenBondCartItemNodes((row.cart?.cartItems ?? []) as unknown[]);
-      for (const it of flat) {
-        const prod = (it?.product as Record<string, unknown> | undefined) ?? undefined;
-        const pid = typeof prod?.id === "number" && (prod.id as number) > 0 ? (prod.id as number) : null;
-        if (pid != null && row.approvalByProductId?.[pid] === true) continue;
-        const kind = classifyCartItemLineKind(it);
-        if (kind === "membership" || kind === "addon") {
-          const lineAmt = cartItemLineAmountFromDto(it);
-          if (lineAmt != null && lineAmt > 0) payNowExtrasSum += lineAmt;
-        } else if (kind === "booking") {
-          const dp =
-            readDp(prod?.downPayment) ??
-            readDp(prod?.downpayment) ??
-            readDp(it.downPayment) ??
-            readDp(it.downpayment);
-          if (dp != null) { bookingDepositSum += dp; hasDeposit = true; }
-        }
+
+    if (bagSnapshots.length > 0) {
+      let total = 0;
+      let hasDeposit = false;
+      for (const row of bagSnapshots) {
+        if (!row.cart) continue;
+        const min = cartChargeableMinimum(row.cart);
+        if (min == null) continue;
+        total += min;
+        hasDeposit = true;
       }
+      if (!hasDeposit) return null;
+      return total > 0 ? total : null;
     }
-    if (!hasDeposit) return null;
-    const total = bookingDepositSum + payNowExtrasSum;
-    return total > 0 ? total : null;
+
+    const draftDp = readDp(product?.downpayment) ?? readDp(product?.downPayment);
+    return draftDp;
   }, [product, bagSnapshots]);
 
   const depositAmountRef = useRef<number | null>(null);
@@ -1511,23 +1540,24 @@ export function BookingCheckoutDrawer({
         if (!selectedAddonIds.has(a.id)) continue;
         const p = resolveAddonDisplayPrice(a);
         if (!p) continue;
-        const qty = Math.max(1, addonQuantities?.get(a.id) ?? 1);
         const addonCurrency =
           typeof p.currency === "string" && p.currency.length > 0 ? p.currency : currency;
         let amt = 0;
         if (a.level === "reservation") {
+          /** Reservation-level: single global qty. */
+          const qty = Math.max(1, addonQuantities?.get(a.id) ?? 1);
           amt = p.price * qty;
         } else {
+          /** Slot / hour-level: qty is per-slot in addonSlotQuantities; sum across effective slots. */
           const eff = getEffectiveAddonSlotKeys(addonSlotTargeting[a.id], slotKeySet);
-          const slotCount = eff.size > 0 ? eff.size : slotKeySet.size;
-          if (slotCount === 0) continue;
-          if (a.level === "slot") {
-            amt = p.price * slotCount * qty;
-          } else {
-            for (const s of pickedSlots) {
-              if (eff.size > 0 && !eff.has(s.key)) continue;
-              amt += p.price * (slotDurationMinutes(s) / 60) * qty;
-            }
+          const slotQtyMap = addonSlotQuantities?.get(a.id);
+          for (const s of pickedSlots) {
+            if (eff.size > 0 && !eff.has(s.key)) continue;
+            const slotQty = Math.max(0, slotQtyMap?.get(s.key) ?? 1);
+            if (slotQty <= 0) continue;
+            const perUnit =
+              a.level === "hour" ? p.price * (slotDurationMinutes(s) / 60) : p.price;
+            amt += perUnit * slotQty;
           }
         }
         if (amt > 0) {
@@ -1566,6 +1596,8 @@ export function BookingCheckoutDrawer({
     selectedMembershipNestedIds,
     packageAddons,
     selectedAddonIds,
+    addonQuantities,
+    addonSlotQuantities,
     addonSlotTargeting,
     slotKeySet,
     showMemberPricing,
@@ -1632,9 +1664,9 @@ export function BookingCheckoutDrawer({
   );
 
 
-  /** Pre-create booking summary: one card per slot (nested slot/hour extras) + standalone reservation extras & required lines. */
+  /** Pre-create booking summary: **one card per slot**, with that slot's addons inline (per-slot/per-hour qty editable). */
   const syntheticBookingReviewModel = useMemo(() => {
-    if (!presummaryOnlySynthetics || pickedSlots.length === 0) return null;
+    if (pickedSlots.length === 0) return null;
     const sorted = [...pickedSlots].sort((a, b) => {
       const d = a.startDate.localeCompare(b.startDate);
       if (d !== 0) return d;
@@ -1644,23 +1676,31 @@ export function BookingCheckoutDrawer({
     const includeReq = (id: number) =>
       requiredSelected.has(id) || selectedMembershipNestedIds?.has(id) === true;
 
-    type GroupedSlotItem = {
+    type SlotAddonRow = {
+      addonId: number;
+      name: string;
+      level: "slot" | "hour";
+      slotKey: string;
+      unitPrice: number;
+      perUnitAmount: number;
+      qty: number;
+      amount: number;
+    };
+    type SlotItem = {
       key: string;
       title: string;
-      slotKeys: string[];
+      slotKey: string;
       resourceLine: string;
       resourceIsInstructor: boolean;
-      calendarLines: string[];
+      calendarLine: string;
       unitSubtitle: string;
       amount: number;
       strikeAmount?: number;
       discountNote?: string;
-      nestedAddons: { addonId: number; name: string; amount: number; qty: number }[];
+      nestedAddons: SlotAddonRow[];
     };
 
-    const roundKey = (n: number) => Math.round(n * 10000) / 10000;
-    const slotGroups = new Map<string, PickedSlot[]>();
-    for (const slot of sorted) {
+    const slotItems: SlotItem[] = sorted.map((slot) => {
       const listUnit =
         typeof slot.scheduleUnitPrice === "number" &&
         Number.isFinite(slot.scheduleUnitPrice) &&
@@ -1668,100 +1708,67 @@ export function BookingCheckoutDrawer({
           ? slot.scheduleUnitPrice
           : slot.price;
       const dur = Math.max(1, Math.round(slotDurationMinutes(slot)));
-      const key = `${roundKey(listUnit)}|${dur}`;
-      const prev = slotGroups.get(key) ?? [];
-      prev.push(slot);
-      slotGroups.set(key, prev);
-    }
-
-    const slotItems: GroupedSlotItem[] = [...slotGroups.entries()].map(([gKey, gSlots]) => {
-      const first = gSlots[0]!;
-      const listUnit =
-        typeof first.scheduleUnitPrice === "number" &&
-        Number.isFinite(first.scheduleUnitPrice) &&
-        first.scheduleUnitPrice > 0
-          ? first.scheduleUnitPrice
-          : first.price;
-      const dur = Math.max(1, Math.round(slotDurationMinutes(first)));
-      const count = gSlots.length;
-      const totalAmount = gSlots.reduce((s, x) => s + x.price, 0);
-      const listTotalForStrike = (() => {
-        let sum = 0;
-        let anyStrike = false;
-        for (const slot of gSlots) {
-          const ls =
-            typeof slot.scheduleUnitPrice === "number" &&
-            Number.isFinite(slot.scheduleUnitPrice) &&
-            slot.scheduleUnitPrice > 0
-              ? slot.scheduleUnitPrice
-              : Array.isArray(entitlements) && entitlements.length > 0
-                ? reverseEntitlementDiscountsToUnitPrice(slot.price, entitlements)
-                : null;
-          if (ls != null && ls > slot.price + 0.005) anyStrike = true;
-          sum += ls != null ? ls : slot.price;
-        }
-        return anyStrike ? sum : undefined;
+      const slotAmount = slot.price;
+      const listForStrike = (() => {
+        const ls =
+          typeof slot.scheduleUnitPrice === "number" &&
+          Number.isFinite(slot.scheduleUnitPrice) &&
+          slot.scheduleUnitPrice > 0
+            ? slot.scheduleUnitPrice
+            : Array.isArray(entitlements) && entitlements.length > 0
+              ? reverseEntitlementDiscountsToUnitPrice(slot.price, entitlements)
+              : null;
+        if (ls != null && ls > slot.price + 0.005) return ls;
+        return undefined;
       })();
 
-      const uniqueResources = [...new Set(gSlots.map((s) => s.resourceName.trim()).filter(Boolean))];
-      const resourceLine = uniqueResources.length === 0 ? "—" : uniqueResources.join(", ");
-      const anyInstructor = gSlots.some((s) => Boolean(s.usesInstructorSegment));
+      const resourceLine = slot.resourceName.trim() || "—";
+      const longDate = formatPickedSlotLongDate(slot);
+      const timeRange = formatPickedSlotTimeRange(slot);
+      const calendarLine = `${longDate} · ${timeRange}`;
+      const unitSubtitle = `${formatPrice(listUnit, currency)} | ${formatDurationPriceBadge(dur)}`;
 
-      const byDate = new Map<string, PickedSlot[]>();
-      for (const s of gSlots) {
-        const arr = byDate.get(s.startDate) ?? [];
-        arr.push(s);
-        byDate.set(s.startDate, arr);
-      }
-      const calendarLines: string[] = [];
-      for (const date of [...byDate.keys()].sort()) {
-        const daySlots = byDate.get(date)!;
-        const longDate = formatPickedSlotLongDate(daySlots[0]!);
-        const times = daySlots.map((s) => formatPickedSlotTimeRange(s)).join(", ");
-        calendarLines.push(`${longDate} · ${times}`);
-      }
-
-      const unitSubtitle = `${formatPrice(listUnit, currency)} | per ${formatDurationPriceBadge(dur)} × ${count}`;
-
-      const nestedAddons: { addonId: number; name: string; amount: number; qty: number }[] = [];
+      const nestedAddons: SlotAddonRow[] = [];
       for (const a of packageAddons) {
         if (!selectedAddonIds.has(a.id)) continue;
         if (a.level === "reservation") continue;
         const p = resolveAddonDisplayPrice(a);
         if (!p) continue;
         const addonCur =
-          typeof p.currency === "string" && p.currency.length > 0 ? p.currency.toUpperCase() : currency.toUpperCase();
+          typeof p.currency === "string" && p.currency.length > 0
+            ? p.currency.toUpperCase()
+            : currency.toUpperCase();
         if (addonCur !== currency.toUpperCase()) continue;
-        const qty = Math.max(1, addonQuantities?.get(a.id) ?? 1);
         const eff = getEffectiveAddonSlotKeys(addonSlotTargeting[a.id], slotKeySet);
-        let amount = 0;
-        let any = false;
-        for (const slot of gSlots) {
-          if (a.level === "slot") {
-            const applies = eff.size > 0 ? eff.has(slot.key) : true;
-            if (!applies) continue;
-            amount += p.price * qty;
-            any = true;
-          } else if (a.level === "hour") {
-            if (eff.size > 0 && !eff.has(slot.key)) continue;
-            amount += p.price * (slotDurationMinutes(slot) / 60) * qty;
-            any = true;
-          }
-        }
-        if (any) nestedAddons.push({ addonId: a.id, name: a.name, amount, qty });
+        if (eff.size > 0 && !eff.has(slot.key)) continue;
+        const slotQtyMap = addonSlotQuantities?.get(a.id);
+        const qty = Math.max(0, slotQtyMap?.get(slot.key) ?? 1);
+        if (qty <= 0) continue;
+        const perUnitAmount =
+          a.level === "hour" ? p.price * (slotDurationMinutes(slot) / 60) : p.price;
+        nestedAddons.push({
+          addonId: a.id,
+          name: a.name,
+          level: a.level,
+          slotKey: slot.key,
+          unitPrice: p.price,
+          perUnitAmount,
+          qty,
+          amount: perUnitAmount * qty,
+        });
       }
 
       return {
-        key: `grp-${gKey}`,
+        key: `slot-${slot.key}`,
         title: productName,
-        slotKeys: gSlots.map((s) => s.key),
+        slotKey: slot.key,
         resourceLine,
-        resourceIsInstructor: anyInstructor,
-        calendarLines,
+        resourceIsInstructor: Boolean(slot.usesInstructorSegment),
+        calendarLine,
         unitSubtitle,
-        amount: totalAmount,
-        strikeAmount: listTotalForStrike,
-        discountNote: listTotalForStrike != null && entNote ? entNote : undefined,
+        amount: slotAmount,
+        strikeAmount: listForStrike,
+        discountNote: listForStrike != null && entNote ? entNote : undefined,
         nestedAddons,
       };
     });
@@ -1819,11 +1826,12 @@ export function BookingCheckoutDrawer({
 
     return { slotItems, reservationAddonItems, membershipItems, otherRequiredItems };
   }, [
-    presummaryOnlySynthetics,
     pickedSlots,
     entitlements,
     packageAddons,
     selectedAddonIds,
+    addonQuantities,
+    addonSlotQuantities,
     addonSlotTargeting,
     slotKeySet,
     currency,
@@ -2247,12 +2255,9 @@ export function BookingCheckoutDrawer({
   const renderPresummaryCard = (opts: {
     headingId: string;
     keyPrefix: string;
-    showFootnote: boolean;
     showReviewHint?: boolean;
-    /** Membership step: totals box only (mock). */
-    layout?: "default" | "compactTotals" | "bookingReview";
-    /** bookingReview layout: clicking the pencil on a slot card closes the drawer, back to portal. */
-    onEditSlots?: () => void;
+    /** `compactTotals` = membership step (totals box only). `bookingReview` = syncCart step (per-slot cards). */
+    layout: "compactTotals" | "bookingReview";
     /** bookingReview layout: clicking the pencil on an add-on navigates back to the add-ons step. */
     onEditAddons?: () => void;
     /** bookingReview layout: remove a draft slot by key. */
@@ -2264,42 +2269,21 @@ export function BookingCheckoutDrawer({
 
     if (opts.layout === "compactTotals") {
       return (
-        <div className="cb-checkout-compact-totals-wrap">
-          <h3 id={opts.headingId} className="cb-checkout-compact-totals-heading">
+        <div className="cb-checkout-compact-totals-wrap" aria-labelledby={opts.headingId}>
+          <h3 id={opts.headingId} className="sr-only">
             {tx("orderSummary")}
           </h3>
-          <div className="cb-checkout-compact-totals-box">
-            <CbCheckoutTotalRow
-              label={tx("subtotal")}
-              value={
-                presummaryAggregates.lineSubtotal != null
-                  ? formatPrice(presummaryAggregates.lineSubtotal, bagCurrency)
-                  : presummaryAggregates.cartGrandTotal != null
-                    ? formatPrice(presummaryAggregates.cartGrandTotal, bagCurrency)
-                    : "—"
-              }
-            />
-            {presummaryDisplayDiscount != null && presummaryDisplayDiscount > 0.005 ? (
-              <CbCheckoutTotalRow
-                variant="discount"
-                icon={presummaryDiscountTagIcon}
-                label={tc("discountsAndSavings")}
-                value={`−${formatPrice(presummaryDisplayDiscount, bagCurrency)}`}
-              />
-            ) : null}
-            <CbCheckoutTotalRow
-              variant="muted"
-              icon={presummaryTaxPctIcon}
-              label={tx("tax")}
-              value={
-                presummaryAggregates.taxTotal != null
-                  ? formatPrice(presummaryAggregates.taxTotal, bagCurrency)
-                  : "—"
-              }
-            />
+          <div className="cb-checkout-presummary-tax-panel">
+            <svg className="cb-checkout-presummary-tax-icon" viewBox="0 0 24 24" fill="none" aria-hidden>
+              <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.5" />
+              <path d="M12 8.5v0.01M11.25 11h1v5h1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
+            <span className="cb-checkout-presummary-tax-text">{tx("taxDiscountsCheckoutNote")}</span>
+          </div>
+          <div className="cb-checkout-presummary-totals cb-checkout-presummary-totals--flat">
             <CbCheckoutTotalRow
               variant="grand"
-              label={tx("estimatedTotal")}
+              label={tx("total")}
               value={
                 <strong>
                   {presummaryPrecheckoutAmountDue != null
@@ -2311,14 +2295,21 @@ export function BookingCheckoutDrawer({
               }
             />
           </div>
-          {opts.showFootnote ? (
-            <p className="cb-checkout-presummary-note cb-muted">{tc("precheckoutSummaryFootnote")}</p>
-          ) : null}
         </div>
       );
     }
 
-    if (opts.layout === "bookingReview" && syntheticBookingReviewModel) {
+    if (opts.layout === "bookingReview") {
+      if (!syntheticBookingReviewModel) {
+        return (
+          <div className="cb-checkout-presummary cb-checkout-presummary--review-empty" aria-labelledby={opts.headingId}>
+            <h3 id={opts.headingId} className="cb-checkout-presummary-title">
+              {tx("bookingSummary")}
+            </h3>
+            <p className="cb-muted text-sm">{tx("bookingSummaryEmptyHint")}</p>
+          </div>
+        );
+      }
       const m = syntheticBookingReviewModel;
       const reviewMoney = (strike: number | undefined, net: number) =>
         strike != null && strike > net + 0.005 ? (
@@ -2330,37 +2321,56 @@ export function BookingCheckoutDrawer({
           <strong>{formatPrice(net, bagCurrency)}</strong>
         );
 
-      const nestedAddonRows = (items: { addonId: number; name: string; amount: number; qty: number }[]) => (
-        <div className="cb-checkout-review-addon-grid">
-          {items.map((x, i) => (
-            <div key={i} className="cb-checkout-review-nested-addon">
-              <span className="cb-checkout-review-nested-plus" aria-hidden>
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
-                  <rect x="4" y="4" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.5"/>
-                  <rect x="14" y="4" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.5"/>
-                  <rect x="4" y="14" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.5"/>
-                  <rect x="14" y="14" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.5"/>
-                </svg>
-              </span>
-              <span className="cb-checkout-review-nested-name">
-                {x.name}
-                {x.qty > 1 ? <span className="cb-checkout-review-nested-qty"> × {x.qty}</span> : null}
-              </span>
-              {opts.onEditAddons ? (
+      const REVIEW_ADDON_MAX_QTY = 50;
+      const setSlotAddonQty = (addonId: number, slotKey: string, next: number) => {
+        if (!onSetAddonSlotQty) return;
+        const v = Math.min(REVIEW_ADDON_MAX_QTY, Math.max(0, Math.round(next)));
+        onSetAddonSlotQty(addonId, slotKey, v);
+      };
+
+      const nestedAddonRow = (
+        x: { addonId: number; name: string; perUnitAmount: number; qty: number; slotKey: string }
+      ) => {
+        const canStep = Boolean(onSetAddonSlotQty);
+        return (
+          <div key={`${x.addonId}-${x.slotKey}`} className="cb-checkout-review-addon-pill">
+            <span className="cb-checkout-review-addon-pill-name" title={x.name}>{x.name}</span>
+            <span className="cb-checkout-review-addon-pill-price">
+              {formatPrice(x.perUnitAmount, bagCurrency)}
+            </span>
+            {canStep ? (
+              <span className="cb-checkout-review-addon-pill-qty" role="group" aria-label={tx("quantity")}>
                 <button
                   type="button"
-                  className="cb-checkout-review-nested-edit"
-                  onClick={opts.onEditAddons}
-                  aria-label={tx("edit")}
+                  className="cb-checkout-review-addon-pill-qty-btn"
+                  aria-label="Decrease"
+                  onClick={() => setSlotAddonQty(x.addonId, x.slotKey, x.qty - 1)}
                 >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden>
-                    <path d="M4 20h4l10-10-4-4L4 16v4z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
-                  </svg>
+                  −
                 </button>
-              ) : null}
-              <span className="cb-checkout-review-nested-price">{formatPrice(x.amount, bagCurrency)}</span>
-            </div>
-          ))}
+                <span className="cb-checkout-review-addon-pill-qty-val" aria-live="polite">{x.qty}</span>
+                <button
+                  type="button"
+                  className="cb-checkout-review-addon-pill-qty-btn"
+                  aria-label="Increase"
+                  disabled={x.qty >= REVIEW_ADDON_MAX_QTY}
+                  onClick={() => setSlotAddonQty(x.addonId, x.slotKey, x.qty + 1)}
+                >
+                  +
+                </button>
+              </span>
+            ) : (
+              <span className="cb-checkout-review-addon-pill-qty-static">× {x.qty}</span>
+            )}
+          </div>
+        );
+      };
+
+      const nestedAddonRows = (
+        items: { addonId: number; name: string; perUnitAmount: number; qty: number; slotKey: string }[]
+      ) => (
+        <div className="cb-checkout-review-addon-stack">
+          {items.map((x) => nestedAddonRow(x))}
         </div>
       );
 
@@ -2464,24 +2474,11 @@ export function BookingCheckoutDrawer({
                     <p className="cb-checkout-review-card-unit cb-muted">{s.unitSubtitle}</p>
                   </div>
                   <div className="cb-checkout-review-card-actions">
-                    {opts.onEditSlots ? (
-                      <button
-                        type="button"
-                        className="cb-checkout-review-card-icon-btn"
-                        onClick={opts.onEditSlots}
-                        aria-label={tx("editSlots")}
-                      >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
-                          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"/>
-                          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"/>
-                        </svg>
-                      </button>
-                    ) : null}
                     {opts.onRemoveSlot ? (
                       <button
                         type="button"
                         className="cb-checkout-review-card-icon-btn cb-checkout-review-card-icon-btn--remove"
-                        onClick={() => s.slotKeys.forEach((k) => opts.onRemoveSlot!(k))}
+                        onClick={() => opts.onRemoveSlot!(s.slotKey)}
                         aria-label={tx("removeSlot")}
                       >
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
@@ -2491,7 +2488,7 @@ export function BookingCheckoutDrawer({
                     ) : null}
                   </div>
                 </div>
-                <ul className="cb-checkout-review-meta-rows">
+                <ul className="cb-checkout-review-meta-rows cb-checkout-review-meta-rows--strong">
                   <li className="cb-checkout-review-meta-row">
                     <span className="cb-checkout-review-meta-icon" aria-hidden>
                       {s.resourceIsInstructor ? (
@@ -2518,20 +2515,15 @@ export function BookingCheckoutDrawer({
                     </span>
                     <span>{s.resourceLine}</span>
                   </li>
-                  {s.calendarLines.map((line, idx) => (
-                    <li key={idx} className={`cb-checkout-review-meta-row${idx === s.calendarLines.length - 1 ? " cb-checkout-review-meta-row--priced" : ""}`}>
-                      <span className="cb-checkout-review-meta-icon" aria-hidden>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-                          <rect x="4" y="5" width="16" height="14" rx="2" stroke="currentColor" strokeWidth="1.5"/>
-                          <path d="M8 3v4M16 3v4M4 11h16" stroke="currentColor" strokeWidth="1.5"/>
-                        </svg>
-                      </span>
-                      <span className="cb-checkout-review-meta-line" title={line}>{line}</span>
-                      {idx === s.calendarLines.length - 1 ? (
-                        <span className="cb-checkout-review-meta-price">{reviewMoney(s.strikeAmount, s.amount)}</span>
-                      ) : null}
-                    </li>
-                  ))}
+                  <li className="cb-checkout-review-meta-row">
+                    <span className="cb-checkout-review-meta-icon" aria-hidden>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                        <rect x="4" y="5" width="16" height="14" rx="2" stroke="currentColor" strokeWidth="1.5"/>
+                        <path d="M8 3v4M16 3v4M4 11h16" stroke="currentColor" strokeWidth="1.5"/>
+                      </svg>
+                    </span>
+                    <span className="cb-checkout-review-meta-line" title={s.calendarLine}>{s.calendarLine}</span>
+                  </li>
                 </ul>
                 {s.discountNote ? (
                   <div className="cb-checkout-review-promo-row">
@@ -2543,21 +2535,26 @@ export function BookingCheckoutDrawer({
                     {nestedAddonRows(s.nestedAddons)}
                   </div>
                 ) : null}
-                {s.nestedAddons.length > 0 ? (
-                  <div className="cb-checkout-review-item-total">
-                    <span className="cb-checkout-review-item-total-label">{tx("itemTotal")}</span>
-                    <span className="cb-checkout-review-item-total-value">
-                      {formatPrice(
-                        s.amount + s.nestedAddons.reduce((sum, a) => sum + a.amount, 0),
-                        bagCurrency
-                      )}
-                    </span>
-                  </div>
-                ) : null}
+                <div className="cb-checkout-review-item-total">
+                  <span className="cb-checkout-review-item-total-label">{tx("itemTotal")}</span>
+                  <span className="cb-checkout-review-item-total-value">
+                    {formatPrice(
+                      s.amount + s.nestedAddons.reduce((sum, a) => sum + a.amount, 0),
+                      bagCurrency
+                    )}
+                  </span>
+                </div>
               </li>
             ))}
-            {m.reservationAddonItems.map((x) =>
-              opts.onEditAddons || opts.onRemoveAddon ? (
+            {m.reservationAddonItems.map((x) => {
+              const perUnitAmount = x.qty > 0 ? x.amount / x.qty : x.amount;
+              const canStep = Boolean(onSetAddonQty);
+              const setReservationQty = (next: number) => {
+                if (!onSetAddonQty) return;
+                const v = Math.min(REVIEW_ADDON_MAX_QTY, Math.max(0, Math.round(next)));
+                onSetAddonQty(x.addonId, v);
+              };
+              return (
                 <li key={x.key} className="cb-checkout-review-card">
                   <div className="cb-checkout-review-card-head">
                     <p className="cb-checkout-review-card-title">{x.name}</p>
@@ -2576,65 +2573,50 @@ export function BookingCheckoutDrawer({
                       ) : null}
                     </div>
                   </div>
-                  {opts.onEditAddons || opts.onRemoveAddon ? (
-                    <div className="cb-checkout-review-qty-row" aria-label={tx("quantity")}>
-                      <span className="cb-checkout-review-qty-label">{tx("quantity")}</span>
-                      <span className="cb-checkout-review-qty-value" aria-live="polite">{x.qty}</span>
-                      {opts.onEditAddons ? (
-                        <button
-                          type="button"
-                          className="cb-checkout-review-card-icon-btn"
-                          onClick={opts.onEditAddons}
-                          aria-label={tx("edit")}
-                        >
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
-                            <path d="M4 20h4l10-10-4-4L4 16v4z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
-                          </svg>
-                        </button>
-                      ) : null}
-                    </div>
-                  ) : null}
                   {x.unitSubtitle ? (
-                    <div className="cb-checkout-review-unit-price-row">
-                      <p className="cb-checkout-review-card-unit cb-muted">{x.unitSubtitle}</p>
-                      <span className="cb-checkout-review-meta-price">{reviewMoney(undefined, x.amount)}</span>
+                    <p className="cb-checkout-review-card-unit cb-checkout-review-card-unit--strong">
+                      {x.unitSubtitle}
+                    </p>
+                  ) : null}
+                  <div className="cb-checkout-review-addon-block">
+                    <div className="cb-checkout-review-addon-stack">
+                      <div className="cb-checkout-review-addon-pill">
+                        <span className="cb-checkout-review-addon-pill-name" title={x.name}>{x.name}</span>
+                        <span className="cb-checkout-review-addon-pill-price">{formatPrice(perUnitAmount, bagCurrency)}</span>
+                        {canStep ? (
+                          <span className="cb-checkout-review-addon-pill-qty" role="group" aria-label={tx("quantity")}>
+                            <button
+                              type="button"
+                              className="cb-checkout-review-addon-pill-qty-btn"
+                              aria-label="Decrease"
+                              onClick={() => setReservationQty(x.qty - 1)}
+                            >
+                              −
+                            </button>
+                            <span className="cb-checkout-review-addon-pill-qty-val" aria-live="polite">{x.qty}</span>
+                            <button
+                              type="button"
+                              className="cb-checkout-review-addon-pill-qty-btn"
+                              aria-label="Increase"
+                              disabled={x.qty >= REVIEW_ADDON_MAX_QTY}
+                              onClick={() => setReservationQty(x.qty + 1)}
+                            >
+                              +
+                            </button>
+                          </span>
+                        ) : (
+                          <span className="cb-checkout-review-addon-pill-qty-static">× {x.qty}</span>
+                        )}
+                      </div>
                     </div>
-                  ) : null}
-                  {x.resourceLine || (x.calendarLines && x.calendarLines.length > 0) ? (
-                    <ul className="cb-checkout-review-meta-rows">
-                      {x.resourceLine ? (
-                        <li className="cb-checkout-review-meta-row">
-                          <span className="cb-checkout-review-meta-icon" aria-hidden>
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-                              <path d="M12 21s7-4.35 7-10a7 7 0 10-14 0c0 5.65 7 10 7 10z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
-                              <circle cx="12" cy="11" r="2" stroke="currentColor" strokeWidth="1.5"/>
-                            </svg>
-                          </span>
-                          <span>{x.resourceLine}</span>
-                        </li>
-                      ) : null}
-                      {x.calendarLines?.map((line, i) => (
-                        <li key={i} className="cb-checkout-review-meta-row">
-                          <span className="cb-checkout-review-meta-icon" aria-hidden>
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-                              <rect x="4" y="5" width="16" height="14" rx="2" stroke="currentColor" strokeWidth="1.5"/>
-                              <path d="M8 3v4M16 3v4M4 11h16" stroke="currentColor" strokeWidth="1.5"/>
-                            </svg>
-                          </span>
-                          <span title={line}>{line}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : null}
+                  </div>
                   <div className="cb-checkout-review-item-total">
                     <span className="cb-checkout-review-item-total-label">{tx("itemTotal")}</span>
                     <span className="cb-checkout-review-item-total-value">{formatPrice(x.amount, bagCurrency)}</span>
                   </div>
                 </li>
-              ) : (
-                simpleExtraCard(x.key, x.name, x.amount)
-              )
-            )}
+              );
+            })}
             {m.otherRequiredItems.map((x) =>
               simpleExtraCard(x.key, x.name, x.amount, { unitSubtitle: x.unitSubtitle })
             )}
@@ -2646,11 +2628,11 @@ export function BookingCheckoutDrawer({
             )}
           </ul>
           <div className="cb-checkout-presummary-tax-panel">
-            <svg className="cb-checkout-presummary-tax-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+            <svg className="cb-checkout-presummary-tax-icon" viewBox="0 0 24 24" fill="none" aria-hidden>
               <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.5" />
               <path d="M12 8.5v0.01M11.25 11h1v5h1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
             </svg>
-            <span>{tx("taxDiscountsCheckoutNote")}</span>
+            <span className="cb-checkout-presummary-tax-text">{tx("taxDiscountsCheckoutNote")}</span>
           </div>
           <div className="cb-checkout-presummary-totals cb-checkout-presummary-totals--flat">
             <CbCheckoutTotalRow
@@ -2671,147 +2653,7 @@ export function BookingCheckoutDrawer({
       );
     }
 
-    return (
-      <div className="cb-checkout-presummary" aria-labelledby={opts.headingId}>
-        <h3 id={opts.headingId} className="cb-checkout-presummary-title">
-          {tx("bookingSummary")}
-        </h3>
-        {opts.showReviewHint ? (
-          <p className="cb-checkout-presummary-review-hint cb-muted text-sm leading-snug mb-3">
-            {tx("bookingSummaryReviewHint")}
-          </p>
-        ) : null}
-        <div className="cb-checkout-presummary-participant">
-          {presummaryParticipantPhoto ? (
-            <img
-              className="cb-checkout-presummary-participant-photo"
-              src={presummaryParticipantPhoto}
-              alt=""
-              width={40}
-              height={40}
-              loading="lazy"
-              referrerPolicy="no-referrer"
-            />
-          ) : (
-            <div className="cb-checkout-presummary-participant-avatar" aria-hidden />
-          )}
-          <div className="cb-checkout-presummary-participant-text">
-            <span className="cb-checkout-presummary-participant-name">{bookingForLabel}</span>
-            {presummaryParticipantDemo ? (
-              <span className="cb-checkout-presummary-participant-demo">{presummaryParticipantDemo}</span>
-            ) : null}
-          </div>
-          {bookingForBadge ? (
-            <span className="cb-checkout-presummary-participant-badge cb-member-badge cb-member-badge--gold">
-              {bookingForBadge}
-            </span>
-          ) : null}
-        </div>
-        {groupedPresummaryLineSections.length > 1 ? (
-          <p className="cb-muted mb-2 text-xs leading-relaxed">{tx("purchasesGroupedByMember")}</p>
-        ) : null}
-        <div className="cb-checkout-presummary-groups">
-          {groupedPresummaryLineSections.map((section, si) => (
-            <section key={`${opts.keyPrefix}-${section.label}-${si}`} className="cb-checkout-payment-group">
-              <h4 className="cb-checkout-payment-group-title">
-                {groupHeadingForBooking(
-                  section.label,
-                  si,
-                  Math.max(1, groupedPresummaryLineSections.length),
-                  tx
-                )}
-              </h4>
-              <ul className="cb-checkout-payment-lines cb-checkout-payment-lines--ds-cards">
-                {section.items.flatMap(
-                  ({ index, row, cartFlatLineIndices, subsectionBookingForLabel }) =>
-                    expandSnapshotForPurchaseList(row, index, {
-                      bagPolicy: bagPolicyCheckout,
-                      omitBookingLabelInMeta: true,
-                      hideVenueApprovalLineNotes: approvalRequired,
-                      ...(cartFlatLineIndices != null
-                        ? { cartFlatLineIndexFilter: new Set(cartFlatLineIndices) }
-                        : {}),
-                      ...(subsectionBookingForLabel != null ? { subsectionBookingForLabel } : {}),
-                    }).map((line) => (
-                      <li key={`${opts.keyPrefix}-${line.key}`} className="cb-checkout-payment-line">
-                        <div>
-                          <span className="cb-checkout-payment-line-title">{line.title}</span>
-                          {line.badge ? (
-                            <span className="cb-checkout-receipt-box-badge mt-0.5 inline-block text-[0.65rem]">
-                              {line.badge}
-                            </span>
-                          ) : null}
-                          {line.discountNote ? (
-                            <span className="cb-checkout-promo-pill">{line.discountNote}</span>
-                          ) : null}
-                          <span className="cb-checkout-presummary-line-meta cb-muted block text-[0.7rem] leading-snug">
-                            {line.meta}
-                          </span>
-                        </div>
-                        <span className="cb-checkout-payment-line-price text-[0.8rem]">
-                          {line.amount != null ? (
-                            line.strikeAmount != null && line.strikeAmount > line.amount + 0.005 ? (
-                              <>
-                                <span className="cb-checkout-price-strike">
-                                  {formatPrice(line.strikeAmount, bagCurrency)}
-                                </span>{" "}
-                                <strong>{formatPrice(line.amount, bagCurrency)}</strong>
-                              </>
-                            ) : (
-                              <strong>{formatPrice(line.amount, bagCurrency)}</strong>
-                            )
-                          ) : (
-                            "—"
-                          )}
-                        </span>
-                      </li>
-                    ))
-                )}
-              </ul>
-            </section>
-          ))}
-        </div>
-        <div className="cb-checkout-presummary-totals">
-          <div className="cb-checkout-total-row cb-checkout-total-row--muted">
-            <span>{tx("subtotal")}</span>
-            <span>
-              {presummaryAggregates.lineSubtotal != null
-                ? formatPrice(presummaryAggregates.lineSubtotal, bagCurrency)
-                : presummaryAggregates.cartGrandTotal != null
-                  ? formatPrice(presummaryAggregates.cartGrandTotal, bagCurrency)
-                  : "—"}
-            </span>
-          </div>
-          {presummaryDisplayDiscount != null && presummaryDisplayDiscount > 0.005 ? (
-            <div className="cb-checkout-total-row cb-checkout-total-row--discount">
-              <span>{tc("discountsAndSavings")}</span>
-              <span>−{formatPrice(presummaryDisplayDiscount, bagCurrency)}</span>
-            </div>
-          ) : null}
-          <div className="cb-checkout-total-row cb-checkout-total-row--muted">
-            <span>{tx("tax")}</span>
-            <span>
-              {presummaryAggregates.taxTotal != null
-                ? formatPrice(presummaryAggregates.taxTotal, bagCurrency)
-                : "—"}
-            </span>
-          </div>
-          <div className="cb-checkout-total-row cb-checkout-total-row--grand">
-            <span>{tx("estimatedTotal")}</span>
-            <strong>
-              {presummaryPrecheckoutAmountDue != null
-                ? formatPrice(presummaryPrecheckoutAmountDue, bagCurrency)
-                : presummaryAggregates.cartGrandTotal != null
-                  ? formatPrice(presummaryAggregates.cartGrandTotal, bagCurrency)
-                  : "—"}
-            </strong>
-          </div>
-        </div>
-        {opts.showFootnote ? (
-          <p className="cb-checkout-presummary-note cb-muted">{tc("precheckoutSummaryFootnote")}</p>
-        ) : null}
-      </div>
-    );
+    return null;
   };
 
   /**
@@ -3025,7 +2867,74 @@ export function BookingCheckoutDrawer({
   }
 
   if (mode === "bag") {
-    const nBookings = bagSnapshots.length;
+    const cards = checkoutCardsFromBag(bagSnapshots);
+    /**
+     * Bag-wide totals. Approval classification walks each row's `cartItems[].metadata.purchaseType`
+     * with the snapshot's `approvalByProductId` map as the legacy fallback. We do **not** rely on
+     * `minimumPrice < price` because that's also true for any deposit-required cart.
+     */
+    const sumPerRow = (pick: (row: SessionCartSnapshot) => number | null): number => {
+      let sum = 0;
+      for (const row of bagSnapshots) {
+        const v = row.cart ? pick(row) : null;
+        if (v != null) sum += v;
+      }
+      return Math.round(sum * 100) / 100;
+    };
+    const approvalMapForRow = (row: SessionCartSnapshot) => row.approvalByProductId;
+    const cartFullDollars = sumPerRow((row) =>
+      typeof row.cart?.price === "number" ? row.cart.price : null,
+    );
+    const cartChargeableDollars = sumPerRow((row) =>
+      cartChargeableTotal(row.cart, approvalMapForRow(row)),
+    );
+    const cartMinimumDollars = bagSnapshots.some((r) => r.cart && cartChargeableMinimum(r.cart) != null)
+      ? sumPerRow((row) => cartChargeableMinimum(row.cart))
+      : null;
+    const hasApprovalSplit = bagSnapshots.some(
+      (r) => r.cart != null && cartHasApprovalSplit(r.cart, approvalMapForRow(r)),
+    );
+    const cartApprovalSubDollars = hasApprovalSplit
+      ? sumPerRow((row) => cartApprovalSubtotal(row.cart, approvalMapForRow(row)))
+      : null;
+
+    /**
+     * Cart-state machine, drives the banner + footer button layout in the bag drawer.
+     * Maps to the four Figma cart states (1.1 / 1.2 / 1.3 / 1.4).
+     */
+    const cartFooterState: "request_only" | "split" | "deposit" | "pay_full" =
+      bagPolicyBag === "all_submission"
+        ? "request_only"
+        : hasApprovalSplit
+          ? "split"
+          : cartMinimumDollars != null && cartMinimumDollars > 0
+            ? "deposit"
+            : "pay_full";
+
+    /** Derived discount / tax pulled from the existing aggregator (already spec-aware). */
+    const aggregateDiscountTotal =
+      bagSessionAggregates.discountTotal != null && bagSessionAggregates.discountTotal > 0.0001
+        ? bagSessionAggregates.discountTotal
+        : null;
+    const aggregateTaxTotal = bagSessionAggregates.taxTotal ?? null;
+
+    /** X-on-card handler: rentals cascade their attached addons via subsection delete. */
+    const handleCardRemove = (card: CheckoutCardModel) => {
+      const remove: BagRemovePolicy =
+        card.kind === "rental"
+          ? { kind: "subsection" }
+          : card.cartItemId != null
+            ? { kind: "line", cartItemId: card.cartItemId }
+            : { kind: "subsection" };
+      void onRemoveBagLine?.({
+        index: card.snapshotIndex,
+        ...(card.cartFlatLineIndices.length > 0
+          ? { cartFlatLineIndices: card.cartFlatLineIndices }
+          : {}),
+        remove,
+      });
+    };
+
     return (
       <RightDrawer
         open={open}
@@ -3033,516 +2942,74 @@ export function BookingCheckoutDrawer({
         onBack={showDrawerBack ? handleToolbarBack : undefined}
         ariaLabel={tx("bagTitle")}
         title={title}
+        hideTitle={true}
         panelClassName={panelCls}
       >
-          <div className="cb-checkout-inner cb-checkout-inner--bag">
-          <div className="cb-checkout-payment-hero cb-cart-bag-hero">
-            <div className="cb-checkout-payment-hero-icon" aria-hidden>
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-                <path
-                  d="M6 6h15l-1.5 9h-12L6 6zM4 6h2M9 20a1 1 0 1 0 0-2 1 1 0 0 0 0 2zm8 0a1 1 0 1 0 0-2 1 1 0 0 0 0 2z"
-                  stroke="currentColor"
-                  strokeWidth="1.75"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            </div>
-            <p className="cb-checkout-payment-hero-sub cb-muted text-sm">{tx("cartHeroSubtitle")}</p>
-          </div>
-          <div className="cb-cart-bag-heading">
-            <p className="cb-cart-bag-subtitle">{tx("orderSummary")}</p>
-            {nBookings > 0 ? (
-              <span className="cb-cart-bag-count-pill">
-                {bagDrawerLineCount} {bagDrawerLineCount === 1 ? tx("lineSingular") : tx("linePlural")} · {nBookings}{" "}
-                {nBookings === 1 ? tx("bookingSingular") : tx("bookingPlural")}
-              </span>
-            ) : null}
-          </div>
-          {bagSnapshots.length > 0 && approvalRequired ? (
-            <div
-              className="cb-checkout-category-approval-notice mb-3 rounded-md border border-[var(--cb-border)] bg-[var(--cb-surface)] px-3 py-2.5 text-sm leading-snug text-[var(--cb-text)]"
-              role="note"
-            >
-              {tx("approvalNoticeBag")}
-            </div>
-          ) : null}
-          {bagSnapshots.length > 0 && bagPolicyBag === "mixed" ? (
-            <div className="cb-checkout-mixed-cart-banner mb-3" role="note">
-              <span className="cb-checkout-mixed-cart-banner-icon" aria-hidden>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                  <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.5" />
-                  <path d="M12 10v5M12 7v1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          <div className="cb-checkout-inner cb-checkout-inner--bag cb-co-shell">
+          {bagSnapshots.length > 0 ? (
+            <div className="cb-co-hero">
+              <div className="cb-co-hero-icon" aria-hidden>
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+                  <path
+                    d="M6 6h15l-1.5 9h-12L6 6zM4 6h2M9 20a1 1 0 1 0 0-2 1 1 0 0 0 0 2zm8 0a1 1 0 1 0 0-2 1 1 0 0 0 0 2z"
+                    stroke="currentColor"
+                    strokeWidth="1.75"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
                 </svg>
-              </span>
-              <p className="cb-checkout-mixed-cart-banner-text">{tx("mixedCartPolicyBanner")}</p>
+              </div>
+              <h2 className="cb-co-hero-title">{tx("cartCheckoutHeading")}</h2>
+              <p className="cb-co-hero-sub">{tx("cartCheckoutSubtitle")}</p>
             </div>
           ) : null}
 
           {bagSnapshots.length === 0 ? (
-            <p className="cb-muted text-sm">{tx("cartEmpty")}</p>
+            <div className="cb-bag-empty" role="status" aria-live="polite">
+              <div className="cb-bag-empty-icon" aria-hidden>
+                <svg width="42" height="42" viewBox="0 0 24 24" fill="none">
+                  <path
+                    d="M6 6h15l-1.5 9h-12L6 6zM4 6h2M9 20a1 1 0 1 0 0-2 1 1 0 0 0 0 2zm8 0a1 1 0 1 0 0-2 1 1 0 0 0 0 2z"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </div>
+              <h3 className="cb-bag-empty-title">{tx("cartEmptyTitle")}</h3>
+              <p className="cb-bag-empty-subtitle">{tx("cartEmptySubtitle")}</p>
+              <button
+                type="button"
+                className="cb-btn-primary cb-bag-empty-cta"
+                onClick={safeOnClose}
+              >
+                {tx("cartEmptyCta")}
+              </button>
+            </div>
           ) : (
             <>
-              <div className="cb-cart-bag-groups">
-                {groupedBagWithTotals.map((section, si) => (
-                  <section key={`${section.label}-${si}`} className="cb-cart-bag-group">
-                    <h4 className="cb-cart-bag-group-title">
-                      {groupHeadingForBooking(section.label, si, groupedBagWithTotals.length, tx)}
-                    </h4>
-                    <ul className="cb-cart-bag-list">
-                      {section.items.map(
-                        ({ index, row, cartFlatLineIndices, subsectionBookingForLabel }, ii) => {
-                        const lines = expandSnapshotForPurchaseList(row, index, {
-                          bagPolicy: bagPolicyBag,
-                          omitBookingLabelInMeta: true,
-                          structuredBagMeta: true,
-                          hideVenueApprovalLineNotes: approvalRequired,
-                          ...(cartFlatLineIndices != null
-                            ? { cartFlatLineIndexFilter: new Set(cartFlatLineIndices) }
-                            : {}),
-                          ...(subsectionBookingForLabel != null
-                            ? { subsectionBookingForLabel }
-                            : {}),
-                        });
+              {/* New per-item card list (Figma cart states 1.1 / 1.2 / 1.3 / 1.4) */}
+              <section className="cb-co-section">
+                <h3 className="cb-co-section-title">{tx("cartOrderSummary")}</h3>
+                <ul className="cb-co-card-list">
+                  {cards.map((card) => (
+                    <CheckoutItemCard
+                      key={card.key}
+                      card={card}
+                      currency={bagCurrency}
+                      formatPrice={formatPrice}
+                      onRemove={onRemoveBagLine ? handleCardRemove : undefined}
+                    />
+                  ))}
+                </ul>
+              </section>
 
-                        const useLegacyAddonRows =
-                          lines.some(
-                            (l) =>
-                              l.lineKind === "addon" &&
-                              l.bagRemove !== undefined &&
-                              l.bagRemove.kind === "line"
-                          ) &&
-                          !lines.some(
-                            (l) => l.bagRemove !== undefined && l.bagRemove.kind === "subsection"
-                          );
+              <div className="cb-co-divider" aria-hidden />
 
-                        const linePrice = (line: CartPurchaseDisplayLine) =>
-                          line.amount != null ? (
-                            <span className="cb-cart-bag-line-price">
-                              {line.strikeAmount != null && line.strikeAmount > line.amount + 0.005 ? (
-                                <>
-                                  <span className="cb-checkout-price-strike">
-                                    {formatPrice(line.strikeAmount, bagCurrency)}
-                                  </span>{" "}
-                                  <strong>{formatPrice(line.amount, bagCurrency)}</strong>
-                                </>
-                              ) : (
-                                <strong>{formatPrice(line.amount, bagCurrency)}</strong>
-                              )}
-                            </span>
-                          ) : (
-                            <span className="cb-muted text-sm">—</span>
-                          );
-
-
-                        if (useLegacyAddonRows) {
-                          return (
-                          <li
-                            key={`${row.cart.id}-${index}-${ii}-${subsectionBookingForLabel ?? "all"}`}
-                            className="cb-cart-bag-line"
-                          >
-                                                        {lines.map((line, lineIdx) => (
-                              <div
-                                key={line.key}
-                                className={`cb-cart-bag-line-main${
-                                  line.lineKind === "addon" ? " cb-cart-bag-line-main--addon" : ""
-                                }${lineIdx > 0 ? " mt-3 border-t border-[var(--cb-border)] pt-3" : ""}`}
-                              >
-                                <div className="cb-cart-bag-line-top">
-                                  <div className="cb-cart-bag-line-primary">
-                                    {line.lineKind === "addon" ? (
-                                      <p className="cb-cart-bag-addon-pill">
-                                        <span aria-hidden className="cb-cart-bag-addon-plus">
-                                          +
-                                        </span>
-                                        <span className="min-w-0 truncate">{line.title}</span>
-                                      </p>
-                                    ) : (
-                                      <div className="cb-cart-bag-line-title-wrap">
-                                        <p className="cb-cart-bag-line-title">{line.title}</p>
-                                        {line.approvalPending ? (
-                                          <span className="cb-cart-bag-approval-pill">
-                                            <span className="cb-cart-bag-approval-pill-icon" aria-hidden>
-                                              !
-                                            </span>
-                                            {tx("approvalRequiredPill")}
-                                          </span>
-                                        ) : line.depositRequired ? (
-                                          <span className="cb-cart-deposit-pill">{tx("depositOptionalPill")}</span>
-                                        ) : null}
-                                      </div>
-                                    )}
-                                    {line.bagMetaRows ? bagCartMetaRowsUl(line.bagMetaRows, tx) : null}
-                                    {!line.bagMetaRows && line.meta ? (
-                                      <p className="cb-cart-bag-line-meta">{line.meta}</p>
-                                    ) : null}
-                                    {line.discountNote ? (
-                                      <span className="cb-checkout-promo-pill">{line.discountNote}</span>
-                                    ) : null}
-                                    {line.memberAccessNote ? (
-                                      <p className="mt-1.5">
-                                        <span className="cb-cart-line-member-badge">{line.memberAccessNote}</span>
-                                      </p>
-                                    ) : null}
-                                    {line.checkoutNote ? (
-                                      <p className="cb-muted mt-0.5 text-[0.7rem] leading-snug">{line.checkoutNote}</p>
-                                    ) : null}
-                                  </div>
-                                  <div className="cb-cart-bag-line-actions">
-                                    {linePrice(line)}
-                                    {line.bagRemove && onRemoveBagLine ? (
-                                      <button
-                                        type="button"
-                                        className="cb-cart-bag-remove"
-                                        aria-label={
-                                          line.bagRemove.kind === "subsection"
-                                            ? `Remove reservation and add-ons: ${row.productName}`
-                                            : `Remove ${line.title}`
-                                        }
-                                        onClick={() =>
-                                          onRemoveBagLine({
-                                            index,
-                                            cartFlatLineIndices,
-                                            remove: line.bagRemove!,
-                                          })
-                                        }
-                                      >
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
-                                          <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
-                                        </svg>
-                                      </button>
-                                    ) : null}
-                                  </div>
-                                </div>
-                              </div>
-                            ))}
-                          </li>
-                          );
-                        }
-
-                        const addonLines = lines.filter((l) => l.lineKind === "addon");
-                        const bookingLine = lines.find((l) => l.lineKind === "booking");
-                        const membershipLines = lines.filter((l) => l.lineKind === "membership");
-                        const headLine = bookingLine ?? membershipLines[0];
-                        let extrasSum = 0;
-                        let extrasCount = 0;
-                        for (const l of addonLines) {
-                          if (l.amount != null && Number.isFinite(l.amount)) {
-                            extrasSum += l.amount;
-                            extrasCount += 1;
-                          }
-                        }
-                        let itemTotal = 0;
-                        for (const l of lines) {
-                          if (l.amount != null && Number.isFinite(l.amount)) itemTotal += l.amount;
-                        }
-                        const subsectionRemoveLine = lines.find(
-                          (l) => l.bagRemove !== undefined && l.bagRemove.kind === "subsection"
-                        );
-                        const removeTargetLine =
-                          subsectionRemoveLine ??
-                          (bookingLine?.bagRemove ? bookingLine : undefined) ??
-                          membershipLines.find((l) => l.bagRemove !== undefined);
-
-                        const dcardKey = `${row.cart.id}-${index}-${ii}-${subsectionBookingForLabel ?? "all"}`;
-                        const isRemoving = removingBagKeys.has(dcardKey);
-                        const anyRemoving = removingBagKeys.size > 0;
-
-                        const removeBtn = removeTargetLine?.bagRemove && onRemoveBagLine ? (
-                          <button
-                            type="button"
-                            className="cb-cart-bag-dcard-close"
-                            style={{position: "absolute", top: "0.55rem", right: "0.55rem", width: "1.5rem", height: "1.5rem", display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: "50%", border: "none", background: "transparent", cursor: anyRemoving ? "not-allowed" : "pointer", opacity: anyRemoving && !isRemoving ? 0.4 : 1, color: "var(--cb-muted-text)"}}
-                            aria-label={
-                              removeTargetLine.bagRemove.kind === "subsection"
-                                ? `Remove reservation and add-ons: ${row.productName}`
-                                : `Remove ${removeTargetLine.title}`
-                            }
-                            disabled={anyRemoving}
-                            onClick={async () => {
-                              if (anyRemoving) return;
-                              setRemovingBagKeys((prev) => {
-                                const next = new Set(prev);
-                                next.add(dcardKey);
-                                return next;
-                              });
-                              try {
-                                await onRemoveBagLine({
-                                  index,
-                                  cartFlatLineIndices,
-                                  remove: removeTargetLine.bagRemove!,
-                                });
-                              } finally {
-                                setRemovingBagKeys((prev) => {
-                                  const next = new Set(prev);
-                                  next.delete(dcardKey);
-                                  return next;
-                                });
-                              }
-                            }}
-                          >
-                            {isRemoving ? (
-                              <CbBusyInline busy>{null}</CbBusyInline>
-                            ) : (
-                              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-                                <path d="M2 2l10 10M12 2L2 12" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round"/>
-                              </svg>
-                            )}
-                          </button>
-                        ) : null;
-
-                        return (
-                          <Fragment key={dcardKey}>
-                          <li className="cb-cart-bag-line cb-cart-bag-line--dcard">
-                            <div className="cb-cart-bag-dcard" style={{position: "relative", paddingRight: "2.25rem"}}>
-                              {removeBtn}
-                              {headLine ? (
-                                <>
-                                  <div className="cb-cart-bag-dcard-head">
-                                    <p className="cb-cart-bag-line-title">{headLine.title}</p>
-                                    {headLine.approvalPending ? (
-                                      <span className="cb-cart-bag-approval-pill">
-                                        <span className="cb-cart-bag-approval-pill-icon" aria-hidden>
-                                          !
-                                        </span>
-                                        {tx("approvalRequiredPill")}
-                                      </span>
-                                    ) : headLine.depositRequired ? (
-                                      <span className="cb-cart-deposit-pill">{tx("depositOptionalPill")}</span>
-                                    ) : null}
-                                  </div>
-                                  {headLine.bagMetaRows ? bagCartMetaRowsUl(headLine.bagMetaRows, tx) : null}
-                                  {!headLine.bagMetaRows && headLine.meta ? (
-                                    <p className="cb-cart-bag-line-meta cb-cart-bag-line-meta--dcard">
-                                      {headLine.meta}
-                                    </p>
-                                  ) : null}
-                                  {headLine.memberAccessNote ? (
-                                    <p className="mt-1.5">
-                                      <span className="cb-cart-line-member-badge">{headLine.memberAccessNote}</span>
-                                    </p>
-                                  ) : null}
-                                  {headLine.checkoutNote ? (
-                                    <p className="cb-muted mt-0.5 text-[0.7rem] leading-snug">
-                                      {headLine.checkoutNote}
-                                    </p>
-                                  ) : null}
-                                </>
-                              ) : null}
-
-                              {bookingLine ? (
-                                <>
-                                  {bookingLine.discountNote ? (
-                                    <p className="cb-cart-bag-dcard-pill-row">
-                                      <span className="cb-checkout-promo-pill">{bookingLine.discountNote}</span>
-                                    </p>
-                                  ) : null}
-                                  <div className="cb-cart-bag-dcard-discount-row">
-                                    <div className="cb-cart-bag-line-actions cb-cart-bag-dcard-booking-actions">
-                                      {linePrice(bookingLine)}
-                                    </div>
-                                  </div>
-                                </>
-                              ) : null}
-
-                              {extrasCount > 0 ? (
-                                <>
-                                  <div className="cb-cart-bag-dcard-rule" role="separator" />
-                                  <div className="cb-cart-bag-dcard-extras-row">
-                                    <span className="cb-cart-bag-dcard-extras-icon" aria-hidden>
-                                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-                                        <rect x="4" y="4" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.5" />
-                                        <rect x="14" y="4" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.5" />
-                                        <rect x="4" y="14" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.5" />
-                                        <rect x="14" y="14" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.5" />
-                                      </svg>
-                                    </span>
-                                    <span className="cb-cart-bag-meta-text cb-cart-bag-dcard-extras-label">
-                                      {tx("extrasWithCount", { count: extrasCount })}
-                                    </span>
-                                    <span className="cb-cart-bag-line-price">
-                                      {formatPrice(extrasSum, bagCurrency)}
-                                    </span>
-                                  </div>
-                                </>
-                              ) : null}
-
-                              <div className="cb-cart-bag-dcard-rule" role="separator" />
-                              <div className="cb-cart-bag-dcard-item-total">
-                                <span>{tx("itemTotal")}</span>
-                                <strong>{formatPrice(itemTotal, bagCurrency)}</strong>
-                              </div>
-                            </div>
-                          </li>
-                          {membershipLines.map((m) => (
-                            <li key={m.key} className="cb-cart-bag-line cb-cart-bag-line--dcard">
-                              <div className="cb-cart-bag-dcard cb-cart-bag-dcard--membership">
-                                <div className="cb-cart-bag-dcard-head">
-                                  <p className="cb-cart-bag-line-title">{m.title}</p>
-                                  <span className="cb-cart-bag-dcard-membership-tag">{tx("membershipTag")}</span>
-                                </div>
-                                {m.unitSubtitle ? (
-                                  <p className="cb-cart-bag-line-meta cb-cart-bag-line-meta--dcard cb-muted">
-                                    {m.unitSubtitle}
-                                  </p>
-                                ) : null}
-                                {m.discountNote ? (
-                                  <p className="cb-cart-bag-dcard-pill-row">
-                                    <span className="cb-checkout-promo-pill">{m.discountNote}</span>
-                                  </p>
-                                ) : null}
-                                {m.checkoutNote ? (
-                                  <p className="cb-muted mt-0.5 text-[0.7rem] leading-snug">{m.checkoutNote}</p>
-                                ) : null}
-                                <div className="cb-cart-bag-dcard-rule" role="separator" />
-                                <div className="cb-cart-bag-dcard-item-total">
-                                  <span>{tx("itemTotal")}</span>
-                                  <strong>{linePrice(m)}</strong>
-                                </div>
-                              </div>
-                            </li>
-                          ))}
-                          </Fragment>
-                        );
-                      }
-                      )}
-                    </ul>
-                  </section>
-                ))}
-              </div>
-              <div className="cb-cart-bag-totals">
-                <h3 className="cb-checkout-section-title">{tx("orderTotals")}</h3>
-                <CbCheckoutTotalRow
-                  label={tx("bagBookings")}
-                  value={formatPrice(bagLineBuckets.bookings, bagCurrency)}
-                />
-                {Math.abs(bagLineBuckets.addons) > BOND_KIND_LINE_MIN ? (
-                  <CbCheckoutTotalRow
-                    label={tx("extras")}
-                    value={formatPrice(bagLineBuckets.addons, bagCurrency)}
-                  />
-                ) : null}
-                {Math.abs(bagLineBuckets.memberships) > BOND_KIND_LINE_MIN ? (
-                  <CbCheckoutTotalRow
-                    label={tx("memberships")}
-                    value={formatPrice(bagLineBuckets.memberships, bagCurrency)}
-                  />
-                ) : null}
-                <CbCheckoutTotalRow
-                  variant="discount"
-                  icon={
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
-                      <path
-                        d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.82 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                        strokeLinejoin="round"
-                      />
-                      <circle cx="7.5" cy="7.5" r="1.25" fill="currentColor" />
-                    </svg>
-                  }
-                  label={tx("discountAndSavings")}
-                  value={
-                    bagSessionAggregates.discountTotal != null &&
-                    bagSessionAggregates.discountTotal > 0.0001
-                      ? `−${formatPrice(bagSessionAggregates.discountTotal, bagCurrency)}`
-                      : "—"
-                  }
-                />
-                <CbCheckoutTotalRow
-                  variant="muted"
-                  icon={
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
-                      <circle cx="8.5" cy="8.5" r="2" stroke="currentColor" strokeWidth="1.4" />
-                      <circle cx="15.5" cy="15.5" r="2" stroke="currentColor" strokeWidth="1.4" />
-                      <path d="M16 8L8 16" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-                    </svg>
-                  }
-                  label={tx("tax")}
-                  value={
-                    bagSessionAggregates.taxTotal != null
-                      ? formatPrice(bagSessionAggregates.taxTotal, bagCurrency)
-                      : tx("feePending")
-                  }
-                />
-                <CbCheckoutTotalRow
-                  variant="muted"
-                  icon={
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
-                      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.5" />
-                      <path d="M12 7v6l3 2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                    </svg>
-                  }
-                  label={tx("fees")}
-                  value={
-                    bagFeeRowAmount != null
-                      ? formatPrice(bagFeeRowAmount, bagCurrency)
-                      : paymentOptionsQuery.isPending
-                        ? tc("loading")
-                        : "—"
-                  }
-                  title={
-                    bagFeeRowAmount != null
-                      ? formatConsumerPaymentFeeRuleSummary(selectedPaymentChoice?.fee ?? null) ??
-                        undefined
-                      : tx("feesMayApplyTooltip")
-                  }
-                />
-                <CbCheckoutTotalRow
-                  variant="muted"
-                  icon={
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
-                      <rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" strokeWidth="1.5" />
-                      <path d="M3 10h18" stroke="currentColor" strokeWidth="1.5" />
-                    </svg>
-                  }
-                  label={tx("paymentMethodRowLabel")}
-                  value={
-                    selectedPaymentChoice != null
-                      ? selectedPaymentChoice.displayPrimary
-                      : tx("paymentMethodRowValue")
-                  }
-                />
-                <CbCheckoutTotalRow
-                  variant="grand"
-                  icon={
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
-                      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.5" />
-                      <path d="M8 14l2.5 2.5L16 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                    </svg>
-                  }
-                  label={tx("total")}
-                  value={
-                    bagEstimatedTotal != null ? (
-                      <strong>{formatPrice(bagEstimatedTotal, bagCurrency)}</strong>
-                    ) : bagSessionAggregates.cartGrandTotal != null ? (
-                      <strong>{formatPrice(bagSessionAggregates.cartGrandTotal, bagCurrency)}</strong>
-                    ) : (
-                      tx("feePending")
-                    )
-                  }
-                />
-              </div>
-            </>
-          )}
-
-          {bagSnapshots.length > 0 ? (
-            <>
-              {approvalRequired ? (
-                <div className="cb-checkout-approval-notice-figma mb-3" role="note">
-                  <span className="cb-checkout-notice-icon" aria-hidden>⚠</span>
-                  <p>{tx("approvalBannerBody")}</p>
-                </div>
-              ) : null}
-              {computedDepositDollars != null ? (
-                <div className="cb-checkout-deposit-notice mb-3" role="note">
-                  <span className="cb-checkout-notice-icon" aria-hidden>ℹ</span>
-                  <p>{tx("depositBannerBody")}</p>
-                </div>
-              ) : null}
-
-              <h3 className="cb-checkout-section-title">{tc("paymentMethodSectionTitle")}</h3>
-              <div className="cb-checkout-payment-methods mb-4">
+              {/* Payment method picker (Figma cart-summary order: payment first, then totals box). */}
+              <section className="cb-co-section">
+                <h3 className="cb-co-section-title">{tc("paymentMethodSectionTitle")}</h3>
                 {paymentOptionsQuery.isPending ? (
                   <p className="cb-muted text-sm">{tc("loading")}</p>
                 ) : paymentOptionsQuery.isError ? (
@@ -3556,7 +3023,11 @@ export function BookingCheckoutDrawer({
                 ) : paymentChoices.length === 0 ? (
                   <p className="cb-muted text-sm">{tx("addPaymentWhenAvailable")}</p>
                 ) : (
-                  <div className="cb-checkout-payment-method-list" role="radiogroup" aria-label={tx("selectPaymentMethod")}>
+                  <div
+                    className="cb-checkout-payment-method-list"
+                    role="radiogroup"
+                    aria-label={tx("selectPaymentMethod")}
+                  >
                     {paymentChoices.map((pm) => {
                       const selected = selectedPaymentMethodId === pm.id;
                       const inputId = `cb-bag-pay-${pm.id}`;
@@ -3607,7 +3078,88 @@ export function BookingCheckoutDrawer({
                     ) : null}
                   </div>
                 )}
-              </div>
+              </section>
+
+              <div className="cb-co-divider" aria-hidden />
+
+              {/**
+               * Totals boxes — Figma cart-summary states 1.1 / 1.2 / 1.3 / 1.4.
+               * Mixed (state 1.3) stacks an orange "Approval items" box (with the approval
+               * blurb inline) above the standard invoiced box. Deposit-only (state 1.2) and
+               * pure-pay (state 1.4) show the single invoiced box. The deposit blurb sits
+               * inside the invoiced box rather than as a standalone banner.
+               */}
+              {cartFooterState === "split" && cartApprovalSubDollars != null ? (
+                <div className="cb-co-totals-box cb-co-totals-box--approval">
+                  <p className="cb-co-totals-box-label">{tx("cartApprovalItemsBoxLabel")}</p>
+                  <div className="cb-co-totals-row cb-co-totals-row--grand">
+                    <span>{tx("cartTotal")}</span>
+                    <strong>{formatPrice(cartApprovalSubDollars, bagCurrency)}</strong>
+                  </div>
+                  <p className="cb-co-totals-box-note">
+                    <TotalsBoxNoteInfoIcon />
+                    <span className="cb-co-totals-box-note-text">{tx("cartApprovalItemsBoxNote")}</span>
+                  </p>
+                </div>
+              ) : null}
+
+              {cartFooterState !== "request_only" ? (() => {
+                /**
+                 * Bond returns `cart.price` tax-inclusive (post-tax grand total). The displayed
+                 * "Subtotal" must therefore be derived (`grand − tax + discount`) so the rows add
+                 * up; the previous code used `cart.price` for both Subtotal and Total, which made
+                 * Tax look like an extra row that wasn't included in Total.
+                 */
+                const grand = cartChargeableDollars || cartFullDollars;
+                const taxN = aggregateTaxTotal ?? 0;
+                const discN = aggregateDiscountTotal ?? 0;
+                const preTaxSubtotal = Math.max(0, Math.round((grand - taxN + discN) * 100) / 100);
+                return (
+                  <div className="cb-co-totals-box">
+                    {cartFooterState === "split" ? (
+                      <p className="cb-co-totals-box-label">{tx("cartInvoicedItemsBoxLabel")}</p>
+                    ) : null}
+                    <div className="cb-co-totals-row">
+                      <span>{tx("cartSubtotal")}</span>
+                      <span>{formatPrice(preTaxSubtotal, bagCurrency)}</span>
+                    </div>
+                    {aggregateDiscountTotal != null ? (
+                      <div className="cb-co-totals-row">
+                        <span className="cb-co-totals-row-label">{tx("cartDiscounts")}</span>
+                        <span>−{formatPrice(aggregateDiscountTotal, bagCurrency)}</span>
+                      </div>
+                    ) : null}
+                    {aggregateTaxTotal != null ? (
+                      <div className="cb-co-totals-row">
+                        <span className="cb-co-totals-row-label">{tx("cartTax")}</span>
+                        <span>{formatPrice(aggregateTaxTotal, bagCurrency)}</span>
+                      </div>
+                    ) : null}
+                    <div className="cb-co-totals-row cb-co-totals-row--grand">
+                      <span>{tx("cartTotal")}</span>
+                      <strong>{formatPrice(grand, bagCurrency)}</strong>
+                    </div>
+                    {cartFooterState === "deposit" || cartFooterState === "split" ? (
+                      <p className="cb-co-totals-box-note cb-co-totals-box-note--info">
+                        <TotalsBoxNoteInfoIcon />
+                        <span className="cb-co-totals-box-note-text">{tx("cartDepositBoxNote")}</span>
+                      </p>
+                    ) : null}
+                  </div>
+                );
+              })(              ) : (
+                <div className="cb-co-totals-box cb-co-totals-box--approval">
+                  <p className="cb-co-totals-box-label">{tx("cartApprovalItemsBoxLabel")}</p>
+                  <div className="cb-co-totals-row cb-co-totals-row--grand">
+                    <span>{tx("cartTotal")}</span>
+                    <strong>{formatPrice(cartFullDollars, bagCurrency)}</strong>
+                  </div>
+                  <p className="cb-co-totals-box-note">
+                    <TotalsBoxNoteInfoIcon />
+                    <span className="cb-co-totals-box-note-text">{tx("cartApprovalItemsBoxNote")}</span>
+                  </p>
+                </div>
+              )}
 
               {submitBookingRequestMutation.isError ? (
                 <p className="mt-2 mb-3 text-sm text-[var(--cb-error-text)]" role="alert">
@@ -3619,32 +3171,70 @@ export function BookingCheckoutDrawer({
                 </p>
               ) : null}
 
-              <div className="cb-checkout-actions cb-checkout-actions--stack">
-                {bagPolicyBag === "all_submission" ? (
+              {/* 4-state footer button stack — labels include the dollar amount per Figma. */}
+              <div className="cb-co-actions">
+                {cartFooterState === "request_only" ? (
                   <button
                     type="button"
-                    className="cb-btn-add-to-cart"
+                    className="cb-co-btn cb-co-btn--success"
                     disabled={
                       submitBookingRequestMutation.isPending ||
                       paymentOptionsQuery.isPending ||
-                      bagSnapshots.length === 0 ||
                       (paymentChoices.length > 0 && selectedPaymentMethodId == null)
                     }
                     onClick={requestBookingSubmit}
                   >
                     <CbBusyInline busy={submitBookingRequestMutation.isPending}>
-                      {submitBookingRequestMutation.isPending ? tx("submitting") : tx("submitRequestTitle")}
+                      {submitBookingRequestMutation.isPending ? tx("submitting") : tx("cartBtnSubmitRequest")}
                     </CbBusyInline>
                   </button>
-                ) : computedDepositDollars != null || bagPolicyBag === "mixed" ? (
+                ) : cartFooterState === "split" ? (
+                  <button
+                    type="button"
+                    className="cb-co-btn cb-co-btn--success"
+                    disabled={
+                      submitBookingRequestMutation.isPending ||
+                      paymentOptionsQuery.isPending ||
+                      (paymentChoices.length > 0 && selectedPaymentMethodId == null) ||
+                      cartMinimumDollars == null
+                    }
+                    onClick={requestDepositSubmit}
+                  >
+                    <CbBusyInline busy={submitBookingRequestMutation.isPending}>
+                      {submitBookingRequestMutation.isPending
+                        ? tx("submitting")
+                        : tx("cartBtnSubmitAndPayDeposit", {
+                            amount: formatPrice(cartMinimumDollars ?? 0, bagCurrency),
+                          })}
+                    </CbBusyInline>
+                  </button>
+                ) : cartFooterState === "deposit" ? (
                   <>
                     <button
                       type="button"
-                      className="cb-btn-outline"
+                      className="cb-co-btn cb-co-btn--outline"
                       disabled={
                         submitBookingRequestMutation.isPending ||
                         paymentOptionsQuery.isPending ||
-                        bagSnapshots.length === 0 ||
+                        cartMinimumDollars == null ||
+                        cartChargeableDollars <= 0
+                      }
+                      onClick={() => {
+                        const fallback = cartMinimumDollars ?? cartChargeableDollars;
+                        setCustomAmountInput(
+                          Number.isFinite(fallback) && fallback > 0 ? String(fallback.toFixed(2)) : "",
+                        );
+                        setCustomAmountModalOpen(true);
+                      }}
+                    >
+                      {tx("cartBtnPayCustom")}
+                    </button>
+                    <button
+                      type="button"
+                      className="cb-co-btn cb-co-btn--primary"
+                      disabled={
+                        submitBookingRequestMutation.isPending ||
+                        paymentOptionsQuery.isPending ||
                         (paymentChoices.length > 0 && selectedPaymentMethodId == null)
                       }
                       onClick={requestBookingSubmit}
@@ -3652,39 +3242,34 @@ export function BookingCheckoutDrawer({
                       <CbBusyInline busy={submitBookingRequestMutation.isPending && submitKind === "full"}>
                         {submitBookingRequestMutation.isPending && submitKind === "full"
                           ? tx("submitting")
-                          : tx("payInFullWithAmount", {
-                              amount: formatPrice(bagEstimatedTotal ?? bagSessionAggregates.cartGrandTotal ?? 0, bagCurrency),
-                            })}
+                          : tx("cartBtnPayFull", { amount: formatPrice(cartChargeableDollars, bagCurrency) })}
                       </CbBusyInline>
                     </button>
                     <button
                       type="button"
-                      className="cb-btn-add-to-cart"
+                      className="cb-co-btn cb-co-btn--success"
                       disabled={
                         submitBookingRequestMutation.isPending ||
                         paymentOptionsQuery.isPending ||
-                        bagSnapshots.length === 0 ||
-                        (paymentChoices.length > 0 && selectedPaymentMethodId == null)
+                        (paymentChoices.length > 0 && selectedPaymentMethodId == null) ||
+                        cartMinimumDollars == null
                       }
                       onClick={requestDepositSubmit}
                     >
                       <CbBusyInline busy={submitBookingRequestMutation.isPending && submitKind === "deposit"}>
                         {submitBookingRequestMutation.isPending && submitKind === "deposit"
                           ? tx("submitting")
-                          : computedDepositDollars != null
-                            ? tx("payMinimumDue", { amount: formatPrice(computedDepositDollars, bagCurrency) })
-                            : tx("payMinimumDueNoAmount")}
+                          : tx("cartBtnPayMin", { amount: formatPrice(cartMinimumDollars ?? 0, bagCurrency) })}
                       </CbBusyInline>
                     </button>
                   </>
                 ) : (
                   <button
                     type="button"
-                    className="cb-btn-add-to-cart cb-cart-bag-pay-now"
+                    className="cb-co-btn cb-co-btn--success"
                     disabled={
                       submitBookingRequestMutation.isPending ||
                       paymentOptionsQuery.isPending ||
-                      bagSnapshots.length === 0 ||
                       (paymentChoices.length > 0 && selectedPaymentMethodId == null)
                     }
                     onClick={requestBookingSubmit}
@@ -3692,14 +3277,86 @@ export function BookingCheckoutDrawer({
                     <CbBusyInline busy={submitBookingRequestMutation.isPending}>
                       {submitBookingRequestMutation.isPending
                         ? tx("submitting")
-                        : bagFooterPrimaryLabel}
+                        : tx("cartBtnPayNow", { amount: formatPrice(cartChargeableDollars, bagCurrency) })}
                     </CbBusyInline>
                   </button>
                 )}
               </div>
             </>
-          ) : null}
+          )}
         </div>
+        {customAmountModalOpen ? (
+          <ModalShell
+            open
+            title={tx("cartCustomTitle")}
+            onClose={() => setCustomAmountModalOpen(false)}
+          >
+            <div className="cb-co-custom-modal-body">
+              <p className="cb-muted text-sm">
+                {tx("cartCustomHint", {
+                  min: formatPrice(cartMinimumDollars ?? 0, bagCurrency),
+                  max: formatPrice(cartChargeableDollars, bagCurrency),
+                })}
+              </p>
+              <label className="cb-co-custom-modal-label" htmlFor="cb-co-custom-input">
+                {tx("cartCustomLabel")}
+                <input
+                  id="cb-co-custom-input"
+                  type="number"
+                  inputMode="decimal"
+                  min={cartMinimumDollars ?? 0}
+                  max={cartChargeableDollars}
+                  step="0.01"
+                  value={customAmountInput}
+                  onChange={(e) => setCustomAmountInput(e.target.value)}
+                  className="cb-co-custom-modal-input"
+                />
+              </label>
+              {(() => {
+                const parsed = Number.parseFloat(customAmountInput);
+                const min = cartMinimumDollars ?? 0;
+                const max = cartChargeableDollars;
+                const valid = Number.isFinite(parsed) && parsed >= min && parsed <= max + 0.005;
+                return (
+                  <>
+                    {!valid && customAmountInput.length > 0 ? (
+                      <p className="cb-co-custom-modal-error" role="alert">
+                        {tx("cartCustomError", {
+                          min: formatPrice(min, bagCurrency),
+                          max: formatPrice(max, bagCurrency),
+                        })}
+                      </p>
+                    ) : null}
+                    <div className="cb-co-custom-modal-actions">
+                      <button
+                        type="button"
+                        className="cb-co-btn cb-co-btn--outline"
+                        onClick={() => setCustomAmountModalOpen(false)}
+                      >
+                        {tx("cartCustomCancel")}
+                      </button>
+                      <button
+                        type="button"
+                        className="cb-co-btn cb-co-btn--primary"
+                        disabled={!valid || submitBookingRequestMutation.isPending}
+                        onClick={() => {
+                          if (!valid) return;
+                          setCustomAmountModalOpen(false);
+                          setSubmitKind("custom");
+                          submitBookingRequestMutation.mutate(Math.round(parsed * 100) / 100);
+                        }}
+                      >
+                        {tx("cartCustomConfirm", {
+                          amount: valid ? formatPrice(parsed, bagCurrency) : formatPrice(0, bagCurrency),
+                        })}
+                      </button>
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+          </ModalShell>
+        ) : null}
       </RightDrawer>
     );
   }
@@ -4434,7 +4091,9 @@ export function BookingCheckoutDrawer({
                   moreCount={packageAddons.length - ADDONS_PAGE}
                   selectedAddonIds={selectedAddonIds}
                   addonQuantities={addonQuantities}
+                  addonSlotQuantities={addonSlotQuantities}
                   onSetAddonQty={onSetAddonQty}
+                  onSetAddonSlotQty={onSetAddonSlotQty}
                   onToggleAddon={onToggleAddon}
                   addonSlotTargeting={addonSlotTargeting}
                   onAddonSelectAllSlots={onAddonSelectAllSlots}
@@ -4512,7 +4171,6 @@ export function BookingCheckoutDrawer({
             {renderPresummaryCard({
               headingId: "cb-presummary-heading-membership",
               keyPrefix: "pre-mem",
-              showFootnote: true,
               showReviewHint: false,
               layout: "compactTotals",
             })}
@@ -4637,9 +4295,7 @@ export function BookingCheckoutDrawer({
               ? renderPresummaryCard({
                   headingId: "cb-presummary-heading-sync",
                   keyPrefix: "pre-sync",
-                  showFootnote: true,
-                  layout: presummaryOnlySynthetics ? "bookingReview" : "default",
-                  onEditSlots: onClose,
+                  layout: "bookingReview",
                   onEditAddons: () => setStep("addons"),
                   ...(onRemoveSlot ? { onRemoveSlot } : {}),
                   ...(onRemoveReservationAddon ? { onRemoveAddon: onRemoveReservationAddon } : {}),

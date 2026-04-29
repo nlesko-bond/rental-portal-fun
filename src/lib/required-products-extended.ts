@@ -97,6 +97,69 @@ export function primaryListPrice(node: ExtendedRequiredProductNode): { amount: n
   return { amount, currency, label: name };
 }
 
+/** Read a finite positive number from a record by candidate keys. */
+function pickNumber(o: Record<string, unknown> | undefined | null, keys: readonly string[]): number | null {
+  if (!o) return null;
+  for (const k of keys) {
+    const v = o[k];
+    const n = typeof v === "number" ? v : Number(v);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return null;
+}
+
+/** Read the first non-empty string from a record by candidate keys. */
+function pickString(o: Record<string, unknown> | undefined | null, keys: readonly string[]): string | null {
+  if (!o) return null;
+  for (const k of keys) {
+    const v = o[k];
+    if (typeof v === "string" && v.trim().length > 0) return v.trim();
+  }
+  return null;
+}
+
+/**
+ * Returns a customer-facing **renewal-period or expiration** label for a membership product:
+ *   - `"month"` / `"quarter"` / `"year"` / `"3 months"` for recurring memberships
+ *   - `"exp Dec 24, 2026"` for fixed-price-until-date memberships
+ *   - `null` when nothing useful can be derived
+ *
+ * Reads from common Bond shapes (`product.resource.membership.durationMonths`,
+ * `expirationDate` / `endDate`, etc.) — falls back to nothing rather than echoing the product
+ * name (which the old `prices[0].name` path was doing and is what the membership UI was
+ * accidentally displaying).
+ */
+export function membershipFrequencyLabel(node: ExtendedRequiredProductNode): string | null {
+  const o = node as Record<string, unknown>;
+  const product = (o.product as Record<string, unknown> | undefined) ?? null;
+  const resource = (o.resource ?? product?.resource) as Record<string, unknown> | undefined;
+  const membership = (resource?.membership ?? o.membership) as Record<string, unknown> | undefined;
+
+  const months =
+    pickNumber(membership, ["durationMonths", "months", "lengthMonths"]) ??
+    pickNumber(o, ["durationMonths"]);
+  if (months != null) {
+    if (months === 1) return "month";
+    if (months === 3) return "quarter";
+    if (months === 12) return "year";
+    if (months % 12 === 0) return `${months / 12} years`;
+    return `${months} months`;
+  }
+
+  const expirationDate =
+    pickString(membership, ["expirationDate", "endDate", "validUntil", "expiresAt"]) ??
+    pickString(product, ["expirationDate", "endDate", "validUntil", "expiresAt"]) ??
+    pickString(o, ["expirationDate", "endDate", "validUntil", "expiresAt"]);
+  if (expirationDate) {
+    const d = new Date(expirationDate);
+    if (!Number.isNaN(d.getTime())) {
+      const mmm = d.toLocaleString("en-US", { month: "short" });
+      return `exp ${mmm} ${d.getDate()}, ${d.getFullYear()}`;
+    }
+  }
+  return null;
+}
+
 /** List/catalog unit price for a product id in the extended required tree (includes `required: false` satisfied rows). */
 export function unitPriceForRequiredProductInTree(
   nodes: ExtendedRequiredProductNode[],
