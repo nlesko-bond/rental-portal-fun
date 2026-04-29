@@ -58,7 +58,7 @@ export function MembershipRequiredPanel({
   return (
     <div className="cb-membership-modal">
       <div className="cb-membership-modal-hero">
-        <div className="cb-membership-modal-hero-icon" aria-hidden>
+        <div className="cb-checkout-summary-step-hero-icon cb-membership-modal-hero-icon" aria-hidden>
           <IconMembershipCard className="h-6 w-6" />
         </div>
         <p className="cb-membership-modal-hero-title">{tc("membershipPanelHeroTitle")}</p>
