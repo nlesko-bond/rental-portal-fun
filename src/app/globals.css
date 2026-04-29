@@ -6837,9 +6837,9 @@ body {
   height: 3.25rem;
   margin: 0 auto;
   border-radius: 999px;
-  background: linear-gradient(145deg, #facc15 0%, #eab308 100%);
-  color: #5c3d00;
-  box-shadow: 0 4px 14px color-mix(in srgb, #eab308 35%, transparent);
+  background: linear-gradient(145deg, #fde047, #facc15);
+  color: #fff;
+  box-shadow: 0 4px 14px color-mix(in srgb, #facc15 35%, transparent);
 }
 
 .consumer-booking .cb-membership-modal-hero-icon svg {
