@@ -57,7 +57,6 @@ export function BookingForDrawer({
             </div>
             <h2 className="cb-family-placeholder-title">{tb("addFamilyMemberTitle")}</h2>
             <p className="cb-family-placeholder-sub">{tb("addFamilyMemberSubtitle")}</p>
-            <p className="cb-family-placeholder-note">{tb("addFamilyMemberPlaceholderNote")}</p>
           </div>
           <div className="cb-family-placeholder-fields">
             <PlaceholderField label={tb("firstName")} placeholder={tb("enterName")} required />

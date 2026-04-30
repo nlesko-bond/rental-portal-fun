@@ -465,7 +465,10 @@ export function CheckoutQuestionField({
         </span>
         <label className="cb-q-file-drop mt-1 flex cursor-pointer flex-col items-center gap-2 rounded-lg border border-dashed border-[var(--cb-border)] bg-[var(--cb-bg-field)] px-4 py-6">
           <span className="text-2xl" aria-hidden>
-            ⬆
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+              <path d="M12 16V5M8 9l4-4 4 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M5 16v2.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V16" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+            </svg>
           </span>
           <span className="text-center text-sm text-[var(--cb-text)]">{tc("chooseFile")}</span>
           <span className="text-center text-xs text-[var(--cb-text-muted)]">{tc("fileAcceptsHint")}</span>

@@ -213,6 +213,55 @@ export type SessionCartGroupedSection = {
   items: SessionCartGroupedItem[];
 };
 
+function readNameFromRecord(record: Record<string, unknown>): string | undefined {
+  const fullName = record.fullName ?? record.displayName ?? record.name;
+  if (typeof fullName === "string" && fullName.trim().length > 0) return fullName.trim();
+  const first = typeof record.firstName === "string" ? record.firstName.trim() : "";
+  const last = typeof record.lastName === "string" ? record.lastName.trim() : "";
+  const joined = `${first} ${last}`.trim();
+  return joined.length > 0 ? joined : undefined;
+}
+
+function participantLabelFromCartItem(item: Record<string, unknown>): string | undefined {
+  for (const key of ["productUser", "participant", "customer", "user"] as const) {
+    const value = item[key];
+    if (value && typeof value === "object") {
+      const name = readNameFromRecord(value as Record<string, unknown>);
+      if (name) return name;
+    }
+  }
+  const reservation = item.reservation;
+  if (reservation && typeof reservation === "object") {
+    const record = reservation as Record<string, unknown>;
+    for (const key of ["productUser", "participant", "customer", "user"] as const) {
+      const value = record[key];
+      if (value && typeof value === "object") {
+        const name = readNameFromRecord(value as Record<string, unknown>);
+        if (name) return name;
+      }
+    }
+  }
+  const metadata = item.metadata && typeof item.metadata === "object" ? (item.metadata as Record<string, unknown>) : null;
+  for (const key of ["productUserName", "participantName", "customerName", "userName"] as const) {
+    const value = metadata?.[key] ?? item[key];
+    if (typeof value === "string" && value.trim().length > 0) return value.trim();
+  }
+  return undefined;
+}
+
+function participantLabelFromCartIndices(cart: OrganizationCartDto, indices?: readonly number[]): string | undefined {
+  if (!Array.isArray(cart.cartItems) || cart.cartItems.length === 0) return undefined;
+  const flat = flattenBondCartItemNodes(cart.cartItems);
+  const candidates = indices != null && indices.length > 0 ? indices : flat.map((_, index) => index);
+  for (const index of candidates) {
+    const item = flat[index];
+    if (!item || typeof item !== "object") continue;
+    const label = participantLabelFromCartItem(item as Record<string, unknown>);
+    if (label) return label;
+  }
+  return undefined;
+}
+
 /**
  * Groups session cart snapshots by person. Merged carts with `reservationGroups` expand into * multiple grouped items (same snapshot `index`) so each participant gets their own section.
  */
@@ -244,7 +293,9 @@ export function groupSessionCartSnapshotsByLabel(rows: SessionCartSnapshot[]): S
         continue;
       }
       for (let gi = 0; gi < rg.length; gi++) {
-        const subLabel = rg[gi]!.bookingForLabel.trim() || "Booking";
+        const subLabel =
+          participantLabelFromCartIndices(row.cart, segments[gi]) ??
+          (rg[gi]!.bookingForLabel.trim() || "Booking");
         append(subLabel, {
           index,
           row,
@@ -254,7 +305,7 @@ export function groupSessionCartSnapshotsByLabel(rows: SessionCartSnapshot[]): S
       }
       continue;
     }
-    append(row.bookingForLabel?.trim() || "Booking", { index, row });
+    append(participantLabelFromCartIndices(row.cart) ?? (row.bookingForLabel?.trim() || "Booking"), { index, row });
   }
   return order.map((label) => ({ label, items: map.get(label)! }));
 }

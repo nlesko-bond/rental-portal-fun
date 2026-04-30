@@ -105,6 +105,101 @@ const CURRENCY_CENTS = 100;
 const CURRENCY_INPUT_DECIMALS = 2;
 const CURRENCY_INPUT_STEP = "0.01";
 
+type PaymentAmountChoice = "minimum" | "full" | "custom";
+
+type PaymentAmountSelectorProps = {
+  choice: PaymentAmountChoice;
+  onChoiceChange: (choice: PaymentAmountChoice) => void;
+  minimumAmount: number;
+  fullAmount: number;
+  currency: string;
+  customValue: string;
+  onCustomValueChange: (value: string) => void;
+  customInputId: string;
+  customMin: number;
+  customMax: number;
+  customErrorVisible: boolean;
+  customErrorText: string;
+  formatPrice: (amount: number, currency: string) => string;
+  tx: (key: string) => string;
+};
+
+function PaymentAmountSelector({
+  choice,
+  onChoiceChange,
+  minimumAmount,
+  fullAmount,
+  currency,
+  customValue,
+  onCustomValueChange,
+  customInputId,
+  customMin,
+  customMax,
+  customErrorVisible,
+  customErrorText,
+  formatPrice,
+  tx,
+}: PaymentAmountSelectorProps) {
+  return (
+    <section className="cb-co-payment-amount" aria-labelledby={`${customInputId}-title`}>
+      <h3 id={`${customInputId}-title`} className="cb-co-payment-amount-title">
+        {tx("paymentAmountTitle")}
+      </h3>
+      <div className="cb-co-payment-amount-list">
+        <button
+          type="button"
+          className={`cb-co-payment-amount-card ${choice === "minimum" ? "cb-co-payment-amount-card--selected" : ""}`}
+          onClick={() => onChoiceChange("minimum")}
+        >
+          <span className="cb-co-payment-amount-card-title">{tx("payMinimumDueOption")}</span>
+          <span className="cb-co-payment-amount-card-price">{formatPrice(minimumAmount, currency)}</span>
+        </button>
+        <button
+          type="button"
+          className={`cb-co-payment-amount-card ${choice === "full" ? "cb-co-payment-amount-card--selected" : ""}`}
+          onClick={() => onChoiceChange("full")}
+        >
+          <span className="cb-co-payment-amount-card-title">{tx("payFullAmountOption")}</span>
+          <span className="cb-co-payment-amount-card-price">{formatPrice(fullAmount, currency)}</span>
+        </button>
+        <div
+          className={`cb-co-payment-amount-card cb-co-payment-amount-card--custom ${choice === "custom" ? "cb-co-payment-amount-card--selected" : ""}`}
+        >
+          <button type="button" className="cb-co-payment-amount-custom-trigger" onClick={() => onChoiceChange("custom")}>
+            <span className="cb-co-payment-amount-card-title">{tx("payCustomAmountOption")}</span>
+            <span className="cb-co-payment-amount-card-hint">{tx("payCustomAmountHint")}</span>
+          </button>
+          <label className="cb-co-custom-deposit-label" htmlFor={customInputId}>
+            {tx("cartCustomAmountLabel")}
+          </label>
+          <span className="cb-co-custom-deposit-input-wrap">
+            <span className="cb-co-custom-deposit-prefix" aria-hidden>
+              $
+            </span>
+            <input
+              id={customInputId}
+              type="number"
+              inputMode="decimal"
+              min={customMin}
+              max={customMax}
+              step={CURRENCY_INPUT_STEP}
+              value={customValue}
+              onFocus={() => onChoiceChange("custom")}
+              onChange={(event) => onCustomValueChange(event.target.value)}
+              className="cb-co-custom-deposit-input"
+            />
+          </span>
+          {customErrorVisible && choice === "custom" ? (
+            <p className="cb-co-custom-deposit-error" role="alert">
+              {customErrorText}
+            </p>
+          ) : null}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function bagCartMetaRowsUl(
   bagMetaRows: NonNullable<CartPurchaseDisplayLine["bagMetaRows"]>,
   tx: (key: string) => string
@@ -501,6 +596,7 @@ export function BookingCheckoutDrawer({
   /** Which submit button triggered the in-flight mutation — "full" or "deposit". */
   const [submitKind, setSubmitKind] = useState<"full" | "deposit" | null>(null);
   const [customAmountInput, setCustomAmountInput] = useState<string>("");
+  const [paymentAmountChoice, setPaymentAmountChoice] = useState<PaymentAmountChoice>("minimum");
   const [paymentModal, setPaymentModal] = useState<"card" | "bank" | null>(null);
   /** `submit` = venue approval flow (no invoice row); `pay` = paid / standard finalize. */
   const [finalizeCheckoutKind, setFinalizeCheckoutKind] = useState<"pay" | "submit" | null>(null);
@@ -2227,9 +2323,8 @@ export function BookingCheckoutDrawer({
               </svg>
             </div>
             <h2 className="cb-payment-method-modal-title">Confirm bank account</h2>
-            <p className="cb-payment-method-modal-placeholder">[customer goes via stripe and gets redirected here]</p>
             <p className="cb-payment-method-modal-copy">
-              Please confirm that you agree to connect your account information to our system. This account will be saved to your payment methods for future use.
+              You will continue through Stripe to securely connect your bank account, then return here to finish checkout. This account will be saved to your payment methods for future use.
             </p>
           </div>
           <div className="cb-payment-method-modal-actions">
@@ -2576,7 +2671,12 @@ export function BookingCheckoutDrawer({
               referrerPolicy="no-referrer"
             />
           ) : (
-            <div className="cb-checkout-presummary-participant-avatar" aria-hidden />
+            <div className="cb-checkout-presummary-participant-avatar" aria-hidden>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                <circle cx="12" cy="8.5" r="3" stroke="currentColor" strokeWidth="1.6" />
+                <path d="M6 19c1.25-3 3.65-4.75 6-4.75S16.75 16 18 19" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+              </svg>
+            </div>
           )}
           <div className="cb-checkout-presummary-participant-text">
             <span className="cb-checkout-presummary-participant-name">{bookingForLabel}</span>
@@ -2650,12 +2750,6 @@ export function BookingCheckoutDrawer({
                   </li>
                 </ul>
                 <p className="cb-checkout-review-card-unit cb-checkout-review-card-unit--price cb-muted">
-                  <span className="cb-checkout-review-card-unit-icon" aria-hidden>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-                      <path d="M20 12V7.5A2.5 2.5 0 0 0 17.5 5H6.5A2.5 2.5 0 0 0 4 7.5v9A2.5 2.5 0 0 0 6.5 19h11a2.5 2.5 0 0 0 2.5-2.5V16" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-                      <path d="M4 9h16M16 13h4v3h-4a1.5 1.5 0 0 1 0-3z" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  </span>
                   <span>{s.unitSubtitle}</span>
                 </p>
                 {s.discountNote ? (
@@ -3221,11 +3315,11 @@ export function BookingCheckoutDrawer({
                       );
                     })}
                     <div className="cb-checkout-payment-add-actions">
-                      <button type="button" className="cb-checkout-payment-add-card" onClick={() => setPaymentModal("card")}>
-                        {tc("addNewCard")}
-                      </button>
                       <button type="button" className="cb-checkout-payment-add-card" onClick={() => setPaymentModal("bank")}>
                         {tc("addBankAccount")}
+                      </button>
+                      <button type="button" className="cb-checkout-payment-add-card" onClick={() => setPaymentModal("card")}>
+                        {tc("addNewCard")}
                       </button>
                     </div>
                   </div>
@@ -3330,55 +3424,25 @@ export function BookingCheckoutDrawer({
               )}
 
               {hasDepositEntry ? (
-                <div className="cb-co-custom-deposit">
-                  <div className="cb-co-custom-deposit-note" role="note">
-                    <TotalsBoxNoteInfoIcon />
-                    <span className="cb-co-custom-deposit-note-text">{tx("cartDepositBoxNote")}</span>
-                  </div>
-                  <div className="cb-co-custom-deposit-field">
-                    <label className="cb-co-custom-deposit-label" id="cb-co-custom-deposit-label" htmlFor="cb-co-custom-deposit-input">
-                      {tx("cartCustomLabel")}
-                      <span className="cb-co-custom-deposit-required" aria-hidden>
-                        *
-                      </span>
-                    </label>
-                    <span className="cb-co-custom-deposit-input-wrap">
-                      <span className="cb-co-custom-deposit-prefix" aria-hidden>
-                        $
-                      </span>
-                      <input
-                        id="cb-co-custom-deposit-input"
-                        type="number"
-                        inputMode="decimal"
-                        min={customDepositMin}
-                        max={customDepositMax}
-                        step={CURRENCY_INPUT_STEP}
-                        value={customDepositValue}
-                        onChange={(e) => setCustomAmountInput(e.target.value)}
-                        className="cb-co-custom-deposit-input"
-                      />
-                    <button
-                      type="button"
-                      className="cb-co-custom-deposit-reset"
-                      aria-label="Reset custom deposit to minimum due"
-                      onClick={() => setCustomAmountInput(customDepositMin.toFixed(CURRENCY_INPUT_DECIMALS))}
-                    >
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
-                        <path d="M3 12a9 9 0 0 1 15.5-6.25L21 8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                        <path d="M21 3v5h-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    </button>
-                    </span>
-                  </div>
-                  {customDepositErrorVisible ? (
-                    <p className="cb-co-custom-deposit-error" role="alert">
-                      {tx("cartCustomError", {
-                        min: formatPrice(customDepositMin, bagCurrency),
-                        max: formatPrice(customDepositMax, bagCurrency),
-                      })}
-                    </p>
-                  ) : null}
-                </div>
+                <PaymentAmountSelector
+                  choice={paymentAmountChoice}
+                  onChoiceChange={setPaymentAmountChoice}
+                  minimumAmount={customDepositMin}
+                  fullAmount={customDepositMax}
+                  currency={bagCurrency}
+                  customValue={customDepositValue}
+                  onCustomValueChange={setCustomAmountInput}
+                  customInputId="cb-co-custom-deposit-input"
+                  customMin={customDepositMin}
+                  customMax={customDepositMax}
+                  customErrorVisible={customDepositErrorVisible}
+                  customErrorText={tx("cartCustomError", {
+                    min: formatPrice(customDepositMin, bagCurrency),
+                    max: formatPrice(customDepositMax, bagCurrency),
+                  })}
+                  formatPrice={formatPrice}
+                  tx={tx}
+                />
               ) : null}
 
               {submitBookingRequestMutation.isError ? (
@@ -3408,47 +3472,39 @@ export function BookingCheckoutDrawer({
                     </CbBusyInline>
                   </button>
                 ) : cartFooterState === "deposit" || cartFooterState === "split" ? (
-                  <>
-                    <button
-                      type="button"
-                      className="cb-co-btn cb-co-btn--outline"
-                      disabled={
-                        submitBookingRequestMutation.isPending ||
-                        paymentOptionsQuery.isPending ||
-                        (paymentChoices.length > 0 && selectedPaymentMethodId == null)
+                  <button
+                    type="button"
+                    className="cb-co-btn cb-co-btn--primary"
+                    disabled={
+                      submitBookingRequestMutation.isPending ||
+                      paymentOptionsQuery.isPending ||
+                      (paymentChoices.length > 0 && selectedPaymentMethodId == null) ||
+                      (paymentAmountChoice === "custom" && customDepositAmount == null)
+                    }
+                    onClick={() => {
+                      if (paymentAmountChoice === "full") {
+                        requestBookingSubmit();
+                        return;
                       }
-                      onClick={requestBookingSubmit}
-                    >
-                      <CbBusyInline busy={submitBookingRequestMutation.isPending && submitKind === "full"}>
-                        {submitBookingRequestMutation.isPending && submitKind === "full"
-                          ? tx("submitting")
-                          : tx("cartBtnPayFull", { amount: formatPrice(cartChargeableDollars, bagCurrency) })}
-                      </CbBusyInline>
-                    </button>
-                    <button
-                      type="button"
-                      className="cb-co-btn cb-co-btn--primary"
-                      disabled={
-                        submitBookingRequestMutation.isPending ||
-                        paymentOptionsQuery.isPending ||
-                        (paymentChoices.length > 0 && selectedPaymentMethodId == null) ||
-                        customDepositAmount == null
-                      }
-                      onClick={() => {
-                        if (customDepositAmount == null) return;
-                        setSubmitKind("deposit");
-                        submitBookingRequestMutation.mutate(customDepositAmount);
-                      }}
-                    >
-                      <CbBusyInline busy={submitBookingRequestMutation.isPending && submitKind === "deposit"}>
-                        {submitBookingRequestMutation.isPending && submitKind === "deposit"
-                          ? tx("submitting")
+                      const amount = paymentAmountChoice === "custom" ? customDepositAmount : customDepositMin;
+                      if (amount == null) return;
+                      setSubmitKind("deposit");
+                      submitBookingRequestMutation.mutate(amount);
+                    }}
+                  >
+                    <CbBusyInline busy={submitBookingRequestMutation.isPending}>
+                      {submitBookingRequestMutation.isPending
+                        ? tx("submitting")
+                        : paymentAmountChoice === "full"
+                          ? tx("cartBtnPayFull", { amount: formatPrice(cartChargeableDollars, bagCurrency) })
                           : tx("cartBtnPayMin", {
-                              amount: formatPrice(customDepositAmount ?? customDepositMin, bagCurrency),
+                              amount: formatPrice(
+                                paymentAmountChoice === "custom" ? customDepositAmount ?? customDepositMin : customDepositMin,
+                                bagCurrency
+                              ),
                             })}
-                      </CbBusyInline>
-                    </button>
-                  </>
+                    </CbBusyInline>
+                  </button>
                 ) : (
                   <button
                     type="button"
@@ -3767,55 +3823,25 @@ export function BookingCheckoutDrawer({
                     </div>
                   ) : null}
                   {computedDepositDollars != null ? (
-                    <div className="cb-co-custom-deposit mb-4">
-                      <div className="cb-co-custom-deposit-note" role="note">
-                        <TotalsBoxNoteInfoIcon />
-                        <span className="cb-co-custom-deposit-note-text">{tx("cartDepositBoxNote")}</span>
-                      </div>
-                      <div className="cb-co-custom-deposit-field">
-                        <label className="cb-co-custom-deposit-label" id="cb-checkout-custom-deposit-label" htmlFor="cb-checkout-custom-deposit-input">
-                          {tx("cartCustomLabel")}
-                          <span className="cb-co-custom-deposit-required" aria-hidden>
-                            *
-                          </span>
-                        </label>
-                        <span className="cb-co-custom-deposit-input-wrap">
-                          <span className="cb-co-custom-deposit-prefix" aria-hidden>
-                            $
-                          </span>
-                          <input
-                            id="cb-checkout-custom-deposit-input"
-                            type="number"
-                            inputMode="decimal"
-                            min={checkoutDepositMin}
-                            max={checkoutTotal}
-                            step={CURRENCY_INPUT_STEP}
-                            value={checkoutDepositValue}
-                            onChange={(e) => setCustomAmountInput(e.target.value)}
-                            className="cb-co-custom-deposit-input"
-                          />
-                      <button
-                        type="button"
-                        className="cb-co-custom-deposit-reset"
-                        aria-label="Reset custom deposit to minimum due"
-                        onClick={() => setCustomAmountInput(checkoutDepositMin.toFixed(CURRENCY_INPUT_DECIMALS))}
-                      >
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
-                          <path d="M3 12a9 9 0 0 1 15.5-6.25L21 8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                          <path d="M21 3v5h-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                      </button>
-                        </span>
-                      </div>
-                      {checkoutDepositErrorVisible ? (
-                        <p className="cb-co-custom-deposit-error" role="alert">
-                          {tx("cartCustomError", {
-                            min: formatPrice(checkoutDepositMin, bagCurrency),
-                            max: formatPrice(checkoutTotal, bagCurrency),
-                          })}
-                        </p>
-                      ) : null}
-                    </div>
+                    <PaymentAmountSelector
+                      choice={paymentAmountChoice}
+                      onChoiceChange={setPaymentAmountChoice}
+                      minimumAmount={checkoutDepositMin}
+                      fullAmount={checkoutTotal}
+                      currency={bagCurrency}
+                      customValue={checkoutDepositValue}
+                      onCustomValueChange={setCustomAmountInput}
+                      customInputId="cb-checkout-custom-deposit-input"
+                      customMin={checkoutDepositMin}
+                      customMax={checkoutTotal}
+                      customErrorVisible={checkoutDepositErrorVisible}
+                      customErrorText={tx("cartCustomError", {
+                        min: formatPrice(checkoutDepositMin, bagCurrency),
+                        max: formatPrice(checkoutTotal, bagCurrency),
+                      })}
+                      formatPrice={formatPrice}
+                      tx={tx}
+                    />
                   ) : null}
                 </>
               );
@@ -3889,11 +3915,11 @@ export function BookingCheckoutDrawer({
                     );
                   })}
                   <div className="cb-checkout-payment-add-actions">
-                    <button type="button" className="cb-checkout-payment-add-card" onClick={() => setPaymentModal("card")}>
-                      {tc("addNewCard")}
-                    </button>
                     <button type="button" className="cb-checkout-payment-add-card" onClick={() => setPaymentModal("bank")}>
                       {tc("addBankAccount")}
+                    </button>
+                    <button type="button" className="cb-checkout-payment-add-card" onClick={() => setPaymentModal("card")}>
+                      {tc("addNewCard")}
                     </button>
                   </div>
                 </div>
@@ -3930,51 +3956,43 @@ export function BookingCheckoutDrawer({
                 </button>
               ) : bagPolicyCheckout === "mixed" ? (
                 computedDepositDollars != null ? (
-                  <>
-                    <button
-                      type="button"
-                      className="cb-co-btn cb-co-btn--outline"
-                      disabled={
-                        submitBookingRequestMutation.isPending ||
-                        paymentOptionsQuery.isPending ||
-                        paymentLines.length === 0 ||
-                        (paymentChoices.length > 0 && selectedPaymentMethodId == null) ||
-                        (pickedSlots.length === 0 && bagSnapshots.length === 0 && !lastCart && !approvalDeferred)
+                  <button
+                    type="button"
+                    className="cb-co-btn cb-co-btn--primary"
+                    disabled={
+                      submitBookingRequestMutation.isPending ||
+                      paymentOptionsQuery.isPending ||
+                      paymentLines.length === 0 ||
+                      (paymentChoices.length > 0 && selectedPaymentMethodId == null) ||
+                      (pickedSlots.length === 0 && bagSnapshots.length === 0 && !lastCart && !approvalDeferred) ||
+                      (paymentAmountChoice === "custom" && checkoutDepositAmount == null)
+                    }
+                    onClick={() => {
+                      if (paymentAmountChoice === "full") {
+                        requestBookingSubmit();
+                        return;
                       }
-                      onClick={requestBookingSubmit}
-                    >
-                      <CbBusyInline busy={submitBookingRequestMutation.isPending && submitKind === "full"}>
-                        {submitBookingRequestMutation.isPending && submitKind === "full"
-                          ? tx("submitting")
-                          : tx("payInFullWithAmount", {
-                              amount: formatPrice(presummaryPrecheckoutAmountDue ?? 0, bagCurrency),
+                      const amount = paymentAmountChoice === "custom" ? checkoutDepositAmount : computedDepositDollars;
+                      if (amount == null) return;
+                      setSubmitKind("deposit");
+                      submitBookingRequestMutation.mutate(amount);
+                    }}
+                  >
+                    <CbBusyInline busy={submitBookingRequestMutation.isPending}>
+                      {submitBookingRequestMutation.isPending
+                        ? tx("submitting")
+                        : paymentAmountChoice === "full"
+                          ? tx("payInFullWithAmount", { amount: formatPrice(checkoutPaymentTotal, bagCurrency) })
+                          : tx("payMinimumDue", {
+                              amount: formatPrice(
+                                paymentAmountChoice === "custom"
+                                  ? checkoutDepositAmount ?? computedDepositDollars
+                                  : computedDepositDollars,
+                                bagCurrency
+                              ),
                             })}
-                      </CbBusyInline>
-                    </button>
-                    <button
-                      type="button"
-                      className="cb-co-btn cb-co-btn--primary"
-                      disabled={
-                        submitBookingRequestMutation.isPending ||
-                        paymentOptionsQuery.isPending ||
-                        paymentLines.length === 0 ||
-                        (paymentChoices.length > 0 && selectedPaymentMethodId == null) ||
-                        (pickedSlots.length === 0 && bagSnapshots.length === 0 && !lastCart && !approvalDeferred) ||
-                        checkoutDepositAmount == null
-                      }
-                      onClick={() => {
-                        if (checkoutDepositAmount == null) return;
-                        setSubmitKind("deposit");
-                        submitBookingRequestMutation.mutate(checkoutDepositAmount);
-                      }}
-                    >
-                      <CbBusyInline busy={submitBookingRequestMutation.isPending && submitKind === "deposit"}>
-                        {submitBookingRequestMutation.isPending && submitKind === "deposit"
-                          ? tx("submitting")
-                          : tx("payMinimumDue", { amount: formatPrice(checkoutDepositAmount ?? computedDepositDollars, bagCurrency) })}
-                      </CbBusyInline>
-                    </button>
-                  </>
+                    </CbBusyInline>
+                  </button>
                 ) : (
                   <button
                     type="button"
@@ -3998,51 +4016,43 @@ export function BookingCheckoutDrawer({
                   </button>
                 )
               ) : computedDepositDollars != null ? (
-                <>
-                  <button
-                    type="button"
-                    className="cb-co-btn cb-co-btn--outline"
-                    disabled={
-                      submitBookingRequestMutation.isPending ||
-                      paymentOptionsQuery.isPending ||
-                      paymentLines.length === 0 ||
-                      (paymentChoices.length > 0 && selectedPaymentMethodId == null) ||
-                      (pickedSlots.length === 0 && bagSnapshots.length === 0 && !lastCart && !approvalDeferred)
+                <button
+                  type="button"
+                  className="cb-co-btn cb-co-btn--primary"
+                  disabled={
+                    submitBookingRequestMutation.isPending ||
+                    paymentOptionsQuery.isPending ||
+                    paymentLines.length === 0 ||
+                    (paymentChoices.length > 0 && selectedPaymentMethodId == null) ||
+                    (pickedSlots.length === 0 && bagSnapshots.length === 0 && !lastCart && !approvalDeferred) ||
+                    (paymentAmountChoice === "custom" && checkoutDepositAmount == null)
+                  }
+                  onClick={() => {
+                    if (paymentAmountChoice === "full") {
+                      requestBookingSubmit();
+                      return;
                     }
-                    onClick={requestBookingSubmit}
-                  >
-                    <CbBusyInline busy={submitBookingRequestMutation.isPending && submitKind === "full"}>
-                      {submitBookingRequestMutation.isPending && submitKind === "full"
-                        ? tx("submitting")
-                        : tx("payInFullWithAmount", {
-                            amount: formatPrice(presummaryPrecheckoutAmountDue ?? 0, bagCurrency),
+                    const amount = paymentAmountChoice === "custom" ? checkoutDepositAmount : computedDepositDollars;
+                    if (amount == null) return;
+                    setSubmitKind("deposit");
+                    submitBookingRequestMutation.mutate(amount);
+                  }}
+                >
+                  <CbBusyInline busy={submitBookingRequestMutation.isPending}>
+                    {submitBookingRequestMutation.isPending
+                      ? tx("submitting")
+                      : paymentAmountChoice === "full"
+                        ? tx("payInFullWithAmount", { amount: formatPrice(checkoutPaymentTotal, bagCurrency) })
+                        : tx("payMinimumDue", {
+                            amount: formatPrice(
+                              paymentAmountChoice === "custom"
+                                ? checkoutDepositAmount ?? computedDepositDollars
+                                : computedDepositDollars,
+                              bagCurrency
+                            ),
                           })}
-                    </CbBusyInline>
-                  </button>
-                  <button
-                    type="button"
-                    className="cb-co-btn cb-co-btn--primary"
-                    disabled={
-                      submitBookingRequestMutation.isPending ||
-                      paymentOptionsQuery.isPending ||
-                      paymentLines.length === 0 ||
-                      (paymentChoices.length > 0 && selectedPaymentMethodId == null) ||
-                      (pickedSlots.length === 0 && bagSnapshots.length === 0 && !lastCart && !approvalDeferred) ||
-                      checkoutDepositAmount == null
-                    }
-                    onClick={() => {
-                      if (checkoutDepositAmount == null) return;
-                      setSubmitKind("deposit");
-                      submitBookingRequestMutation.mutate(checkoutDepositAmount);
-                    }}
-                  >
-                    <CbBusyInline busy={submitBookingRequestMutation.isPending && submitKind === "deposit"}>
-                      {submitBookingRequestMutation.isPending && submitKind === "deposit"
-                        ? tx("submitting")
-                        : tx("payMinimumDue", { amount: formatPrice(checkoutDepositAmount ?? computedDepositDollars, bagCurrency) })}
-                    </CbBusyInline>
-                  </button>
-                </>
+                  </CbBusyInline>
+                </button>
               ) : (
                 <button
                   type="button"

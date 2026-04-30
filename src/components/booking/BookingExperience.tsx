@@ -1267,10 +1267,9 @@ export function BookingExperience() {
       const eff = getEffectiveAddonSlotKeys(cur, slotKeySet);
       if (eff.has(slotKey)) eff.delete(slotKey);
       else eff.add(slotKey);
-      const all = eff.size === allKeys.length && allKeys.length > 0;
       return {
         ...t,
-        [addonId]: all ? { all: true, keys: [] } : { all: false, keys: [...eff] },
+        [addonId]: { all: false, keys: [...eff] },
       };
     });
   }, []);
@@ -1355,8 +1354,10 @@ export function BookingExperience() {
   const slotPriceCurrency = selectedProduct?.prices[0]?.currency ?? null;
   const ADDONS_PAGE = 10;
   const packageAddonsVisible = addonsExpanded ? packageAddons : packageAddons.slice(0, ADDONS_PAGE);
+  const portalPackageAddons = packageAddons.filter((addon) => addon.level !== "reservation");
+  const portalPackageAddonsVisible = addonsExpanded ? portalPackageAddons : portalPackageAddons.slice(0, ADDONS_PAGE);
   const showAddonPanel =
-    state.productId != null && packageAddons.length > 0 && selectedSlots.size > 0;
+    state.productId != null && portalPackageAddons.length > 0 && selectedSlots.size > 0;
   const setFacility = (facilityId: number) => {
     setPreferredStartTime(null);
     clearSlotSelection();
@@ -2048,11 +2049,11 @@ export function BookingExperience() {
         </div>
           {showAddonPanel ? (
             <BookingAddonPanel
-              visibleAddons={packageAddonsVisible}
-              hasMoreAddons={packageAddons.length > ADDONS_PAGE}
+              visibleAddons={portalPackageAddonsVisible}
+              hasMoreAddons={portalPackageAddons.length > ADDONS_PAGE}
               addonsExpanded={addonsExpanded}
               onToggleExpand={() => setAddonsExpanded((x) => !x)}
-              moreCount={packageAddons.length - ADDONS_PAGE}
+              moreCount={portalPackageAddons.length - ADDONS_PAGE}
               selectedAddonIds={selectedAddonIds}
               addonQuantities={addonQuantities}
               addonSlotQuantities={addonSlotQuantities}

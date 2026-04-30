@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { getEffectiveAddonSlotKeys } from "@/lib/addon-slot-targeting";
 import type { PackageAddonLine } from "@/lib/product-package-addons";
@@ -118,6 +119,7 @@ function ReservationAddonCard({
         }
       }}
       aria-pressed={selected}
+      title={addon.name}
       className={`cb-addon-card-v2 ${selected ? "cb-addon-card-v2--selected" : ""}`}
     >
       <div className="cb-addon-card-v2-body">
@@ -188,6 +190,7 @@ function SlotAddonCard({
         }
       }}
       aria-pressed={selected}
+      title={addon.name}
       className={`cb-addon-card-v2 ${selected ? "cb-addon-card-v2--selected" : ""}`}
     >
       {selected && totalQty > 0 ? (
@@ -280,8 +283,14 @@ function SlotPanel({
       <ul className="cb-addon-slot-panel-list">
         {pickedSlots.map((p, idx) => {
           const on = eff.has(p.key);
-          const slotQty = slotQuantities?.get(p.key) ?? DEFAULT_SLOT_QTY;
+          const slotQty = slotQuantities?.get(p.key) ?? (on ? DEFAULT_SLOT_QTY : ADDON_MIN_QTY);
           const slotLabel = `${formatPickedSlotTimeRange(p)} ${p.resourceName}`.trim();
+          const setManualSlotQty = (next: number) => {
+            ensureManualMode();
+            if (next > ADDON_MIN_QTY && !on) onToggleSlot(addon.id, p.key, allSlotKeys);
+            if (next <= ADDON_MIN_QTY && on) onToggleSlot(addon.id, p.key, allSlotKeys);
+            onSetSlotQty?.(addon.id, p.key, next);
+          };
           return (
             <li
               key={`${p.key}#${idx}`}
@@ -299,10 +308,10 @@ function SlotPanel({
                 <span className="cb-addon-slot-panel-row-time">{formatPickedSlotTimeRange(p)}</span>
                 <span className="cb-addon-slot-panel-row-resource">{p.resourceName}</span>
               </label>
-              {on && onSetSlotQty && !allOn ? (
+              {onSetSlotQty && !allOn ? (
                 <QtyStepper
                   qty={slotQty}
-                  onChange={(next) => onSetSlotQty(addon.id, p.key, next)}
+                  onChange={setManualSlotQty}
                   ariaLabel={copy("qtyForSlotAria", { name: addon.name, slot: slotLabel })}
                   size="sm"
                 />
@@ -337,12 +346,20 @@ export function BookingAddonPanel({
   const ta = useTranslations("addons");
   const allSlotKeys = pickedSlots.map((s) => s.key);
   const slotKeySet = new Set(allSlotKeys);
+  const [activeSlotAddonId, setActiveSlotAddonId] = useState<number | null>(null);
 
   const reservation = visibleAddons.filter((a) => a.level === "reservation");
   const slot = visibleAddons.filter((a) => a.level === "slot");
   const hour = visibleAddons.filter((a) => a.level === "hour");
 
   const hasAny = reservation.length > 0 || slot.length > 0 || hour.length > 0;
+
+  useEffect(() => {
+    if (activeSlotAddonId != null && !visibleAddons.some((addon) => addon.id === activeSlotAddonId)) {
+      setActiveSlotAddonId(null);
+    }
+  }, [activeSlotAddonId, visibleAddons]);
+
   if (!hasAny) return null;
 
   /** Find the first selected addon in a list — its slot panel renders below the rail. */
@@ -388,7 +405,10 @@ export function BookingAddonPanel({
   ) => {
     if (items.length === 0) return null;
     const sectionId = `addon-section-${titleKey}`;
-    const active = firstSelected(items);
+    const active =
+      activeSlotAddonId == null
+        ? firstSelected(items)
+        : items.find((addon) => addon.id === activeSlotAddonId && selectedAddonIds.has(addon.id)) ?? firstSelected(items);
     return (
       <section className="cb-addon-section" aria-labelledby={sectionId}>
         <h4 id={sectionId} className="cb-addon-section-title">
@@ -405,7 +425,10 @@ export function BookingAddonPanel({
                 slotKeySet={slotKeySet}
                 targeting={addonSlotTargeting}
                 slotQuantities={addonSlotQuantities?.get(a.id)}
-                onToggle={() => onToggleAddon(a)}
+                onToggle={() => {
+                  setActiveSlotAddonId(a.id);
+                  onToggleAddon(a);
+                }}
                 formatPrice={formatPrice}
                 copy={ta}
               />

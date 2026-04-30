@@ -21,7 +21,7 @@
     "cardExpiresShort": "Expires {date}",
     "defaultPaymentBadge": "Default PM",
     "addNewCard": "+ Add card",
-    "addBankAccount": "+ Add bank"
+    "addBankAccount": "+ Add bank account"
   },
   "errors": {
     "requestFailed": "Request failed",
@@ -213,6 +213,12 @@
     "fullBalance": "Full balance",
     "payDeposit": "Pay deposit",
     "payInFull": "Pay in full",
+    "paymentAmountTitle": "Payment Amount",
+    "payMinimumDueOption": "Pay minimum due",
+    "payFullAmountOption": "Pay full amount",
+    "payCustomAmountOption": "Pay custom amount",
+    "payCustomAmountHint": "Enter any amount between the minimum due and full balance.",
+    "cartCustomAmountLabel": "Custom Amount",
     "paymentGatewaySoon": "Payment gateway coming next",
     "addonsStep": "Add-ons",
     "membershipStep": "Membership",

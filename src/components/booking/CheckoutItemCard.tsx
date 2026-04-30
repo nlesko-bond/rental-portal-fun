@@ -40,10 +40,11 @@ export function CheckoutItemCard({ card, formatPrice, currency, hideParticipantM
             aria-label={tx("remove")}
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
+              <circle cx="12" cy="12" r="8.5" stroke="currentColor" strokeWidth="1.6" />
               <path
-                d="M6 6l12 12M18 6L6 18"
+                d="M9 9l6 6M15 9l-6 6"
                 stroke="currentColor"
-                strokeWidth="1.75"
+                strokeWidth="1.6"
                 strokeLinecap="round"
               />
             </svg>
