@@ -1,0 +1,1051 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rentals 2.0 — Consumer Flow</title>
+<style>
+  :root {
+    --navy: #0f1f3d;
+    --blue: #1e40af;
+    --blue-light: #dbeafe;
+    --blue-mid: #3b82f6;
+    --green: #166534;
+    --green-light: #dcfce7;
+    --green-mid: #22c55e;
+    --yellow: #854d0e;
+    --yellow-light: #fef9c3;
+    --yellow-mid: #eab308;
+    --red: #991b1b;
+    --red-light: #fee2e2;
+    --red-mid: #ef4444;
+    --purple: #6b21a8;
+    --purple-light: #f3e8ff;
+    --purple-mid: #a855f7;
+    --teal: #0f766e;
+    --teal-light: #ccfbf1;
+    --teal-mid: #14b8a6;
+    --gray: #64748b;
+    --gray-light: #f8fafc;
+    --gray-border: #e2e8f0;
+    --shadow: 0 2px 12px rgba(15,31,61,0.09);
+    --shadow-hover: 0 6px 28px rgba(15,31,61,0.16);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--gray-light);
+    color: var(--navy);
+    min-height: 100vh;
+    font-size: 14px;
+  }
+
+  /* ── PAGE HEADER ─────────────────────────────────────────────── */
+  .page-header {
+    background: var(--navy); color: white;
+    padding: 22px clamp(16px, 3vw, 36px) 18px;
+    display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap;
+  }
+  .page-header h1 { font-size: clamp(1.1rem, 2vw, 1.5rem); font-weight: 700; letter-spacing: -0.02em; }
+  .page-header p  { font-size: 0.82rem; opacity: 0.62; margin-top: 3px; }
+  .epic-badge {
+    background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 6px; padding: 4px 10px;
+    font-size: 0.7rem; font-weight: 700; letter-spacing: 0.04em; white-space: nowrap;
+  }
+
+  /* ── LEGEND ──────────────────────────────────────────────────── */
+  .legend {
+    display: flex; flex-wrap: wrap; gap: 12px;
+    padding: 12px clamp(16px, 3vw, 36px); background: white;
+    border-bottom: 1px solid var(--gray-border); align-items: center;
+  }
+  .legend-item { display: flex; align-items: center; gap: 6px; font-size: 0.74rem; color: var(--gray); font-weight: 500; }
+  .legend-swatch  { width: 14px; height: 14px; border-radius: 4px; border: 2px solid transparent; flex-shrink: 0; }
+  .legend-diamond { width: 13px; height: 13px; transform: rotate(45deg); border-radius: 3px; flex-shrink: 0; }
+  .legend-hint { margin-left: auto; font-size: 0.72rem; color: var(--blue); font-weight: 600; }
+
+  /* ── CANVAS (responsive, no horizontal scroll) ───────────────── */
+  .canvas {
+    padding: 18px clamp(12px, 2.5vw, 32px) 48px;
+    display: flex; flex-direction: column; gap: 0;
+    width: 100%;
+  }
+
+  /* ── SWIMLANE / ROW ──────────────────────────────────────────── */
+  .lane {
+    background: white;
+    border: 1.5px solid var(--gray-border);
+    border-radius: 16px;
+    box-shadow: var(--shadow);
+    margin: 0 0 4px;
+    position: relative;
+    overflow: hidden;
+  }
+  .lane-header {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 18px;
+    background: linear-gradient(90deg, rgba(15,31,61,0.03), transparent);
+    border-bottom: 1px solid var(--gray-border);
+    font-weight: 700;
+  }
+  .lane-num {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 26px; height: 26px; border-radius: 50%;
+    background: var(--navy); color: white; font-size: 0.82rem;
+    flex-shrink: 0;
+  }
+  .lane-title { font-size: 0.95rem; color: var(--navy); }
+  .lane-sub   { font-size: 0.74rem; color: var(--gray); font-weight: 500; margin-left: auto; }
+  .lane-body  {
+    padding: 18px clamp(14px, 2vw, 22px);
+    display: flex; flex-wrap: wrap; gap: 14px;
+    align-items: stretch;
+  }
+
+  .lane.lane-portal  { border-color: #bfdbfe; }
+  .lane.lane-slots   { border-color: #bbf7d0; }
+  .lane.lane-drawer  { border-color: #fde68a; }
+  .lane.lane-cart    { border-color: #e9d5ff; }
+
+  .lane.lane-portal .lane-header { background: linear-gradient(90deg, #eff6ff, transparent); }
+  .lane.lane-slots  .lane-header { background: linear-gradient(90deg, #f0fdf4, transparent); }
+  .lane.lane-drawer .lane-header { background: linear-gradient(90deg, #fefce8, transparent); }
+  .lane.lane-cart   .lane-header { background: linear-gradient(90deg, #faf5ff, transparent); }
+
+  /* ── NODE ────────────────────────────────────────────────────── */
+  .node {
+    flex: 1 1 180px;
+    min-width: 170px; max-width: 240px;
+    display: flex; flex-direction: column;
+    background: white;
+    border: 2px solid var(--blue-mid);
+    border-radius: 12px; padding: 11px 13px 10px;
+    box-shadow: var(--shadow);
+    cursor: pointer;
+    transition: transform 0.15s, box-shadow 0.15s;
+    position: relative;
+  }
+  .node:hover { transform: translateY(-2px); box-shadow: var(--shadow-hover); }
+  .node-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .node-num  {
+    font-size: 0.6rem; font-weight: 700; letter-spacing: 0.05em;
+    background: rgba(30,64,175,0.12); color: var(--blue);
+    padding: 2px 7px; border-radius: 4px; text-transform: uppercase;
+    flex-shrink: 0;
+  }
+  .node-icon { font-size: 1.2rem; line-height: 1; }
+  .node-title { font-size: 0.85rem; font-weight: 700; color: var(--blue); line-height: 1.2; flex: 1; }
+  .node-sub  { font-size: 0.72rem; line-height: 1.4; color: var(--navy); opacity: 0.82; margin-bottom: 6px; }
+  .node-badges { display: flex; flex-wrap: wrap; gap: 3px; margin-top: auto; }
+
+  .node.blue  { background: var(--blue-light);  border-color: var(--blue-mid); }
+  .node.green { background: var(--green-light); border-color: var(--green-mid); }
+  .node.green .node-title { color: var(--green); }
+  .node.green .node-num   { background: rgba(22,101,52,0.14); color: var(--green); }
+  .node.teal  { background: var(--teal-light);  border-color: var(--teal-mid); }
+  .node.teal  .node-title { color: var(--teal); }
+  .node.teal  .node-num   { background: rgba(15,118,110,0.14); color: var(--teal); }
+  .node.dark  { background: var(--navy); border-color: var(--navy); color: white; }
+  .node.dark  .node-title { color: white; }
+  .node.dark  .node-sub   { color: rgba(255,255,255,0.75); }
+  .node.dark  .node-num   { background: rgba(255,255,255,0.15); color: #e0e7ff; }
+
+  .badge { font-size: 0.58rem; font-weight: 600; padding: 2px 5px; border-radius: 99px; white-space: nowrap; }
+  .badge-guest   { background: #f1f5f9; color: #475569; }
+  .badge-member  { background: var(--green-light); color: var(--green); }
+  .badge-openq   { background: var(--purple-light); color: var(--purple); }
+  .badge-note    { background: #fff7ed; color: #9a3412; }
+  .badge-api     { background: var(--navy); color: #e0e7ff; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 0.56rem; letter-spacing: 0.02em; }
+
+  /* ── INLINE ARROW ────────────────────────────────────────────── */
+  .arrow {
+    display: flex; align-items: center; justify-content: center;
+    flex: 0 0 auto;
+    font-size: 1.4rem; color: var(--gray);
+    min-width: 20px;
+    align-self: center;
+  }
+
+  /* ── DIAMOND (decision) ─────────────────────────────────────── */
+  .diamond {
+    flex: 0 0 auto;
+    display: flex; flex-direction: column; align-items: center;
+    min-width: 110px; max-width: 140px;
+    cursor: pointer;
+    align-self: center;
+  }
+  .diamond-inner {
+    width: 74px; height: 74px;
+    transform: rotate(45deg); border-radius: 10px;
+    border: 2.5px solid var(--yellow-mid);
+    background: var(--yellow-light);
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: var(--shadow);
+    transition: transform 0.15s, box-shadow 0.15s;
+  }
+  .diamond:hover .diamond-inner { box-shadow: var(--shadow-hover); }
+  .diamond-inner.red { border-color: var(--red-mid); background: var(--red-light); }
+  .diamond-text { transform: rotate(-45deg); font-size: 1.05rem; line-height: 1; }
+  .diamond-label {
+    font-size: 0.7rem; font-weight: 700; text-align: center;
+    color: var(--yellow); margin-top: 8px; line-height: 1.2;
+  }
+  .diamond-label.red { color: var(--red); }
+
+  /* ── CTA / BUTTON ────────────────────────────────────────────── */
+  .cta {
+    flex: 0 0 auto;
+    background: var(--navy); color: white;
+    border-radius: 10px; padding: 12px 16px; text-align: center;
+    font-size: 0.82rem; font-weight: 700; box-shadow: var(--shadow);
+    cursor: pointer; transition: transform 0.15s, box-shadow 0.15s;
+    min-width: 140px;
+    display: flex; flex-direction: column; justify-content: center;
+    align-self: center;
+  }
+  .cta:hover { transform: translateY(-2px); box-shadow: var(--shadow-hover); }
+  .cta .cta-sub { font-size: 0.65rem; opacity: 0.65; margin-top: 3px; font-weight: 400; }
+  .cta.ghost {
+    background: #f1f5f9; color: #475569; border: 1.5px solid #cbd5e1; box-shadow: none;
+  }
+  .cta.ghost .cta-sub { color: #94a3b8; }
+
+  /* ── LOGIN RAIL ──────────────────────────────────────────────── */
+  .login-rail {
+    display: flex; flex-wrap: wrap; gap: 12px;
+    padding: 14px clamp(14px, 2vw, 22px);
+    background: repeating-linear-gradient(45deg, #f0fdf4, #f0fdf4 10px, #ecfdf5 10px, #ecfdf5 20px);
+    border-top: 1px dashed var(--green-mid);
+    align-items: center;
+  }
+  .login-rail-title {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 0.78rem; font-weight: 700; color: var(--green);
+    flex-shrink: 0;
+    padding-right: 8px;
+    border-right: 2px dashed var(--green-mid);
+    margin-right: 8px;
+  }
+
+  /* ── LOOP / CONNECTOR BETWEEN LANES ──────────────────────────── */
+  .lane-connector {
+    display: flex; flex-direction: column; align-items: center;
+    padding: 6px 0;
+    position: relative;
+  }
+  .lane-connector .main-down {
+    width: 2px; height: 22px; background: var(--navy);
+  }
+  .lane-connector .main-down.dashed { background: transparent; border-left: 2px dashed var(--navy); width: 0; }
+  .lane-connector .arrow-head {
+    width: 0; height: 0;
+    border-left: 6px solid transparent;
+    border-right: 6px solid transparent;
+    border-top: 9px solid var(--navy);
+  }
+  .lane-connector .label {
+    font-size: 0.68rem; font-weight: 700; letter-spacing: 0.06em;
+    background: var(--navy); color: white;
+    padding: 4px 10px; border-radius: 99px;
+    margin: 2px 0;
+  }
+  .lane-connector .label.ghost {
+    background: white; color: var(--navy); border: 1.5px solid var(--navy);
+  }
+
+  /* ── LOOP-BACK ARROW (side) ──────────────────────────────────── */
+  .loopback {
+    display: flex; align-items: center; gap: 10px;
+    background: #eff6ff; border: 2px dashed #60a5fa;
+    border-radius: 12px; padding: 10px 14px;
+    font-size: 0.74rem; color: var(--blue); font-weight: 600;
+    line-height: 1.4;
+    flex: 1 1 260px; max-width: 380px;
+  }
+  .loopback.green { background: #f0fdf4; border-color: var(--green-mid); color: var(--green); }
+  .loopback .big { font-size: 1.5rem; flex-shrink: 0; }
+  .loopback strong { display: block; font-size: 0.8rem; margin-bottom: 2px; }
+
+  /* ── SIDE CALLOUT (tiny notes next to a node) ───────────────── */
+  .side-note {
+    flex: 1 1 200px; max-width: 280px;
+    display: flex; align-items: center;
+    background: #fefce8; border-left: 3px solid var(--yellow-mid);
+    padding: 8px 12px; border-radius: 6px;
+    font-size: 0.7rem; color: var(--yellow); line-height: 1.4;
+  }
+  .side-note.red { background: var(--red-light); border-color: var(--red-mid); color: var(--red); }
+  .side-note.blue { background: #eff6ff; border-color: var(--blue-mid); color: var(--blue); }
+
+  /* ── CONFIRMATION END NODES ──────────────────────────────────── */
+  .end-row {
+    display: flex; gap: 16px; justify-content: center; flex-wrap: wrap;
+    padding: 6px 0 4px;
+  }
+  .end-node {
+    border-radius: 14px; padding: 16px 20px; text-align: center;
+    flex: 1 1 240px; max-width: 300px; border: 2.5px solid;
+    box-shadow: var(--shadow); cursor: pointer;
+    transition: transform 0.15s, box-shadow 0.15s;
+  }
+  .end-node:hover { transform: translateY(-2px); box-shadow: var(--shadow-hover); }
+  .end-confirmed { background: var(--green-light);  border-color: var(--green-mid); }
+  .end-submitted { background: #fef3c7; border-color: #f59e0b; }
+  .end-node .e-icon  { font-size: 1.7rem; margin-bottom: 4px; }
+  .end-node .e-title { font-size: 0.88rem; font-weight: 700; margin-bottom: 3px; }
+  .end-node .e-sub   { font-size: 0.72rem; opacity: 0.82; line-height: 1.4; }
+  .end-confirmed .e-title { color: var(--green); }
+  .end-submitted .e-title { color: #92400e; }
+
+  /* ── TOOLTIP ─────────────────────────────────────────────────── */
+  .tooltip {
+    position: fixed; background: var(--navy); color: white;
+    font-size: 0.78rem; padding: 12px 15px; border-radius: 10px;
+    max-width: 340px; line-height: 1.5; pointer-events: none;
+    z-index: 1000; opacity: 0; transition: opacity 0.15s;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.25);
+  }
+  .tooltip.visible { opacity: 1; }
+  .tooltip strong { display: block; margin-bottom: 3px; font-size: 0.82rem; }
+  .tooltip .open-q { color: #c4b5fd; font-style: italic; margin-top: 5px; font-size: 0.72rem; display: block; }
+  .tooltip .api-line { color: #93c5fd; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 0.7rem; margin-top: 6px; display: block; }
+
+  /* ── VERTICAL BRANCHING (drawer auth) ──────────────────────── */
+  .vflow { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 100%; padding: 6px 0; }
+  .vflow .vnode { width: 100%; max-width: 520px; }
+  .vflow .vdiamond { align-self: center; }
+  .vflow .down { width: 2px; height: 18px; background: var(--navy); align-self: center; }
+  .vflow .down-arrow {
+    width: 0; height: 0; align-self: center;
+    border-left: 6px solid transparent; border-right: 6px solid transparent;
+    border-top: 9px solid var(--navy);
+  }
+  .vflow .branch {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 18px;
+    width: 100%; max-width: 860px; align-items: start;
+  }
+  .branch-col { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  .branch-col .branch-head {
+    font-size: 0.7rem; font-weight: 700; letter-spacing: 0.04em;
+    padding: 4px 12px; border-radius: 99px; text-transform: uppercase;
+  }
+  .branch-head.yes { background: #d1fae5; color: #065f46; border: 1.5px solid var(--green-mid); }
+  .branch-head.no  { background: #fee2e2; color: #991b1b; border: 1.5px solid var(--red-mid); }
+  .branch-head.skip { background: #f1f5f9; color: #475569; border: 1.5px dashed #94a3b8; }
+  .branch-col .skip-msg {
+    font-size: 0.72rem; color: var(--gray); font-style: italic;
+    padding: 8px 12px; border: 1.5px dashed var(--gray-border); border-radius: 8px;
+    text-align: center; background: #fafafa;
+    max-width: 100%;
+  }
+  .merge-bar {
+    width: 80%; max-width: 600px; height: 2px; background: var(--navy);
+    margin: 6px auto 0; position: relative;
+  }
+  .merge-bar::before, .merge-bar::after {
+    content: ''; position: absolute; top: -1px; width: 2px; height: 12px; background: var(--navy);
+  }
+  .merge-bar::before { left: 0; }
+  .merge-bar::after  { right: 0; }
+
+  /* ── SIDE-BY-SIDE CTA PAIR ──────────────────────────────────── */
+  .cta-pair {
+    display: flex; gap: 14px; justify-content: center; align-items: stretch;
+    flex: 1 1 100%; flex-wrap: wrap;
+  }
+  .cta-pair > * { flex: 0 1 220px; }
+
+  /* ── REMOVE BAR (full width dashed) ─────────────────────────── */
+  .remove-bar {
+    flex: 1 1 100%; max-width: 100%;
+    background: #fffbeb;
+    border: 2px dashed var(--yellow-mid);
+    border-radius: 10px;
+    padding: 12px 16px;
+    font-size: 0.75rem; color: var(--yellow); line-height: 1.5;
+  }
+  .remove-bar strong { color: var(--navy); }
+
+  /* ── Scenario grid (2x2 / 4-across, never 3,1) ──────────────── */
+  .scenario-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    width: 100%;
+  }
+  @media (max-width: 1100px) {
+    .scenario-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media (max-width: 560px) {
+    .scenario-grid { grid-template-columns: 1fr; }
+  }
+
+  /* ── MOBILE ──────────────────────────────────────────────────── */
+  @media (max-width: 700px) {
+    .lane-body { gap: 10px; padding: 14px; }
+    .arrow { display: none; }
+    .node, .diamond, .cta, .loopback, .side-note { max-width: 100%; }
+    .lane-sub { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="tooltip" id="tooltip"></div>
+
+<!-- ── PAGE HEADER ──────────────────────────────────────────────── -->
+<div class="page-header">
+  <div>
+    <h1>🏟️ Rentals 2.0 — Consumer Booking Flow</h1>
+    <p>Portal → Slot Selection → Complete Booking → Payment — four rows, one clean path</p>
+  </div>
+  <span class="epic-badge">BOND-16799</span>
+</div>
+
+<!-- ── LEGEND ───────────────────────────────────────────────────── -->
+<div class="legend">
+  <div class="legend-item"><div class="legend-swatch" style="background:var(--blue-light);border-color:var(--blue-mid)"></div>Everyone sees this</div>
+  <div class="legend-item"><div class="legend-swatch" style="background:var(--green-light);border-color:var(--green-mid)"></div>Logged-in bonus</div>
+  <div class="legend-item"><div class="legend-swatch" style="background:var(--teal-light);border-color:var(--teal-mid)"></div>Auth / login</div>
+  <div class="legend-item"><div class="legend-diamond" style="background:var(--yellow-light);border:2px solid var(--yellow-mid)"></div>Decision</div>
+  <div class="legend-item"><div class="legend-diamond" style="background:var(--red-light);border:2px solid var(--red-mid)"></div>Validation</div>
+  <div class="legend-item"><span style="font-size:0.72rem;background:var(--purple-light);color:var(--purple);font-weight:700;padding:2px 7px;border-radius:5px;">❓ Open Q</span>Unresolved</div>
+  <div class="legend-item"><span class="badge badge-api">API</span>Backend call</div>
+  <div class="legend-hint">💡 Hover any step for details</div>
+</div>
+
+<!-- ── CANVAS ───────────────────────────────────────────────────── -->
+<div class="canvas">
+
+<!-- ════════════════════════════════════════════════════════════════
+     ROW 1 — PORTAL PAGE
+════════════════════════════════════════════════════════════════ -->
+<div class="lane lane-portal">
+  <div class="lane-header">
+    <span class="lane-num">1</span>
+    <span class="lane-title">🌐 Portal Page</span>
+    <span class="lane-sub">Browse · Filter · Pick a Product · Schedule Settings</span>
+  </div>
+  <div class="lane-body">
+
+    <div class="node blue"
+      data-tip="<strong>1 · Portal Header</strong>Fixed bar at the top — org logo and portal name. Guests get a 'Sign In' button. Logged-in users see their name and can switch which family member they're booking for.<span class='api-line'>API: GET /online-booking/portals/</span><span class='open-q'>❓ Open Q: Does Bond have a setting for org logos and to modify heading / tagline?</span>">
+      <div class="node-head"><span class="node-num">Step 1</span><span class="node-icon">🏟️</span></div>
+      <div class="node-title">Portal Header</div>
+      <div class="node-sub">Org logo, portal name, Sign-In button (guest) or participant switcher (logged in).</div>
+      <div class="node-badges">
+        <span class="badge badge-guest">🔓 Sign In</span>
+        <span class="badge badge-member">👤 Switch participant</span>
+        <span class="badge badge-openq">❓ Logo / tagline</span>
+        <span class="badge badge-api">GET /portals/</span>
+      </div>
+    </div>
+
+    <div class="arrow">→</div>
+
+    <div class="node blue"
+      data-tip="<strong>2 · Filters</strong>Facility → Category → Activity. These drive which products load below. Empty result = clear 'no results' state.<span class='api-line'>API: GET /online-booking/portals/ (defaults)</span>">
+      <div class="node-head"><span class="node-num">Step 2</span><span class="node-icon">🔍</span></div>
+      <div class="node-title">Filters</div>
+      <div class="node-sub">Facility → Category → Activity.</div>
+      <div class="node-badges">
+        <span class="badge badge-guest">🔓 Open to all</span>
+      </div>
+    </div>
+
+    <div class="arrow">→</div>
+
+    <div class="node blue"
+      data-tip="<strong>3 · Product Cards</strong>Products matching filters. Guests see standard prices + gating indicators. Logged-in users see reserved products they qualify for and entitled prices. If only one product matches, the card loads expanded.<span class='api-line'>API: GET /category-products (userId when logged in)</span>">
+      <div class="node-head"><span class="node-num">Step 3</span><span class="node-icon">🎯</span></div>
+      <div class="node-title">Product Cards</div>
+      <div class="node-sub">Browse & pick a product.</div>
+      <div class="node-badges">
+        <span class="badge badge-guest">🔓 Std prices</span>
+        <span class="badge badge-member">👤 Reserved + entitled</span>
+        <span class="badge badge-note">1 match → expanded</span>
+        <span class="badge badge-api">GET /category-products</span>
+      </div>
+    </div>
+
+    <div class="arrow">→</div>
+
+    <div class="node blue"
+      data-tip="<strong>4 · Schedule Settings</strong>Pick date, duration, preferred start time. Min booking notice applies (per category). Logged-in members with VIP access get an extended advance window.<span class='api-line'>API: GET /online-booking/portals/ + user booking-information</span>">
+      <div class="node-head"><span class="node-num">Step 4</span><span class="node-icon">📅</span></div>
+      <div class="node-title">Schedule Settings</div>
+      <div class="node-sub">Date · Duration · Preferred start time.</div>
+      <div class="node-badges">
+        <span class="badge badge-guest">🔓 Std window</span>
+        <span class="badge badge-member">👤 VIP extended</span>
+        <span class="badge badge-note">⏰ Min notice</span>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- LOGIN RAIL — accessible from header, optional at any time -->
+  <div class="login-rail">
+    <div class="login-rail-title">🔑 Login (accessible any time)</div>
+    <div class="node teal" style="max-width:340px;"
+      data-tip="<strong>Login Entry Points</strong>Users can sign in at three places: the portal header 'Sign In' button, a guest check-in bar above slot selection, or Step 5d inside the drawer. Open questions about the auth path live on Step 5d.<span class='api-line'>API: POST /auth/login</span>">
+      <div class="node-head"><span class="node-num">Auth</span><span class="node-icon">🔐</span></div>
+      <div class="node-title">Sign In / Create Account</div>
+      <div class="node-sub">Entry: header button · guest bar · OR first screen of drawer. Unlocks entitled prices, reserved products, saved waivers.</div>
+      <div class="node-badges">
+        <span class="badge badge-member">👤 Entitled prices + reserved</span>
+        <span class="badge badge-api">POST /auth/login</span>
+      </div>
+    </div>
+    <div class="side-note" style="background:#ecfdf5;border-color:var(--green-mid);color:var(--green);">
+      <div><strong>3 entry points:</strong> ① Header · ② Guest bar above slots · ③ Drawer Step 5. All feed the same login flow.</div>
+    </div>
+  </div>
+</div>
+
+<!-- CONNECTOR: Row 1 → Row 2 -->
+<div class="lane-connector">
+  <div class="main-down"></div>
+  <span class="label">PICK A PRODUCT ↓</span>
+  <div class="main-down"></div>
+  <div class="arrow-head"></div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════
+     ROW 2 — SLOT SELECTION
+════════════════════════════════════════════════════════════════ -->
+<div class="lane lane-slots">
+  <div class="lane-header">
+    <span class="lane-num">2</span>
+    <span class="lane-title">🕐 Slot Selection</span>
+    <span class="lane-sub">Slots · Select · Add-ons Inline · Clear loops back · Complete Booking advances</span>
+  </div>
+  <div class="lane-body">
+
+    <div class="node blue"
+      data-tip="<strong>5 · Slot Display</strong>Renders available time slots in list or timeline view. Display only — limits and over-limit checks run on tap, not here. When logged in, two extras load: (1) member pricing, (2) user's booking data so we can evaluate their personal capacity against guest + category limits.<span class='api-line'>API: GET /online-booking/schedule</span><span class='api-line'>API (logged in): GET /online-booking/user/booking-information</span>">
+      <div class="node-head"><span class="node-num">Step 5</span><span class="node-icon">🕐</span></div>
+      <div class="node-title">Slot Display</div>
+      <div class="node-sub">List & timeline. Member pricing + user-specific limits load when signed in.</div>
+      <div class="node-badges">
+        <span class="badge badge-member">👤 Member prices</span>
+        <span class="badge badge-member">👤 User limits loaded</span>
+        <span class="badge badge-api">GET /schedule</span>
+        <span class="badge badge-api">GET booking-information</span>
+      </div>
+    </div>
+
+    <div class="arrow">→</div>
+
+    <div class="node blue"
+      data-tip="<strong>Tap a Slot — checks run on select</strong>On tap, the client runs: (1) standard daily/sequential limits check, (2) over-limit → click blocked with an error (slot stays visible, not greyed out), (3) already-in-cart → not clickable (shows 'In Cart'), (4) when logged in, user-specific capacity (from booking-information) is evaluated against guest + category limits. Passing slots become 'Selected' and add-ons for the product expand inline below. Tap again to deselect. Multiple slots can be selected.">
+      <div class="node-head"><span class="node-num">Tap</span><span class="node-icon">👆</span></div>
+      <div class="node-title">Select Slot(s)</div>
+      <div class="node-sub">Tap to select · checks run on tap · tap again to deselect.</div>
+      <div class="node-badges">
+        <span class="badge badge-guest">🔓 Standard limits checked</span>
+        <span class="badge badge-member">👤 User capacity checked</span>
+        <span class="badge badge-note">⛔ Over limit blocked</span>
+        <span class="badge badge-note">🔒 In-cart not clickable</span>
+      </div>
+    </div>
+
+    <div class="arrow">→</div>
+
+    <div class="node blue"
+      data-tip="<strong>6 · Add-ons (inline, portal page)</strong>After selecting a slot, add-ons expand below the slot list — still on the portal, NOT in the drawer. Optional extras (per slot / per hour / per reservation). Editable again later inside the drawer.<br><br><strong>If the product has no add-ons configured, this section does NOT render</strong> — nothing expands below the slot list.">
+      <div class="node-head"><span class="node-num">Step 6</span><span class="node-icon">➕</span></div>
+      <div class="node-title">Add-ons (inline)</div>
+      <div class="node-sub">Expand below slots — optional qty per slot / hour / reservation. <strong>Hidden entirely if product has no add-ons.</strong></div>
+      <div class="node-badges">
+        <span class="badge badge-guest">🔓 Optional</span>
+        <span class="badge badge-note">Skipped if none configured</span>
+      </div>
+    </div>
+
+    <div class="arrow">→</div>
+
+    <!-- Clear + Complete Booking side by side; Complete Booking gets the down arrow -->
+    <div style="display:flex;gap:14px;align-items:stretch;flex:0 0 auto;align-self:center;">
+      <div class="cta ghost"
+        data-tip="<strong>Clear Selection</strong>Wipes slot selections, inline add-ons, and anything in the Booking Summary flow (drawer draft state). Items already added to the cart are NOT touched.">
+        🗑️ Clear
+        <span class="cta-sub">wipes slots + add-ons + summary draft · cart untouched</span>
+      </div>
+      <div class="cta"
+        data-tip="<strong>Complete Booking</strong>Sticky CTA at the bottom. Opens the Booking Drawer (Row 3) where auth, membership, forms, and summary happen.">
+        ✅ Complete Booking
+        <span class="cta-sub">→ opens drawer</span>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- CONNECTOR: Row 2 → Row 3 (only Complete Booking goes down) -->
+<div class="lane-connector">
+  <div class="main-down"></div>
+  <span class="label">COMPLETE BOOKING ↓</span>
+  <div class="main-down"></div>
+  <div class="arrow-head"></div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════
+     ROW 3 — COMPLETE BOOKING (DRAWER)
+════════════════════════════════════════════════════════════════ -->
+<div class="lane lane-drawer" id="lane-drawer">
+  <div class="lane-header">
+    <span class="lane-num">3</span>
+    <span class="lane-title">📋 Complete Booking Drawer</span>
+    <span class="lane-sub">Auth · Membership · Add-ons · Forms · Summary → Add to Cart</span>
+  </div>
+  <!-- VERTICAL AUTH BRANCHING TREE -->
+  <div class="lane-body">
+    <div class="vflow">
+
+      <!-- DECISION: Already logged in? -->
+      <div class="diamond vdiamond"
+        data-tip="<strong>Decision · Already logged in?</strong>If yes, skip the Login/Create Account screen.">
+        <div class="diamond-inner"><span class="diamond-text">🔑</span></div>
+        <div class="diamond-label">Already<br>logged in?</div>
+      </div>
+
+      <div class="branch">
+        <!-- YES branch: skip login -->
+        <div class="branch-col">
+          <span class="branch-head yes">YES ↓</span>
+          <div class="skip-msg">Skip login — continue to Check&nbsp;A</div>
+        </div>
+        <!-- NO branch: login/create -->
+        <div class="branch-col">
+          <span class="branch-head no">NO ↓</span>
+          <div class="node teal vnode"
+            data-tip="<strong>5d · Login / Create Account</strong>Dedicated screen. Same component as portal header + guest bar. Sign in or create an account — no participant selection here.<span class='api-line'>API: POST /auth/login</span><span class='open-q'>❓ Open Q 1: Dev to confirm we can reuse the mobile version of the Cognito screen here in the drawer space.</span><span class='open-q'>❓ Open Q 2: Dev to provide Auth SDK for API users.</span>">
+            <div class="node-head"><span class="node-num">Step 5d</span><span class="node-icon">🔐</span></div>
+            <div class="node-title">Login / Create Account</div>
+            <div class="node-sub">Sign in or create an account. Screen 1 of 2 in auth flow.</div>
+            <div class="node-badges">
+              <span class="badge badge-openq">❓ Reuse Cognito mobile screen?</span>
+              <span class="badge badge-openq">❓ Auth SDK for API users</span>
+              <span class="badge badge-api">POST /auth/login</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="merge-bar"></div>
+      <div class="down"></div>
+      <div class="down-arrow"></div>
+
+      <!-- CHECK A -->
+      <div class="diamond vdiamond"
+        data-tip="<strong>Check A · Does the product require a membership?</strong>Runs BEFORE Participant Select so we can paint 'member access' ✅ / 'needs membership' ⚠️ badges per family member.<span class='api-line'>API: GET /online-booking/products/required</span>">
+        <div class="diamond-inner"><span class="diamond-text">🎫</span></div>
+        <div class="diamond-label">Check A —<br>Memberships required?</div>
+      </div>
+
+      <div class="branch">
+        <div class="branch-col">
+          <span class="branch-head yes">YES ↓</span>
+          <div class="node teal vnode"
+            data-tip="<strong>6d · Participant Select (with membership badges)</strong>User picks family member. Each row shows 'member access' ✅ or 'needs membership' ⚠️ so user can choose an eligible participant. Switching participant re-runs eligibility + repricing.<br><br><strong>⚠️ If there are pre-existing items from a prior booking in the summary, changing participant wipes those pre-existing items</strong> (eligibility/pricing would otherwise be stale). Newly-selected slots + add-ons from the current flow are untouched.<span class='api-line'>API: GET /online-booking/user/{userId}/booking-information</span><span class='open-q'>❓ Open Q: 'Add family member' — new UI or redirect?</span>">
+            <div class="node-head"><span class="node-num">Step 6d</span><span class="node-icon">👤</span></div>
+            <div class="node-title">Participant Select — with badges</div>
+            <div class="node-sub">Pick who this booking is for. Each row: ✅ member access OR ⚠️ needs membership.</div>
+            <div class="node-badges">
+              <span class="badge badge-member">👤 Membership badges shown</span>
+              <span class="badge badge-note">⚠️ Changing participant wipes pre-existing summary items only</span>
+              <span class="badge badge-openq">❓ Add family UX</span>
+            </div>
+          </div>
+        </div>
+        <div class="branch-col">
+          <span class="branch-head no">NO ↓</span>
+          <div class="node teal vnode"
+            data-tip="<strong>6d · Participant Select (plain)</strong>User picks family member. No membership badges since none are required for this product.<br><br><strong>⚠️ If there are pre-existing items from a prior booking in the summary, changing participant wipes those pre-existing items (newly-selected slots + add-ons from this flow are untouched).</strong>">
+            <div class="node-head"><span class="node-num">Step 6d</span><span class="node-icon">👤</span></div>
+            <div class="node-title">Participant Select — plain</div>
+            <div class="node-sub">Pick who this booking is for. No membership badges needed.</div>
+            <div class="node-badges">
+              <span class="badge badge-note">⚠️ Changing participant wipes pre-existing summary items only</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="merge-bar"></div>
+      <div class="down"></div>
+      <div class="down-arrow"></div>
+
+      <!-- CHECK B -->
+      <div class="diamond vdiamond"
+        data-tip="<strong>Check B · Does the selected participant need the gate?</strong>If Check A = no, OR the chosen participant already holds a qualifying membership → skip gate. Otherwise show the gate screen so they can pick/buy one.">
+        <div class="diamond-inner"><span class="diamond-text">🚪</span></div>
+        <div class="diamond-label">Check B —<br>Show gate?</div>
+      </div>
+
+      <div class="branch">
+        <div class="branch-col">
+          <span class="branch-head yes">YES ↓</span>
+          <div class="node green vnode"
+            data-tip="<strong>7d · Membership Gate</strong>Displays the memberships this product requires. User selects one — the selection is added to the draft cart / alongside the booking in the summary (depending on cart state). Not charged here.<span class='api-line'>API: GET /online-booking/products/required</span>">
+            <div class="node-head"><span class="node-num">Step 7d</span><span class="node-icon">🎫</span></div>
+            <div class="node-title">Membership Gate</div>
+            <div class="node-sub">Displays required memberships — user picks one.</div>
+            <div class="node-badges">
+              <span class="badge badge-member">👤 Auth enforced</span>
+              <span class="badge badge-api">GET /products/required</span>
+            </div>
+          </div>
+        </div>
+        <div class="branch-col">
+          <span class="branch-head no">NO ↓</span>
+          <div class="skip-msg">Skip gate — continue to Modify Add-ons</div>
+        </div>
+      </div>
+
+      <div class="merge-bar"></div>
+      <div class="down"></div>
+      <div class="down-arrow"></div>
+    </div>
+  </div>
+
+  <div class="lane-body" style="padding-top:0;">
+
+    <div class="node blue"
+      data-tip="<strong>8d · Modify Add-ons (in drawer)</strong>Same add-ons component from Row 2 rendered inside the drawer, pre-populated with portal selections. Add, remove, or change quantities here. No refetch.<br><br><strong>If the product has no add-ons configured, this screen is skipped entirely</strong> — flow jumps straight to the Forms check.">
+      <div class="node-head"><span class="node-num">Step 8d</span><span class="node-icon">➕</span></div>
+      <div class="node-title">Modify Add-ons</div>
+      <div class="node-sub">Pre-filled from portal. Edit freely inside drawer — no refetch. <strong>Skipped if product has no add-ons.</strong></div>
+      <div class="node-badges">
+        <span class="badge badge-note">Skipped if none configured</span>
+      </div>
+    </div>
+
+    <div class="arrow">→</div>
+
+    <div class="diamond"
+      data-tip="<strong>Decision · Product has forms attached?</strong>If no questionnaire is configured, skip forms.">
+      <div class="diamond-inner"><span class="diamond-text">📝</span></div>
+      <div class="diamond-label">Forms<br>attached?</div>
+    </div>
+
+    <div class="arrow">→</div>
+
+    <div class="node blue"
+      data-tip="<strong>9d · Forms / Questions</strong>Waivers, health info, emergency contacts, group size, promo codes. Pre-fills customer metadata and any prior waiver response. Required fields enforced before continuing.<span class='api-line'>API: GET /questionnaires</span>">
+      <div class="node-head"><span class="node-num">Step 9d</span><span class="node-icon">📝</span></div>
+      <div class="node-title">Forms / Questions</div>
+      <div class="node-sub">Waivers, health info — pre-filled when known.</div>
+      <div class="node-badges">
+        <span class="badge badge-guest">🔓 Required enforced</span>
+        <span class="badge badge-member">👤 Pre-fill</span>
+        <span class="badge badge-api">GET /questionnaires</span>
+      </div>
+    </div>
+
+    <div class="arrow">→</div>
+
+    <div class="node blue"
+      data-tip="<strong>10d · Booking Summary</strong>Review screen built entirely from local draft state. Shows slots, add-ons, membership, form answers, base prices. NO discounts/taxes/fees yet — disclaimer: 'Discounts, taxes, fees applied in cart.'<br><br><strong>Edit rules:</strong><br>• <strong>Add-ons are NOT editable inline.</strong> Clicking edit on add-ons routes the user back to the Add-ons drawer screen (Step 8d) to modify.<br>• Remove a reservation → removes product + all attached add-ons.<br>• Required membership cannot be removed while a reservation depends on it (X disabled with 'Required for this booking' tooltip).<br>• Non-required membership: always removable.<br>• Removing the last line empties the summary → returns to Row 2.">
+      <div class="node-head"><span class="node-num">Step 10d</span><span class="node-icon">🧾</span></div>
+      <div class="node-title">Booking Summary</div>
+      <div class="node-sub">Review. <strong>No discounts/taxes/fees yet</strong> — "applied in cart." Edit add-ons routes back to the Add-ons drawer (8d); removal follows rules.</div>
+      <div class="node-badges">
+        <span class="badge badge-note">Client-side only</span>
+        <span class="badge badge-note">✏️ Edit add-ons → back to 8d</span>
+        <span class="badge badge-note">🗑️ Removal rules apply</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- CENTERED ADD-TO-CART + CLOSE DRAWER PAIR -->
+  <div class="lane-body" style="padding-top:0;justify-content:center;">
+    <div class="cta-pair">
+      <div class="cta"
+        data-tip="<strong>Click 'Add to Cart'</strong>Explicit CTA inside the Booking Summary. Fires POST /online-booking/create (with cartId if a cart is already open). On success → Added to Cart screen.">
+        🛒 Add to Cart
+        <span class="cta-sub">POST /online-booking/create ↓</span>
+      </div>
+      <div class="cta ghost"
+        data-tip="<strong>Close drawer</strong>Drawer closes; user returns to Row 2 (portal). The draft Booking Summary is preserved locally. The Complete Booking CTA now shows a counter badge.">
+        ✖ Close Drawer
+        <span class="cta-sub">preserves summary draft</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- CLOSE-DRAWER-EARLY BEHAVIOR -->
+  <div class="lane-body" style="padding-top:0;">
+    <div class="side-note blue" style="flex:1 1 100%;max-width:100%;">
+      <div>
+        <strong>🚪 Close drawer before "Add to Cart":</strong>
+        user returns to Row 2 (portal). The draft summary (slots, add-ons, form answers, membership choice, participant) is retained locally. The <strong>Complete Booking</strong> CTA now displays a counter badge (e.g. <code style="font-family:ui-monospace,monospace;">✅ Complete Booking · 3</code>) indicating un-carted items, and re-opens the drawer at the Summary step — <strong>unless additional products or slots were added that require re-validation, in which case it re-enters at Check B (gate)</strong>.
+      </div>
+    </div>
+  </div>
+
+  <!-- Validation + decision strip -->
+  <div class="lane-body" style="padding-top:0;">
+
+    <div class="diamond"
+      data-tip="<strong>Decision · Cart already open?</strong>First booking → POST /online-booking/create starts a new cart. If a cart is already open (from prior 'Keep Shopping'), the create call must include cartId so booking appends to existing cart.<span class='api-line'>API: POST /online-booking/create { cartId? }</span>">
+      <div class="diamond-inner"><span class="diamond-text">🛒</span></div>
+      <div class="diamond-label">Cart already<br>exists?</div>
+    </div>
+
+    <div class="arrow">→</div>
+
+    <div class="diamond"
+      data-tip="<strong>Validation · Server check on create</strong>Server verifies no resource conflicts, slot/day limits, required gates. Failure → error, user back on Summary. Success → cart artifact created (first add) or updated (subsequent adds via cartId).">
+      <div class="diamond-inner red"><span class="diamond-text">🚦</span></div>
+      <div class="diamond-label red">Passes validation?<br>→ cart created / updated</div>
+    </div>
+
+    <div class="arrow">→</div>
+
+    <div class="node green" style="flex:0 1 320px;align-self:center;"
+      data-tip="<strong>11d · Added to Cart!</strong>Success screen confirming the booking landed in the cart. Two CTAs: 'Keep Shopping' returns to Row 1 (cart icon appears, in-cart slots lock). 'Checkout & Pay' advances to Row 4.<span class='api-line'>API: response from POST /create</span>">
+      <div class="node-head"><span class="node-num">Step 11d</span><span class="node-icon">🎉</span></div>
+      <div class="node-title">Added to Cart!</div>
+      <div class="node-sub">Two CTAs → <strong>Keep Shopping</strong> or <strong>Checkout & Pay</strong>.</div>
+    </div>
+  </div>
+
+  <!-- Centered CTA pair: Keep Shopping + Checkout -->
+  <div class="lane-body" style="padding-top:0;justify-content:center;">
+    <div class="cta-pair">
+      <div class="cta ghost"
+        data-tip="<strong>Keep Shopping → Row 1</strong>Cart persists. 🛒 cart icon appears on the portal with item count. In-cart slots lock to 'In Cart' state. Add more bookings to the same cart."
+        onclick="highlight('lane-portal')">
+        🛍️ Keep Shopping
+        <span class="cta-sub">↺ Row 1 · 🛒 icon appears · in-cart slots lock</span>
+      </div>
+      <div class="cta"
+        data-tip="<strong>Checkout & Pay → Row 4</strong>Advances to the hosted cart screen for final totals and payment."
+        onclick="highlight('lane-cart')">
+        💳 Checkout
+        <span class="cta-sub">→ advances to Row 4</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CONNECTOR: Row 3 → Row 4 -->
+<div class="lane-connector">
+  <div class="main-down"></div>
+  <span class="label">CHECKOUT ↓</span>
+  <div class="main-down"></div>
+  <div class="arrow-head"></div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════
+     ROW 4 — PAYMENT / CART
+════════════════════════════════════════════════════════════════ -->
+<div class="lane lane-cart" id="lane-cart">
+  <div class="lane-header">
+    <span class="lane-num">4</span>
+    <span class="lane-title">💳 Payment & Cart (hosted checkout)</span>
+    <span class="lane-sub">Tag lines · Evaluate policy · Pick CTA · Finalize · Confirm</span>
+  </div>
+
+  <!-- STEP 12a — LOAD CART -->
+  <div class="lane-body">
+    <div class="node blue"
+      data-tip="<strong>12 · Load Cart</strong>Hosted checkout loads by cartId (reached from 'Checkout & Pay' on added-to-cart OR from the 🛒 cart icon on the portal). Server returns all reservation cards + membership cards (memberships are a separate card, never grouped with reservations), plus server-computed discounts (membership entitlements + form-response code entitlements), tax, and fees.<span class='api-line'>API: GET /cart/{cartId}</span>">
+      <div class="node-head"><span class="node-num">Step 12</span><span class="node-icon">📥</span></div>
+      <div class="node-title">Load Cart</div>
+      <div class="node-sub">Reservation cards + membership cards. Server-computed discounts, tax, fees.</div>
+      <div class="node-badges">
+        <span class="badge badge-note">Entitlement discounts</span>
+        <span class="badge badge-note">Code-value discounts</span>
+        <span class="badge badge-api">GET /cart/{id}</span>
+      </div>
+    </div>
+
+    <div class="arrow">→</div>
+
+    <!-- STEP 12b — TAG LINES -->
+    <div class="node blue"
+      data-tip="<strong>13 · Tag each line by policy</strong>For every line, evaluate:<br>• If any rental product's category is 'approval required' → tag <strong>Approval Required</strong>.<br>• Else if product has a deposit configured → tag <strong>Deposit Required</strong>.<br>• Else → untagged (paid in full by default).<br>These tags drive the CTA logic in Step 15.">
+      <div class="node-head"><span class="node-num">Step 13</span><span class="node-icon">🏷️</span></div>
+      <div class="node-title">Tag Lines by Policy</div>
+      <div class="node-sub">Per line: <strong>Approval Required</strong> (category) · <strong>Deposit Required</strong> (product). Untagged = pays in full.</div>
+    </div>
+
+    <div class="arrow">→</div>
+
+    <!-- STEP 14 — PAYMENT METHOD -->
+    <div class="node blue"
+      data-tip="<strong>14 · Pick Payment Method</strong>Loads the participant's saved cards + ACH. Defaults to primary method. '+ Add new payment method' routes to Bond's hosted route. Changing method → server recomputes <strong>fees</strong> (e.g. ACH vs card) and <strong>total</strong> live, no re-finalize. If cart is approval-only, the entire Payment Method section is hidden.<span class='api-line'>API: GET v4/payment/{orgId}/{userId}/options</span><span class='open-q'>❓ Open Q: Do we reuse the existing 'Add payment method' screens or can we re-design these?</span>">
+      <div class="node-head"><span class="node-num">Step 14</span><span class="node-icon">💳</span></div>
+      <div class="node-title">Pick Payment Method</div>
+      <div class="node-sub">Saved cards + ACH (radio cards). Switching method live-recomputes fees + total. Hidden when approval-only.</div>
+      <div class="node-badges">
+        <span class="badge badge-note">💰 Fees update live</span>
+        <span class="badge badge-openq">❓ Reuse or re-design add-payment screen?</span>
+        <span class="badge badge-api">GET payment/options</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- FULL-WIDTH DASHED REMOVE BAR -->
+  <div class="lane-body" style="padding-top:0;">
+    <div class="remove-bar">
+      <strong>🗑️ Remove (X) on any card:</strong>
+      fires <code style="font-family:ui-monospace,monospace;">DELETE /cart-item</code> → refetch + recalc.
+      Removing a reservation cascades its add-ons.
+      Required membership X disabled while dependent reservations exist.
+      Emptying the cart → auto-route to portal · 🛒 icon disappears.
+    </div>
+  </div>
+
+  <!-- STEP 15 — CTA SCENARIOS (2x2 / 4-across, never 3,1) -->
+  <div class="lane-body" style="padding-top:0;flex-direction:column;">
+    <div style="display:flex;align-items:center;gap:10px;width:100%;margin-bottom:8px;">
+      <span style="font-size:0.82rem;font-weight:700;color:var(--navy);">Step 15 · CTA text + behavior varies by approval and deposit requirements of cart items →</span>
+    </div>
+    <div class="scenario-grid">
+
+      <!-- PAY IN FULL -->
+      <div class="node blue"
+        data-tip="<strong>Scenario · Pay in Full</strong>No lines tagged Approval or Deposit. Payment Method section shown. Single CTA: <code>Pay in full : $X,XXX.XX</code>. Finalize → invoice id.">
+        <div class="node-head"><span class="node-num">Scenario A</span><span class="node-icon">💵</span></div>
+        <div class="node-title">Pay in Full</div>
+        <div class="node-sub">No lines tagged Approval or Deposit.<br><strong>CTA:</strong> "Pay in full : $X,XXX.XX"<br>→ invoice id.</div>
+        <div class="node-badges"><span class="badge badge-note">Payment section shown</span></div>
+      </div>
+
+      <!-- DEPOSIT REQUIRED — 2 CTAs -->
+      <div class="node blue"
+        data-tip="<strong>Scenario · Deposit Required</strong>One or more products have a deposit configured, no approval required. Payment Method section shown. Two CTAs, user picks one: <code>Pay minimum due : $X,XXX.XX</code> (deposit only; balance billed later) OR <code>Pay in full : $X,XXX.XX</code> (pay everything now). Both generate an invoice.">
+        <div class="node-head"><span class="node-num">Scenario B</span><span class="node-icon">🏦</span></div>
+        <div class="node-title">Deposit Required</div>
+        <div class="node-sub">Product has a deposit configured.<br><strong>2 CTAs:</strong><br>① "Pay minimum due : $X,XXX.XX"<br>② "Pay in full : $X,XXX.XX"</div>
+        <div class="node-badges"><span class="badge badge-note">Payment section shown</span></div>
+      </div>
+
+      <!-- SUBMIT REQUEST -->
+      <div class="node blue"
+        data-tip="<strong>Scenario · Submit Request</strong>All lines tagged Approval Required. NO payment captured. Payment Method section <strong>hidden</strong>. Single CTA: <code>Submit request</code>. Finalize → no invoice.">
+        <div class="node-head"><span class="node-num">Scenario C</span><span class="node-icon">📤</span></div>
+        <div class="node-title">Submit Request</div>
+        <div class="node-sub">All lines need approval.<br><strong>CTA:</strong> "Submit request"<br>→ no invoice, awaits venue.</div>
+        <div class="node-badges"><span class="badge badge-note">Payment section hidden</span></div>
+      </div>
+
+      <!-- MIXED — can include pay + deposit + submit -->
+      <div class="node blue"
+        data-tip="<strong>Scenario · Mixed</strong>Any combination of Pay + Deposit + Approval across lines. Payment Method section shown (some lines charge). Two CTAs, user picks one:<br>① <code>Pay minimum due : $X,XXX.XX & submit request</code> — charges deposit/minimum on payable+deposit lines, submits approval lines.<br>② <code>Pay in full (exc. approval) : $X,XXX.XX & submit request</code> — pays full on payable+deposit lines, submits approval lines.<br>Single finalize resolves both halves.">
+        <div class="node-head"><span class="node-num">Scenario D</span><span class="node-icon">🔀</span></div>
+        <div class="node-title">Mixed (Pay / Deposit / Submit)</div>
+        <div class="node-sub">Any combo across lines.<br><strong>2 CTAs:</strong><br>① "Pay minimum due : $X & submit request"<br>② "Pay in full (exc. approval) : $X & submit request"</div>
+        <div class="node-badges"><span class="badge badge-note">Payment section shown</span></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- STEP 16 — FINALIZE (centered, full width) -->
+  <div class="lane-body" style="padding-top:0;flex-direction:column;align-items:center;">
+    <div class="down" style="height:22px;"></div>
+    <div class="node dark" style="flex:0 1 100%;max-width:560px;align-self:center;"
+      data-tip="<strong>Step 16 · Finalize Cart</strong>User clicks the chosen CTA → POST /finalizeCart. Button disables + spinner; no double-submit. Server runs a final conflict/availability check before processing.<span class='api-line'>API: POST /finalize</span>">
+      <div class="node-head" style="justify-content:center;"><span class="node-num">Step 16</span><span class="node-icon">🚀</span><span class="node-title" style="flex:0;">Finalize Cart</span></div>
+      <div class="node-sub" style="text-align:center;">Clicked CTA fires <code style="font-family:ui-monospace,monospace;">POST /finalize</code>. Disables + spinner · no double-submit.</div>
+      <div class="node-badges" style="justify-content:center;"><span class="badge badge-api">POST /finalize</span></div>
+    </div>
+
+    <div class="down"></div>
+    <div class="down-arrow"></div>
+
+    <div class="diamond vdiamond"
+      data-tip="<strong>Validation · Final conflict check (server)</strong>Last check before money moves. Resource/availability failure → human error on the cart screen, retry-able, cart preserved.">
+      <div class="diamond-inner red"><span class="diamond-text">✅</span></div>
+      <div class="diamond-label red">Final check<br>clear?</div>
+    </div>
+
+    <div style="display:flex;gap:14px;justify-content:center;align-items:center;margin-top:8px;">
+      <span class="branch-head no">NO → error</span>
+      <span class="branch-head yes">YES → Step 17</span>
+    </div>
+  </div>
+
+  <!-- STEP 17 — CONFIRMATION (4 matching states) -->
+  <div class="lane-body" style="padding-top:0;flex-direction:column;">
+    <div style="display:flex;align-items:center;gap:10px;width:100%;margin-bottom:4px;">
+      <span style="font-size:0.82rem;font-weight:700;color:var(--navy);">Step 17 · Confirmation matches the scenario →</span>
+    </div>
+    <div class="scenario-grid">
+
+      <div class="end-node end-confirmed"
+        data-tip="<strong>Booking Confirmed (Pay in Full)</strong>Finalize succeeded. Invoice id returned. Link to /reservations. Confirmation email sent.<span class='open-q'>❓ Open Q: link to facility waiver?</span>">
+        <div class="e-icon">✅</div>
+        <div class="e-title">Paid in Full</div>
+        <div class="e-sub">Invoice id · link to reservations · confirmation email sent</div>
+        <div style="margin-top:6px;"><span class="badge badge-openq">❓ Facility waiver?</span></div>
+      </div>
+
+      <div class="end-node end-confirmed"
+        data-tip="<strong>Deposit Paid — Balance Owed</strong>Finalize succeeded in deposit mode. Confirmation screen shows deposit paid + balance owed + when venue will bill the balance. Link to invoice id, link to reservations. Email sent.<span class='open-q'>❓ Open Q: link to facility waiver?</span>">
+        <div class="e-icon">🏦</div>
+        <div class="e-title">Deposit Paid</div>
+        <div class="e-sub"><strong>Link to invoice id</strong> · link to reservations · balance billed later · email sent</div>
+        <div style="margin-top:6px;"><span class="badge badge-openq">❓ Facility waiver?</span></div>
+      </div>
+
+      <div class="end-node end-submitted"
+        data-tip="<strong>Request Submitted</strong>All-approval finalize. No invoice, no reservation ID. Venue reviews. <strong>Email 1</strong> sent now confirming submission. <strong>Email 2</strong> sent when the venue approves or denies.<span class='open-q'>❓ Open Q: link to facility waiver?</span>">
+        <div class="e-icon">⏳</div>
+        <div class="e-title">Request Submitted</div>
+        <div class="e-sub">Awaiting approval · no charge · no invoice · <strong>Email 1 now</strong> (submitted) · <strong>Email 2 on decision</strong></div>
+        <div style="margin-top:6px;"><span class="badge badge-openq">❓ Facility waiver?</span></div>
+      </div>
+
+      <div class="end-node end-submitted" style="background:#fdf4ff;border-color:var(--purple-mid);"
+        data-tip="<strong>Mixed Result</strong>Paid portion: invoice id + link to reservations. Approval portion: awaiting venue decision. <strong>Email 1</strong>: single combined confirmation covering both the paid portion AND the submitted-for-approval portion. <strong>Email 2</strong>: sent when venue approves/denies the approval portion.<span class='open-q'>❓ Open Q: Do we need to tweak the email template to accommodate the mixed scenario (pay + pending approval in one email)?</span>">
+        <div class="e-icon">🔀</div>
+        <div class="e-title" style="color:var(--purple);">Mixed Result</div>
+        <div class="e-sub">Paid portion: invoice id + link to reservations.<br>Approval portion: awaiting venue decision.<br><strong>Email 1 now</strong> (combined) · <strong>Email 2 on decision</strong>.</div>
+        <div style="margin-top:6px;display:flex;gap:3px;flex-wrap:wrap;justify-content:center;">
+          <span class="badge badge-openq">❓ Email template tweak for mixed?</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+</div><!-- /canvas -->
+
+<script>
+  const tooltip = document.getElementById('tooltip');
+  document.querySelectorAll('[data-tip]').forEach(node => {
+    node.addEventListener('mouseenter', (e) => {
+      tooltip.innerHTML = node.getAttribute('data-tip');
+      tooltip.classList.add('visible');
+      positionTooltip(e);
+    });
+    node.addEventListener('mousemove', positionTooltip);
+    node.addEventListener('mouseleave', () => tooltip.classList.remove('visible'));
+  });
+  function positionTooltip(e) {
+    const tw = 340, pad = 14;
+    let x = e.clientX + pad, y = e.clientY + pad;
+    if (x + tw > window.innerWidth - 10) x = e.clientX - tw - pad;
+    if (y + 220 > window.innerHeight - 10) y = e.clientY - 220 - pad;
+    tooltip.style.left = Math.max(10, x) + 'px';
+    tooltip.style.top  = Math.max(10, y) + 'px';
+  }
+  function highlight(id) {
+    const el = document.getElementById(id) || document.querySelector('.' + id);
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.style.transition = 'box-shadow 0.3s';
+    el.style.boxShadow = '0 0 0 4px rgba(59,130,246,0.45), ' + getComputedStyle(el).boxShadow;
+    setTimeout(() => { el.style.boxShadow = ''; }, 1400);
+  }
+</script>
+</body>
+</html>
