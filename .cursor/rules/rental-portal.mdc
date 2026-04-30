@@ -1,0 +1,11 @@
+---
+description: Bond rental portal — scope, plan, and API boundaries
+alwaysApply: true
+---
+
+- This repo is **standalone** from Bond `squad-c`. Integrate only via **hosted** public HTTP APIs (see `docs/bond/` and Swagger).
+- **Never** put `X-Api-Key` in client code or `NEXT_PUBLIC_*`. Use the BFF at `src/app/api/bond/[...path]/route.ts`.
+- Product plan and phases: **`docs/RENTAL_PORTAL_PLAN.md`**. Migration / Cursor workspace tips: **`docs/MIGRATION_AND_CURSOR.md`**.
+- Keep implementation **lightweight and API-first**. Prefer fields returned by Bond APIs over client-side reconstruction; only fallback to session/client metadata when the API omits the data.
+- Reuse existing components and parsing helpers before adding new UI/data abstractions.
+- Keep consumer colors explicit and consistent: primary = `--cb-primary`, secondary = `--cb-accent`, tertiary/background = muted surfaces such as `--cb-bg-surface-muted` / `#EDF4FC`. Do not introduce one-off status colors for consumer booking UI unless the API/design explicitly requires them.

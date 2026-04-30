@@ -111,7 +111,7 @@ export function buildGroupedScheduleSummaryLines(
 
     if (formatMoney && listUnit > 0) {
       priceDurLines.push(
-        `${formatMoney(listUnit)} | per ${formatDurationPriceBadge(b.durationMins)} × ${count}`
+        `${formatMoney(listUnit)} / ${formatDurationPriceBadge(b.durationMins)} × ${count}`
       );
     }
 
@@ -119,7 +119,7 @@ export function buildGroupedScheduleSummaryLines(
       const daySlots = byDate.get(date)!;
       const longDate = formatPickedSlotLongDate(daySlots[0]!);
       const times = daySlots.map((s) => formatPickedSlotTimeRange(s)).join(", ");
-      calendarLines.push(`${longDate} | ${times}`);
+      calendarLines.push(`${longDate} · ${times}`);
     }
   }
 

@@ -8,7 +8,10 @@ export function formatPickedSlotTimeRange(slot: Pick<PickedSlot, "startTime" | "
     if (!Number.isFinite(h) || !Number.isFinite(m)) return t.slice(0, 5);
     const d = new Date();
     d.setHours(h, m, 0, 0);
-    return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+    return d.toLocaleTimeString(undefined, {
+      hour: "numeric",
+      ...(m === 0 ? {} : { minute: "2-digit" }),
+    });
   };
   return `${fmt(slot.startTime)} – ${fmt(slot.endTime)}`;
 }

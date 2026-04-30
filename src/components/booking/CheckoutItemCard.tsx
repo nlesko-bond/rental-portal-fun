@@ -11,6 +11,7 @@ type Props = {
   card: CheckoutCardModel;
   formatPrice: (amount: number, currency: string) => string;
   currency: string;
+  hideParticipantMeta?: boolean;
   /** Called when the user clicks the X. Parent decides whether to confirm / actually call the cart API. */
   onRemove?: (card: CheckoutCardModel) => void;
 };
@@ -22,9 +23,10 @@ type Props = {
  * participant + meta lines + optional badges + optional extras roll-up + item total — is identical
  * across variants; only the meta-line content and the rolled-up "Extras" footer change.
  */
-export function CheckoutItemCard({ card, formatPrice, currency, onRemove }: Props) {
+export function CheckoutItemCard({ card, formatPrice, currency, hideParticipantMeta, onRemove }: Props) {
   const tx = useTranslations("checkout");
   const showRemove = card.removable && onRemove != null;
+  const metaLines = hideParticipantMeta ? card.metaLines.filter((line) => line.icon !== "person") : card.metaLines;
 
   return (
     <li className="cb-co-card" data-card-kind={card.kind} data-card-id={card.cartItemId ?? ""}>
@@ -49,9 +51,9 @@ export function CheckoutItemCard({ card, formatPrice, currency, onRemove }: Prop
         ) : null}
       </div>
 
-      {card.metaLines.length > 0 ? (
+      {metaLines.length > 0 ? (
         <ul className="cb-co-card-meta">
-          {card.metaLines.map((line, idx) => (
+          {metaLines.map((line, idx) => (
             <li key={`${line.icon}-${idx}`} className="cb-co-card-meta-row">
               <span className="cb-co-card-meta-icon" aria-hidden>
                 <MetaIcon kind={line.icon} />
@@ -128,22 +130,22 @@ function MetaIcon({ kind }: { kind: CheckoutCardMetaIcon }) {
     case "person":
       return (
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-          <circle cx="12" cy="8" r="3" stroke="currentColor" strokeWidth="1.5" />
-          <path d="M6 19c1.5-3 4-5 6-5s4.5 2 6 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          <circle cx="12" cy="8" r="3.25" stroke="currentColor" strokeWidth="1.6" />
+          <path d="M5.5 19c1.25-2.75 3.75-4.25 6.5-4.25s5.25 1.5 6.5 4.25" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
         </svg>
       );
     case "location":
       return (
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-          <path d="M12 21s7-4.35 7-10a7 7 0 10-14 0c0 5.65 7 10 7 10z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
-          <circle cx="12" cy="11" r="2" stroke="currentColor" strokeWidth="1.5" />
+          <path d="M12 21s6.25-4.15 6.25-9.5a6.25 6.25 0 1 0-12.5 0C5.75 16.85 12 21 12 21z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+          <circle cx="12" cy="11" r="1.75" stroke="currentColor" strokeWidth="1.6" />
         </svg>
       );
     case "date":
       return (
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-          <rect x="4" y="5" width="16" height="14" rx="2" stroke="currentColor" strokeWidth="1.5" />
-          <path d="M8 3v4M16 3v4M4 11h16" stroke="currentColor" strokeWidth="1.5" />
+          <rect x="4.5" y="5.5" width="15" height="14" rx="2.25" stroke="currentColor" strokeWidth="1.6" />
+          <path d="M8.5 3.75v3.5M15.5 3.75v3.5M4.75 10h14.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
         </svg>
       );
     case "membership":
@@ -157,10 +159,7 @@ function MetaIcon({ kind }: { kind: CheckoutCardMetaIcon }) {
     case "category":
       return (
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-          <rect x="4" y="4" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.5" />
-          <rect x="14" y="4" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.5" />
-          <rect x="4" y="14" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.5" />
-          <rect x="14" y="14" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.5" />
+          <path d="M8.5 5.5h-3v3h3v-3zM18.5 5.5h-3v3h3v-3zM8.5 15.5h-3v3h3v-3zM18.5 15.5h-3v3h3v-3z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
         </svg>
       );
     default:

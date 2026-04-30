@@ -27,8 +27,12 @@ export function BookingForDrawer({
   const tb = useTranslations("booking");
   const appearanceClass = useBookingAppearanceClass();
   const [sel, setSel] = useState<number | null>(value);
+  const [showAddFamily, setShowAddFamily] = useState(false);
   useEffect(() => {
-    if (open) setSel(value);
+    if (open) {
+      setSel(value);
+      setShowAddFamily(false);
+    }
   }, [open, value]);
 
   const canSubmit = !profileLoading && sel != null && members.some((m) => m.id === sel);
@@ -38,9 +42,42 @@ export function BookingForDrawer({
       open={open}
       onClose={onClose}
       hideTitle
-      ariaLabel={tb("bookingForDrawerAria")}
+      ariaLabel={showAddFamily ? tb("addFamilyMemberTitle") : tb("bookingForDrawerAria")}
       panelClassName={`consumer-booking ${appearanceClass} cb-booking-for-drawer`.trim()}
     >
+      {showAddFamily ? (
+        <div className="cb-family-placeholder">
+          <div className="cb-family-placeholder-head">
+            <div className="cb-family-placeholder-icon" aria-hidden>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                <circle cx="9" cy="8" r="3" stroke="currentColor" strokeWidth="1.6" />
+                <circle cx="16" cy="9" r="2.5" stroke="currentColor" strokeWidth="1.5" />
+                <path d="M4 20c1.3-3.2 4-5 8-5s6.7 1.8 8 5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+              </svg>
+            </div>
+            <h2 className="cb-family-placeholder-title">{tb("addFamilyMemberTitle")}</h2>
+            <p className="cb-family-placeholder-sub">{tb("addFamilyMemberSubtitle")}</p>
+            <p className="cb-family-placeholder-note">{tb("addFamilyMemberPlaceholderNote")}</p>
+          </div>
+          <div className="cb-family-placeholder-fields">
+            <PlaceholderField label={tb("firstName")} placeholder={tb("enterName")} required />
+            <PlaceholderField label={tb("lastName")} placeholder={tb("enterName")} required />
+            <PlaceholderField label={tb("gender")} placeholder={tb("selectGender")} required dropdown />
+            <PlaceholderField label={tb("dateOfBirth")} placeholder={tb("datePlaceholder")} required />
+            <PlaceholderField label={tb("email")} placeholder={tb("enterEmail")} />
+            <PlaceholderField label={tb("phoneNumber")} placeholder={tb("enterPhoneNumber")} />
+          </div>
+          <div className="cb-family-placeholder-actions">
+            <button type="button" className="cb-family-placeholder-btn cb-family-placeholder-btn--outline" onClick={() => setShowAddFamily(false)}>
+              {tb("cancel")}
+            </button>
+            <button type="button" className="cb-family-placeholder-btn cb-family-placeholder-btn--primary" onClick={() => setShowAddFamily(false)}>
+              {tb("save")}
+            </button>
+          </div>
+        </div>
+      ) : (
+      <>
       <div className="cb-booking-for-head">
         <div className="cb-booking-for-icon" aria-hidden>
           <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
@@ -160,9 +197,7 @@ export function BookingForDrawer({
         <button
           type="button"
           className="cb-booking-for-add"
-          onClick={() => {
-            /* Bond account / family management is outside this portal */
-          }}
+          onClick={() => setShowAddFamily(true)}
         >
           <span className="cb-booking-for-add-icon" aria-hidden>
             +
@@ -173,6 +208,33 @@ export function BookingForDrawer({
           {tb("continue")}
         </button>
       </form>
+      </>
+      )}
     </RightDrawer>
+  );
+}
+
+function PlaceholderField({
+  label,
+  placeholder,
+  required,
+  dropdown,
+}: {
+  label: string;
+  placeholder: string;
+  required?: boolean;
+  dropdown?: boolean;
+}) {
+  return (
+    <label className="cb-family-placeholder-field">
+      <span className="cb-family-placeholder-label">
+        {label}
+        {required ? <span className="cb-family-placeholder-required"> *</span> : null}
+      </span>
+      <span className="cb-family-placeholder-input">
+        <span>{placeholder}</span>
+        {dropdown ? <span aria-hidden>v</span> : null}
+      </span>
+    </label>
   );
 }

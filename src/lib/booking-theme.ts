@@ -44,7 +44,7 @@ export function resolveBookingThemeStyle(
     str(b.successColor) ??
     str(b.success) ??
     env("NEXT_PUBLIC_BOOKING_SUCCESS") ??
-    "#24c875";
+    primary;
 
   const fontFromPortal = str(b.fontFamily) ?? str(b.fontFamilyStack);
   const fontFromEnv = env("NEXT_PUBLIC_BOOKING_FONT_FAMILY");

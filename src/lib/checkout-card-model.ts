@@ -116,11 +116,21 @@ function badgesFromLine(line: CartPurchaseDisplayLine): CheckoutCardBadge[] {
 export function checkoutCardsFromSnapshot(
   snapshot: SessionCartSnapshot,
   snapshotIndex: number,
+  options?: {
+    cartFlatLineIndices?: readonly number[];
+    subsectionBookingForLabel?: string;
+  },
 ): CheckoutCardModel[] {
   const lines = expandSnapshotForPurchaseList(snapshot, snapshotIndex, {
     omitBookingLabelInMeta: true,
     structuredBagMeta: true,
     hideVenueApprovalLineNotes: true,
+    ...(options?.cartFlatLineIndices != null
+      ? { cartFlatLineIndexFilter: new Set(options.cartFlatLineIndices) }
+      : {}),
+    ...(options?.subsectionBookingForLabel != null
+      ? { subsectionBookingForLabel: options.subsectionBookingForLabel }
+      : {}),
   });
 
   const cards: CheckoutCardModel[] = [];

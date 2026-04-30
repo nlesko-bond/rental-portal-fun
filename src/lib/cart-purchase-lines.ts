@@ -268,6 +268,43 @@ function readResourceFromBondItem(it: Record<string, unknown> | null | undefined
   return undefined;
 }
 
+function readNameFromRecord(record: Record<string, unknown>): string | undefined {
+  const fullName = record.fullName ?? record.displayName ?? record.name;
+  if (typeof fullName === "string" && fullName.trim().length > 0) return fullName.trim();
+  const first = typeof record.firstName === "string" ? record.firstName.trim() : "";
+  const last = typeof record.lastName === "string" ? record.lastName.trim() : "";
+  const joined = `${first} ${last}`.trim();
+  return joined.length > 0 ? joined : undefined;
+}
+
+function readParticipantFromBondItem(it: Record<string, unknown> | null | undefined): string | undefined {
+  if (!it) return undefined;
+  for (const key of ["productUser", "participant", "customer", "user"] as const) {
+    const value = it[key];
+    if (value && typeof value === "object") {
+      const name = readNameFromRecord(value as Record<string, unknown>);
+      if (name) return name;
+    }
+  }
+  const reservation = it.reservation;
+  if (reservation && typeof reservation === "object") {
+    const r = reservation as Record<string, unknown>;
+    for (const key of ["productUser", "participant", "customer", "user"] as const) {
+      const value = r[key];
+      if (value && typeof value === "object") {
+        const name = readNameFromRecord(value as Record<string, unknown>);
+        if (name) return name;
+      }
+    }
+  }
+  const meta = it.metadata && typeof it.metadata === "object" ? (it.metadata as Record<string, unknown>) : null;
+  for (const key of ["productUserName", "participantName", "customerName", "userName"] as const) {
+    const value = meta?.[key] ?? it[key];
+    if (typeof value === "string" && value.trim().length > 0) return value.trim();
+  }
+  return undefined;
+}
+
 function buildBagMetaRows(
   row: SessionCartSnapshot,
   segIdx: number,
@@ -279,6 +316,7 @@ function buildBagMetaRows(
 ): CartPurchaseDisplayLine["bagMetaRows"] | undefined {
   if (!omit || kind === "membership") return undefined;
   const label =
+    readParticipantFromBondItem(bondItem ?? null) ??
     (typeof subsectionBookingForLabel === "string" && subsectionBookingForLabel.trim().length > 0
       ? subsectionBookingForLabel.trim()
       : undefined) ??

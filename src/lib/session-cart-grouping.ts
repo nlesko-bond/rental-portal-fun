@@ -2,6 +2,10 @@ import { classifyCartItemLineKind, getCartItemMetadataDescription } from "@/lib/
 import { flattenBondCartItemNodes } from "@/lib/checkout-bag-totals";
 import type { SessionCartSnapshot } from "@/lib/session-cart-snapshot";
 import type { OrganizationCartDto } from "@/types/online-booking";
+import { parseSlotControlKey } from "@/lib/slot-selection";
+
+const MAX_CART_ITEM_SLOT_SCAN_DEPTH = 4;
+const TIME_HH_MM_LENGTH = 5;
 
 function indexRange(start: number, end: number): number[] {
   const out: number[] = [];
@@ -120,6 +124,79 @@ function flatLineIndexSegmentsForMergedBookingsLegacy(cart: OrganizationCartDto)
   return buildSegmentsFromBookingStarts(flat, legacyStarts);
 }
 
+function collectCartItemStrings(value: unknown, depth: number, out: string[]): void {
+  if (depth > MAX_CART_ITEM_SLOT_SCAN_DEPTH || value == null) return;
+  if (typeof value === "string") {
+    if (value.trim().length > 0) out.push(value);
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) collectCartItemStrings(item, depth + 1, out);
+    return;
+  }
+  if (typeof value === "object") {
+    for (const item of Object.values(value as Record<string, unknown>)) {
+      collectCartItemStrings(item, depth + 1, out);
+    }
+  }
+}
+
+function slotSignatures(slotKeys: string[]): { exact: Set<string>; loose: Set<string> } {
+  const exact = new Set<string>();
+  const loose = new Set<string>();
+  for (const key of slotKeys) {
+    exact.add(key);
+    const parsed = parseSlotControlKey(key);
+    if (!parsed) continue;
+    loose.add(`${parsed.startDate}|${parsed.startTime.slice(0, TIME_HH_MM_LENGTH)}|${parsed.endTime.slice(0, TIME_HH_MM_LENGTH)}`);
+  }
+  return { exact, loose };
+}
+
+function itemMatchesSlotSignature(item: Record<string, unknown>, signatures: ReturnType<typeof slotSignatures>): boolean {
+  const strings: string[] = [];
+  collectCartItemStrings(item, 0, strings);
+  const joined = strings.join(" ");
+  for (const key of signatures.exact) {
+    if (joined.includes(key)) return true;
+  }
+  for (const signature of signatures.loose) {
+    const [date, start, end] = signature.split("|");
+    if (date && start && end && joined.includes(date) && joined.includes(start) && joined.includes(end)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function flatLineIndexSegmentsFromReservationGroups(
+  cart: OrganizationCartDto,
+  groups: { slotKeys: string[] }[]
+): number[][] | null {
+  const items = cart.cartItems;
+  if (!Array.isArray(items) || items.length === 0 || groups.length === 0) return null;
+  const flat = flattenBondCartItemNodes(items);
+  if (flat.length === 0) return null;
+  const signatures = groups.map((group) => slotSignatures(group.slotKeys));
+  const segments = groups.map((): number[] => []);
+  let activeGroupIndex: number | null = null;
+  const preamble: number[] = [];
+
+  for (let i = 0; i < flat.length; i++) {
+    const item = flat[i]!;
+    const matchedIndex = signatures.findIndex((sig) => itemMatchesSlotSignature(item, sig));
+    if (matchedIndex >= 0) activeGroupIndex = matchedIndex;
+    if (activeGroupIndex == null) preamble.push(i);
+    else segments[activeGroupIndex]!.push(i);
+  }
+
+  if (preamble.length > 0 && segments[0]) {
+    segments[0] = [...preamble, ...segments[0]];
+  }
+
+  return segments.every((segment) => segment.length > 0) ? segments : null;
+}
+
 export type SessionCartGroupedItem = {
   index: number;
   row: SessionCartSnapshot;
@@ -155,7 +232,10 @@ export function groupSessionCartSnapshotsByLabel(rows: SessionCartSnapshot[]): S
     const row = rows[index]!;
     const rg = row.reservationGroups;
     if (rg && rg.length > 1) {
-      let segments = flatLineIndexSegmentsForMergedBookings(row.cart);
+      let segments = flatLineIndexSegmentsFromReservationGroups(row.cart, rg);
+      if (segments == null || segments.length !== rg.length) {
+        segments = flatLineIndexSegmentsForMergedBookings(row.cart);
+      }
       if (segments == null || segments.length !== rg.length) {
         segments = flatLineIndexSegmentsForMergedBookingsLegacy(row.cart);
       }
