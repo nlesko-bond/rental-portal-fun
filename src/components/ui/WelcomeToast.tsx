@@ -11,7 +11,7 @@ type Props = {
   duration?: number;
 };
 
-export function WelcomeToast({ open, title, subtitle, onDismiss, duration = 3000 }: Props) {
+export function WelcomeToast({ open, title, subtitle, onDismiss, duration = 1500 }: Props) {
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
@@ -51,6 +51,11 @@ export function WelcomeToast({ open, title, subtitle, onDismiss, duration = 3000
         <p className="cb-welcome-toast-title">{title}</p>
         {subtitle ? <p className="cb-welcome-toast-sub">{subtitle}</p> : null}
       </div>
+      <button type="button" className="cb-welcome-toast-close" onClick={onDismiss} aria-label="Dismiss">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
+          <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        </svg>
+      </button>
     </div>
   );
 }

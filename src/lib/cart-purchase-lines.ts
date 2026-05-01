@@ -4,6 +4,7 @@ import {
   formatSlotKeysScheduleSummary,
 } from "@/components/booking/booking-slot-labels";
 import { parseSlotControlKey } from "@/lib/slot-selection";
+import { formatDurationPriceBadge } from "@/lib/category-booking-settings";
 import {
   classifyCartItemLineKind,
   getCartItemMetadataDescription,
@@ -24,6 +25,7 @@ import {
   bondCartItemIdFromRecord,
 } from "@/lib/bond-cart-removal";
 import { dedupeDiscountCaptionSegments } from "@/lib/entitlement-discount";
+import { membershipDisplaySummary, type MembershipDisplaySummary } from "@/lib/required-products-extended";
 import type { SessionCartSnapshot } from "@/lib/session-cart-snapshot";
 import { flatLineIndexSegmentsForMergedBookings } from "@/lib/session-cart-grouping";
 import type { OrganizationCartDto } from "@/types/online-booking";
@@ -61,7 +63,61 @@ export type CartPurchaseDisplayLine = {
   depositRequired?: boolean;
   /** Membership billing cadence row — e.g. "$45.99 / month × 1" — from `product.resource.membership.durationMonths`. */
   unitSubtitle?: string;
+  membershipSummary?: MembershipDisplaySummary;
 };
+
+const MINUTES_PER_HOUR = 60;
+const HOURS_PER_DAY = 24;
+
+function timeToMinutesLocal(time: string): number | null {
+  const match = time.match(/^(\d{2}):(\d{2})(?::\d{2})?$/);
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+  return hours * MINUTES_PER_HOUR + minutes;
+}
+
+function slotKeyDurationMinutes(key: string): number | null {
+  const parsed = parseSlotControlKey(key);
+  if (!parsed) return null;
+  const start = timeToMinutesLocal(parsed.startTime);
+  const end = timeToMinutesLocal(parsed.endTime);
+  if (start == null || end == null) return null;
+  const adjustedEnd = end > start ? end : end + HOURS_PER_DAY * MINUTES_PER_HOUR;
+  const duration = adjustedEnd - start;
+  return duration > 0 ? duration : null;
+}
+
+function formatMoneyForUnitSubtitle(amount: number, currency: string): string {
+  return new Intl.NumberFormat(undefined, { style: "currency", currency }).format(amount);
+}
+
+function slotUnitSubtitle(
+  amount: number | null | undefined,
+  slotKeys: readonly string[],
+  currency: string
+): string | undefined {
+  if (amount == null || !Number.isFinite(amount) || amount < 0 || slotKeys.length === 0) return undefined;
+  const duration = slotKeyDurationMinutes(slotKeys[0]!);
+  if (duration == null) return undefined;
+  const unit = amount / slotKeys.length;
+  return `${formatMoneyForUnitSubtitle(unit, currency)} / ${formatDurationPriceBadge(duration)} x ${slotKeys.length}`;
+}
+
+function quantityUnitSubtitle(
+  it: Record<string, unknown>,
+  amount: number | null | undefined,
+  currency: string
+): string | undefined {
+  const quantity = typeof it.quantity === "number" && Number.isFinite(it.quantity) && it.quantity > 1 ? it.quantity : null;
+  if (quantity == null || amount == null || !Number.isFinite(amount) || amount <= 0) return undefined;
+  const unit =
+    typeof it.unitPrice === "number" && Number.isFinite(it.unitPrice) && it.unitPrice > 0
+      ? it.unitPrice
+      : amount / quantity;
+  return `${formatMoneyForUnitSubtitle(unit, currency)} x ${quantity}`;
+}
 
 /** Bond cart membership item → billing cadence label ("month" / "year" / "3 months"). */
 function membershipCadenceLabel(it: Record<string, unknown>): string | undefined {
@@ -94,8 +150,19 @@ function membershipUnitSubtitle(
       ? it.quantity
       : 1;
   const currency = typeof it.currency === "string" ? it.currency : fallbackCurrency;
-  const price = new Intl.NumberFormat(undefined, { style: "currency", currency }).format(unit);
+  const price = formatMoneyForUnitSubtitle(unit, currency);
   return cadence ? `${price} / ${cadence} × ${qty}` : `${price} × ${qty}`;
+}
+
+function membershipSummaryFromRequiredProducts(
+  row: SessionCartSnapshot,
+  it: Record<string, unknown> | null
+): MembershipDisplaySummary | undefined {
+  if (!it) return undefined;
+  const productId = productIdFromBondItem(it);
+  if (productId == null) return undefined;
+  const node = row.requiredProductDetailsById?.[productId];
+  return node ? membershipDisplaySummary(node) : undefined;
 }
 
 /** How checkout/payment applies across bag rows — considers per-productId approval for merged carts. */
@@ -388,7 +455,7 @@ function finalizePurchaseDisplayLines(
   const flatBond = Array.isArray(c.cartItems)
     ? flattenBondCartItemNodes(c.cartItems as unknown[])
     : [];
-  const hasAnyDeposit = flatBond.some((it) => bondItemHasDownpayment(it));
+  const hasAnyDeposit = flatBond.some((it) => bondItemHasDownpayment(row, it));
   if (!want && !needApprovalFlags && !hasPerProductApproval && !hasAnyDeposit) return lines;
 
   const segByFlat = flatIndexToSegmentMap(c);
@@ -432,7 +499,7 @@ function finalizePurchaseDisplayLines(
       approvalPending = segmentHasApprovalProduct(segIdx);
     }
     const depositRequired =
-      !approvalPending && coKind === "booking" && bondRec != null && bondItemHasDownpayment(bondRec);
+      !approvalPending && coKind === "booking" && bondRec != null && bondItemHasDownpayment(row, bondRec);
     return {
       ...line,
       ...(bagMetaRows ? { bagMetaRows } : {}),
@@ -444,18 +511,20 @@ function finalizePurchaseDisplayLines(
 
 function productIdFromBondItem(it: Record<string, unknown>): number | null {
   const prod = it.product as Record<string, unknown> | undefined;
-  const pid = typeof prod?.id === "number" ? prod.id : null;
+  const raw = it.productId ?? prod?.id;
+  const pid = typeof raw === "number" ? raw : typeof raw === "string" && /^\d+$/.test(raw.trim()) ? Number(raw.trim()) : null;
   return pid != null && Number.isFinite(pid) && pid > 0 ? pid : null;
 }
 
 /** True when this Bond cart item's product carries a non-zero `downPayment`. */
-function bondItemHasDownpayment(it: Record<string, unknown>): boolean {
+function bondItemHasDownpayment(row: SessionCartSnapshot, it: Record<string, unknown>): boolean {
   const prod = it.product as Record<string, unknown> | undefined;
   const dp =
     (prod?.downPayment as number | undefined) ??
     (prod?.downpayment as number | undefined) ??
     (it.downPayment as number | undefined) ??
-    (it.downpayment as number | undefined);
+    (it.downpayment as number | undefined) ??
+    (productIdFromBondItem(it) != null ? row.productDownpaymentByProductId?.[productIdFromBondItem(it)!] : undefined);
   return typeof dp === "number" && Number.isFinite(dp) && dp > 0;
 }
 
@@ -553,6 +622,7 @@ export function expandSnapshotForPurchaseList(
             ...(pendingBadge ? { badge: pendingBadge } : {}),
             ...(line.discountNote ? { discountNote: line.discountNote } : {}),
             ...(line.strikeAmount != null ? { strikeAmount: line.strikeAmount } : {}),
+            ...(line.unitSubtitle ? { unitSubtitle: line.unitSubtitle } : {}),
           };
         }),
         row,
@@ -648,6 +718,12 @@ export function expandSnapshotForPurchaseList(
       const unitSubtitle =
         kindMeta === "membership" && bondRec != null
           ? membershipUnitSubtitle(bondRec, c.currency ?? "USD")
+          : kindMeta === "booking"
+            ? line.unitSubtitle ?? slotUnitSubtitle(strikeAmount ?? amount, slotKeysForSegment(row, segIdx), c.currency ?? "USD")
+            : line.unitSubtitle;
+      const membershipSummary =
+        kindMeta === "membership" && bondRec != null
+          ? membershipSummaryFromRequiredProducts(row, bondRec)
           : undefined;
       return {
         key: `snap-${rowIndex}-saved-${j}-${cartId}`,
@@ -662,6 +738,7 @@ export function expandSnapshotForPurchaseList(
         ...(badge ? { badge } : {}),
         ...(bagRemove ? { bagRemove } : {}),
         ...(unitSubtitle ? { unitSubtitle } : {}),
+        ...(membershipSummary ? { membershipSummary } : {}),
       };
     }),
       row,
@@ -735,6 +812,12 @@ export function expandSnapshotForPurchaseList(
       const unitSubtitle =
         kind === "membership"
           ? membershipUnitSubtitle(it, c.currency ?? "USD")
+          : kind === "booking"
+            ? slotUnitSubtitle(strikeAmount ?? lineAmount, slotKeysForSegment(row, segIdx), c.currency ?? "USD")
+            : quantityUnitSubtitle(it, lineAmount, c.currency ?? "USD");
+      const membershipSummary =
+        kind === "membership"
+          ? membershipSummaryFromRequiredProducts(row, it)
           : undefined;
       lines.push({
         key: `snap-${rowIndex}-item-${i}-${cartId}`,
@@ -749,6 +832,7 @@ export function expandSnapshotForPurchaseList(
         ...(badge ? { badge } : {}),
         ...(bagRemove ? { bagRemove } : {}),
         ...(unitSubtitle ? { unitSubtitle } : {}),
+        ...(membershipSummary ? { membershipSummary } : {}),
       });
     });
     if (lines.length > 0) return finalizePurchaseDisplayLines(lines, row, rowIndex, options);

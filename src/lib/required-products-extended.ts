@@ -14,6 +14,13 @@ export type ExtendedRequiredProductNode = {
   isGated?: boolean;
 } & Record<string, unknown>;
 
+export type MembershipDisplaySummary = {
+  audienceLabel: string | null;
+  modeLabel: "Fixed" | "Renews" | null;
+  detailLabel: string | null;
+  frequencyLabel: string | null;
+};
+
 export function parseExtendedRequiredProductsList(raw: unknown): ExtendedRequiredProductNode[] {
   const rows: unknown[] = Array.isArray(raw)
     ? raw
@@ -120,6 +127,8 @@ function pickString(o: Record<string, unknown> | undefined | null, keys: readonl
 
 /** "9999-..." / "2199-..." / "2200-..." dates Bond uses as "no expiration" sentinels. */
 const FAR_FUTURE_YEAR_THRESHOLD = 2100;
+const MONTHS_IN_QUARTER = 3;
+const MONTHS_IN_YEAR = 12;
 
 /** True if `iso` parses to a year >= 2100 (Bond's "no real expiration" sentinel). */
 function isFarFutureSentinelDate(iso: string | null): boolean {
@@ -133,10 +142,18 @@ function isFarFutureSentinelDate(iso: string | null): boolean {
 function monthsToCadenceLabel(months: number | null): string | null {
   if (months == null || !Number.isFinite(months) || months <= 0) return null;
   if (months === 1) return "month";
-  if (months === 3) return "quarter";
-  if (months === 12) return "year";
-  if (months % 12 === 0) return `${months / 12} years`;
+  if (months === MONTHS_IN_QUARTER) return "quarter";
+  if (months === MONTHS_IN_YEAR) return "year";
+  if (months % MONTHS_IN_YEAR === 0) return `${months / MONTHS_IN_YEAR} years`;
   return `${months} months`;
+}
+
+function monthsToRenewalCadenceLabel(months: number | null): string | null {
+  if (months == null || !Number.isFinite(months) || months <= 0) return null;
+  if (months === 1) return "monthly";
+  if (months === MONTHS_IN_QUARTER) return "quarterly";
+  if (months === MONTHS_IN_YEAR) return "annually";
+  return `every ${months} months`;
 }
 
 /** Bond-style renewal-interval enum value (`"MONTHLY"` / `"QUARTERLY"` / `"YEARLY"` / etc.) → cadence label. */
@@ -150,6 +167,93 @@ function intervalEnumToCadenceLabel(raw: string | null): string | null {
   if (s.startsWith("week")) return "week";
   if (s.startsWith("day")) return "day";
   return null;
+}
+
+function intervalEnumToRenewalCadenceLabel(raw: string | null): string | null {
+  const compact = intervalEnumToCadenceLabel(raw);
+  if (compact === "month") return "monthly";
+  if (compact === "quarter") return "quarterly";
+  if (compact === "year") return "annually";
+  return compact;
+}
+
+function formatUtcDateLabel(iso: string): string | null {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  const mmm = d.toLocaleString("en-US", { month: "short", timeZone: "UTC" });
+  return `${mmm} ${d.getUTCDate()}, ${d.getUTCFullYear()}`;
+}
+
+function nestedRecord(o: Record<string, unknown> | undefined | null, key: string): Record<string, unknown> | null {
+  const v = o?.[key];
+  return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+}
+
+function candidateMembershipRecords(node: Record<string, unknown>): Record<string, unknown>[] {
+  const product = nestedRecord(node, "product");
+  const resource = nestedRecord(node, "resource") ?? nestedRecord(product, "resource");
+  const membership = nestedRecord(node, "membership") ?? nestedRecord(resource, "membership") ?? nestedRecord(product, "membership");
+  const metadata = nestedRecord(node, "metadata") ?? nestedRecord(product, "metadata") ?? nestedRecord(membership, "metadata");
+  const settings = nestedRecord(node, "settings") ?? nestedRecord(product, "settings") ?? nestedRecord(membership, "settings");
+  const options = nestedRecord(node, "options") ?? nestedRecord(product, "options") ?? nestedRecord(membership, "options");
+  const packages = Array.isArray(node.packages) ? node.packages : Array.isArray(product?.packages) ? product.packages : [];
+  const packageRecords = packages.filter(
+    (record): record is Record<string, unknown> => record != null && typeof record === "object" && !Array.isArray(record)
+  );
+  return [membership, metadata, settings, options, resource, product, node, ...packageRecords].filter((record): record is Record<string, unknown> => record != null);
+}
+
+function pickFirstNumberFromRecords(records: readonly Record<string, unknown>[], keys: readonly string[]): number | null {
+  for (const record of records) {
+    const value = pickNumber(record, keys);
+    if (value != null) return value;
+  }
+  return null;
+}
+
+function pickFirstStringFromRecords(records: readonly Record<string, unknown>[], keys: readonly string[]): string | null {
+  for (const record of records) {
+    const value = pickString(record, keys);
+    if (value != null) return value;
+  }
+  return null;
+}
+
+function pickFirstBooleanFromRecords(records: readonly Record<string, unknown>[], keys: readonly string[]): boolean | null {
+  for (const record of records) {
+    for (const key of keys) {
+      const value = record[key];
+      if (typeof value === "boolean") return value;
+    }
+  }
+  return null;
+}
+
+function prettyEnumLabel(raw: string | null): string | null {
+  if (!raw) return null;
+  const cleaned = raw
+    .replace(/[_-]+/g, " ")
+    .replace(/\bgating\b/gi, "")
+    .replace(/\bmembership\b/gi, "")
+    .trim();
+  if (!cleaned || /^(fixed|rolling|recurring|renews?|monthly|quarterly|annual|annually|yearly)$/i.test(cleaned)) return null;
+  return cleaned.replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function realExpirationLabel(records: readonly Record<string, unknown>[]): string | null {
+  const raw = pickFirstStringFromRecords(records, ["expirationDate", "validUntil", "expiresAt", "endDate"]);
+  if (!raw || isFarFutureSentinelDate(raw)) return null;
+  const formatted = formatUtcDateLabel(raw);
+  return formatted ? `Expires: ${formatted}` : null;
+}
+
+function renewalCadenceLabelFromRecords(records: readonly Record<string, unknown>[]): string | null {
+  const months = pickFirstNumberFromRecords(records, ["durationMonths", "months", "lengthMonths", "renewalMonths"]);
+  const monthsLabel = monthsToRenewalCadenceLabel(months);
+  if (monthsLabel) return monthsLabel;
+  return intervalEnumToRenewalCadenceLabel(
+    pickFirstStringFromRecords(records, ["interval", "recurrenceInterval", "renewalInterval", "cadence", "frequency"])
+  );
 }
 
 /**
@@ -194,17 +298,41 @@ export function membershipFrequencyLabel(node: ExtendedRequiredProductNode): str
     if (pkgIntervalLabel) return pkgIntervalLabel;
   }
 
-  const realExpiration = pickString(membership, ["expirationDate", "validUntil", "expiresAt"])
-    ?? pickString(product, ["expirationDate", "validUntil", "expiresAt"])
-    ?? pickString(o, ["expirationDate", "validUntil", "expiresAt"]);
+  const realExpiration = pickString(membership, ["expirationDate", "validUntil", "expiresAt", "endDate"])
+    ?? pickString(product, ["expirationDate", "validUntil", "expiresAt", "endDate"])
+    ?? pickString(o, ["expirationDate", "validUntil", "expiresAt", "endDate"]);
   if (realExpiration && !isFarFutureSentinelDate(realExpiration)) {
-    const d = new Date(realExpiration);
-    if (!Number.isNaN(d.getTime())) {
-      const mmm = d.toLocaleString("en-US", { month: "short", timeZone: "UTC" });
-      return `exp ${mmm} ${d.getUTCDate()}, ${d.getUTCFullYear()}`;
-    }
+    const formatted = formatUtcDateLabel(realExpiration);
+    if (formatted) return `exp ${formatted}`;
   }
   return null;
+}
+
+export function membershipDisplaySummary(node: Record<string, unknown>): MembershipDisplaySummary {
+  const records = candidateMembershipRecords(node);
+  const productSubType = typeof node.productSubType === "string" ? node.productSubType : null;
+  const audienceLabel = prettyEnumLabel(
+    pickFirstStringFromRecords(records, ["customerType", "audience", "audienceType", "memberType", "membershipType", "memberCategory", "membershipCategory", "productSubType", "type"]) ??
+      productSubType
+  );
+  const expirationLabel = realExpirationLabel(records);
+  const cadenceLabel = renewalCadenceLabelFromRecords(records);
+  const rawMode = pickFirstStringFromRecords(records, ["membershipType", "billingType", "membershipBillingType", "renewalType", "subscriptionType", "renewalMode"]);
+  const autoRenews = pickFirstBooleanFromRecords(records, ["autoRenew", "autoRenews", "isRecurring", "recurring", "renews", "isRolling", "rolling"]);
+  const isFixed = pickFirstBooleanFromRecords(records, ["isFixed", "fixed"]);
+  const rawModeText = rawMode?.toLowerCase() ?? "";
+  const modeLabel =
+    expirationLabel || isFixed === true || rawModeText.includes("fixed")
+      ? "Fixed"
+      : autoRenews === true || rawModeText.includes("rolling") || rawModeText.includes("recurr") || rawModeText.includes("renew") || cadenceLabel
+        ? "Renews"
+        : null;
+  return {
+    audienceLabel,
+    modeLabel,
+    detailLabel: modeLabel === "Fixed" ? expirationLabel : cadenceLabel,
+    frequencyLabel: membershipFrequencyLabel(node as ExtendedRequiredProductNode),
+  };
 }
 
 /** List/catalog unit price for a product id in the extended required tree (includes `required: false` satisfied rows). */

@@ -27,6 +27,7 @@ export function CheckoutItemCard({ card, formatPrice, currency, hideParticipantM
   const tx = useTranslations("checkout");
   const showRemove = card.removable && onRemove != null;
   const metaLines = hideParticipantMeta ? card.metaLines.filter((line) => line.icon !== "person") : card.metaLines;
+  const showPriceRow = card.kind !== "membership" || card.baseStrikeAmount != null;
 
   return (
     <li className="cb-co-card" data-card-kind={card.kind} data-card-id={card.cartItemId ?? ""}>
@@ -65,23 +66,31 @@ export function CheckoutItemCard({ card, formatPrice, currency, hideParticipantM
         </ul>
       ) : null}
 
-      <div className="cb-co-card-badge-price-row">
+      {showPriceRow ? (
+        <div className="cb-co-card-price-row">
+          <span className="cb-co-card-unit-subtitle">
+            {card.unitSubtitle ?? ""}
+          </span>
+          <span className="cb-co-card-base-price">
+            {card.baseStrikeAmount != null ? (
+              <span className="cb-co-card-base-price-strike" aria-label={tx("originalPrice")}>
+                {formatPrice(card.baseStrikeAmount, currency)}
+              </span>
+            ) : null}
+            <span className="cb-co-card-base-price-current">
+              {formatPrice(card.basePrice, currency)}
+            </span>
+          </span>
+        </div>
+      ) : null}
+
+      {card.badges.length > 0 ? (
         <div className="cb-co-card-badges">
           {card.badges.map((b, idx) => (
             <BadgePill key={`${b.kind}-${idx}`} badge={b} />
           ))}
         </div>
-        <span className="cb-co-card-base-price">
-          {card.baseStrikeAmount != null ? (
-            <span className="cb-co-card-base-price-strike" aria-label={tx("originalPrice")}>
-              {formatPrice(card.baseStrikeAmount, currency)}
-            </span>
-          ) : null}
-          <span className="cb-co-card-base-price-current">
-            {formatPrice(card.basePrice, currency)}
-          </span>
-        </span>
-      </div>
+      ) : null}
 
       {card.extras ? (
         <>
@@ -152,15 +161,28 @@ function MetaIcon({ kind }: { kind: CheckoutCardMetaIcon }) {
     case "membership":
       return (
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-          <rect x="3" y="6" width="18" height="12" rx="2" stroke="currentColor" strokeWidth="1.5" />
-          <circle cx="9" cy="12" r="2" stroke="currentColor" strokeWidth="1.5" />
-          <path d="M14 10h5M14 14h5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          <rect x="3" y="6" width="18" height="12" rx="2" stroke="currentColor" strokeWidth="1.6" />
+          <path d="M3 10h18" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+          <path
+            d="M9 12.5l.7 1.4 1.55.22-1.12 1.1.26 1.55L9 16.05l-1.39.72.26-1.55-1.12-1.1 1.55-.22L9 12.5z"
+            stroke="currentColor"
+            strokeWidth="1.2"
+            strokeLinejoin="round"
+          />
         </svg>
       );
     case "category":
       return (
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
           <path d="M8.5 5.5h-3v3h3v-3zM18.5 5.5h-3v3h3v-3zM8.5 15.5h-3v3h3v-3zM18.5 15.5h-3v3h3v-3z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
+        </svg>
+      );
+    case "renewal":
+      return (
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+          <path d="M17.5 7.5A6.5 6.5 0 0 0 6.7 6.1L5 7.8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M5 4.5v3.3h3.3M6.5 16.5a6.5 6.5 0 0 0 10.8 1.4l1.7-1.7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M19 19.5v-3.3h-3.3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       );
     default:

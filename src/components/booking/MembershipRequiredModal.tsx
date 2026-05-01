@@ -6,6 +6,7 @@ import { IconMembershipCard } from "@/components/booking/SlotMemberPriceLabel";
 import type { ExtendedRequiredProductNode } from "@/lib/required-products-extended";
 import {
   collectProductAndNestedIds,
+  membershipDisplaySummary,
   membershipFrequencyLabel,
   primaryListPrice,
   sumNodeTotalUsd,
@@ -75,7 +76,10 @@ export function MembershipRequiredPanel({
           const price = primaryListPrice(opt);
           const total = sumNodeTotalUsd(opt);
           const nested = opt.requiredProducts ?? [];
-          const subType = membershipSubTypeLabel(opt);
+          const summary = membershipDisplaySummary(opt);
+          const subType = summary.audienceLabel ?? membershipSubTypeLabel(opt);
+          const cadence = summary.frequencyLabel ?? membershipFrequencyLabel(opt);
+          const billingLine = [summary.modeLabel, summary.detailLabel].filter(Boolean).join(" · ");
           const hasNested = nested.length > 0;
           return (
             <li key={opt.id}>
@@ -93,8 +97,11 @@ export function MembershipRequiredPanel({
                       <span className="cb-membership-card-subtype">{subType}</span>
                     ) : null}
                   </div>
-                  {price ? renderPriceWithFreq(price, membershipFrequencyLabel(opt)) : null}
+                  {price ? renderPriceWithFreq(price, cadence) : null}
                 </div>
+                {billingLine ? (
+                  <span className="cb-membership-card-subtype">{billingLine}</span>
+                ) : null}
                 {hasNested && !sel ? (
                   <span className="cb-membership-card-additional-pill">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden>
@@ -116,8 +123,10 @@ export function MembershipRequiredPanel({
                     <ul className="cb-membership-card-requires-list">
                       {nested.map((child) => {
                         const cp = primaryListPrice(child);
-                        const childFreq = membershipFrequencyLabel(child);
-                        const childSubType = membershipSubTypeLabel(child);
+                        const childSummary = membershipDisplaySummary(child);
+                        const childFreq = childSummary.frequencyLabel ?? membershipFrequencyLabel(child);
+                        const childSubType = childSummary.audienceLabel ?? membershipSubTypeLabel(child);
+                        const childBillingLine = [childSummary.modeLabel, childSummary.detailLabel].filter(Boolean).join(" · ");
                         const alreadyOwned = child.required === false;
                         return (
                           <li key={child.id} className="cb-membership-card-requires-row">
@@ -127,6 +136,9 @@ export function MembershipRequiredPanel({
                               </span>
                               {childSubType ? (
                                 <span className="cb-membership-card-requires-row-subtype">{childSubType}</span>
+                              ) : null}
+                              {childBillingLine ? (
+                                <span className="cb-membership-card-requires-row-subtype">{childBillingLine}</span>
                               ) : null}
                             </div>
                             {cp ? (

@@ -262,6 +262,78 @@ function participantLabelFromCartIndices(cart: OrganizationCartDto, indices?: re
   return undefined;
 }
 
+type ParticipantCartSegment = {
+  label: string;
+  indices: number[];
+};
+
+function flatLineIndexSegmentsByParticipant(cart: OrganizationCartDto): ParticipantCartSegment[] {
+  if (!Array.isArray(cart.cartItems) || cart.cartItems.length === 0) return [];
+  const flat = flattenBondCartItemNodes(cart.cartItems);
+  const labels = flat.map((item) =>
+    item && typeof item === "object" ? participantLabelFromCartItem(item as Record<string, unknown>) : undefined
+  );
+  const order: string[] = [];
+  const map = new Map<string, number[]>();
+  const preamble: number[] = [];
+  const pendingByLabel = new Map<string, number[]>();
+  let activeLabel: string | undefined;
+  const append = (label: string, index: number) => {
+    if (!map.has(label)) {
+      map.set(label, []);
+      order.push(label);
+    }
+    map.get(label)!.push(index);
+  };
+  const queue = (label: string, index: number) => {
+    const pending = pendingByLabel.get(label) ?? [];
+    pending.push(index);
+    pendingByLabel.set(label, pending);
+  };
+  const flush = (label: string) => {
+    const pending = pendingByLabel.get(label);
+    if (!pending) return;
+    for (const pendingIndex of pending) append(label, pendingIndex);
+    pendingByLabel.delete(label);
+  };
+  const nextLabelAfter = (start: number): string | undefined => {
+    for (let i = start + 1; i < labels.length; i++) {
+      const label = labels[i];
+      if (label) return label;
+    }
+    return undefined;
+  };
+  for (let index = 0; index < flat.length; index++) {
+    const item = flat[index];
+    const itemLabel = labels[index];
+    if (itemLabel) {
+      activeLabel = itemLabel;
+      if (preamble.length > 0) {
+        for (const preambleIndex of preamble) append(itemLabel, preambleIndex);
+        preamble.length = 0;
+      }
+      flush(itemLabel);
+      append(itemLabel, index);
+      continue;
+    }
+    const itemKind = item && typeof item === "object" ? classifyCartItemLineKind(item as Record<string, unknown>) : "booking";
+    if (itemKind === "membership") {
+      const nextLabel = nextLabelAfter(index);
+      if (nextLabel && nextLabel !== activeLabel) {
+        queue(nextLabel, index);
+        continue;
+      }
+    }
+    if (activeLabel) append(activeLabel, index);
+    else preamble.push(index);
+  }
+  if (preamble.length > 0 && order[0]) {
+    const first = order[0];
+    map.set(first, [...preamble, ...(map.get(first) ?? [])]);
+  }
+  return order.map((label) => ({ label, indices: map.get(label) ?? [] })).filter((segment) => segment.indices.length > 0);
+}
+
 /**
  * Groups session cart snapshots by person. Merged carts with `reservationGroups` expand into * multiple grouped items (same snapshot `index`) so each participant gets their own section.
  */
@@ -279,6 +351,18 @@ export function groupSessionCartSnapshotsByLabel(rows: SessionCartSnapshot[]): S
 
   for (let index = 0; index < rows.length; index++) {
     const row = rows[index]!;
+    const participantSegments = flatLineIndexSegmentsByParticipant(row.cart);
+    if (participantSegments.length > 1) {
+      for (const segment of participantSegments) {
+        append(segment.label, {
+          index,
+          row,
+          cartFlatLineIndices: segment.indices,
+          subsectionBookingForLabel: segment.label,
+        });
+      }
+      continue;
+    }
     const rg = row.reservationGroups;
     if (rg && rg.length > 1) {
       let segments = flatLineIndexSegmentsFromReservationGroups(row.cart, rg);

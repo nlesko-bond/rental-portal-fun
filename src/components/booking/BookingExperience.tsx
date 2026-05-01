@@ -50,6 +50,7 @@ import {
   membershipRequiredForProductFromResponse,
   userNeedsMembershipFromRequiredResponse,
 } from "@/lib/required-products-eligibility";
+import { parseExtendedRequiredProductsList } from "@/lib/required-products-extended";
 import { bookingPartyMembersFromProfile } from "@/lib/booking-party-options";
 import { BondBffError } from "@/lib/bond-json";
 import type { OnlineBookingView, OrganizationCartDto, ScheduleTimeSlotDto } from "@/types/online-booking";
@@ -62,11 +63,12 @@ import { sanitizeBookingDescriptionHtml } from "@/lib/sanitize-html";
 import { bookingOptionalAddons } from "@/lib/product-package-addons";
 import { parseProductFormIds } from "@/lib/product-form-ids";
 import { countSessionCartLineItems } from "@/lib/cart-purchase-lines";
-import { bondRootCartItemIdForRemoval } from "@/lib/bond-cart-removal";
+import { allBondFlatLineIndices, bondRemovableCartItemIdsForIndices } from "@/lib/bond-cart-removal";
 import {
   closeCart,
   closeOrganizationCartsBestEffort,
   getOrganizationCart,
+  removeCartItemsSequentiallyWithFallback,
   removeCartItemWithIllegalPriceFallback,
 } from "@/lib/bond-cart-api";
 import { flattenBondCartItemNodes } from "@/lib/checkout-bag-totals";
@@ -2183,7 +2185,7 @@ export function BookingExperience() {
         open={welcomeToastOpen}
         title={welcomeToastTitle}
         subtitle={tb("welcomeSignedIn")}
-        duration={3000}
+        duration={1500}
         onDismiss={() => setWelcomeToastOpen(false)}
       />
 
@@ -2289,9 +2291,12 @@ export function BookingExperience() {
                 await settleAfterDeletes(updated);
                 return;
               }
-              /** Subsection delete: Bond cascades addons off the reservation root, so one DELETE clears the segment. */
-              const rootId = bondRootCartItemIdForRemoval(row.cart, cartFlatLineIndices);
-              if (rootId == null) {
+              const indices =
+                cartFlatLineIndices != null && cartFlatLineIndices.length > 0
+                  ? cartFlatLineIndices
+                  : allBondFlatLineIndices(row.cart);
+              const removableIds = bondRemovableCartItemIdsForIndices(row.cart, indices);
+              if (removableIds.length === 0) {
                 await closeCart(env.orgId, cid);
                 setSessionCartRows((prev) => {
                   const next = prev.filter((_, i) => i !== index);
@@ -2301,12 +2306,12 @@ export function BookingExperience() {
                 });
                 return;
               }
-              const updated = await removeCartItemWithIllegalPriceFallback(
+              const updated = await removeCartItemsSequentiallyWithFallback(
                 env.orgId,
                 cid,
-                rootId,
-                row.cart,
-                cartFlatLineIndices
+                removableIds,
+                cartFlatLineIndices,
+                () => getOrganizationCart(env.orgId, cid)
               );
               await settleAfterDeletes(updated);
             } catch {
@@ -2322,6 +2327,47 @@ export function BookingExperience() {
               raw != null &&
               membershipRequiredForProductFromResponse(raw) &&
               !userNeedsMembershipFromRequiredResponse(raw);
+            const requiredProductDetailsById = (() => {
+              const nodes = parseExtendedRequiredProductsList(raw);
+              const out: Record<number, Record<string, unknown>> = {};
+              const walk = (items: typeof nodes) => {
+                for (const item of items) {
+                  out[item.id] = item as Record<string, unknown>;
+                  if (item.requiredProducts?.length) walk(item.requiredProducts);
+                }
+              };
+              walk(nodes);
+              return Object.keys(out).length > 0 ? out : undefined;
+            })();
+            const productDownpaymentByProductId = (() => {
+              const amount = selectedProduct?.downPayment ?? selectedProduct?.downpayment;
+              if (
+                typeof state.productId === "number" &&
+                state.productId > 0 &&
+                typeof amount === "number" &&
+                Number.isFinite(amount) &&
+                amount > 0
+              ) {
+                return { [state.productId]: amount };
+              }
+              return undefined;
+            })();
+            const mergeRequiredProductDetails = (siblings: SessionCartSnapshot[]) => {
+              const out: Record<number, Record<string, unknown>> = {};
+              for (const row of siblings) {
+                if (row.requiredProductDetailsById) Object.assign(out, row.requiredProductDetailsById);
+              }
+              if (requiredProductDetailsById) Object.assign(out, requiredProductDetailsById);
+              return Object.keys(out).length > 0 ? out : undefined;
+            };
+            const mergeProductDownpayments = (siblings: SessionCartSnapshot[]) => {
+              const out: Record<number, number> = {};
+              for (const row of siblings) {
+                if (row.productDownpaymentByProductId) Object.assign(out, row.productDownpaymentByProductId);
+              }
+              if (productDownpaymentByProductId) Object.assign(out, productDownpaymentByProductId);
+              return Object.keys(out).length > 0 ? out : undefined;
+            };
             const newSlotKeys = pickedSlotsOrdered.map((s) => s.key);
             /** Prefer Bond `cartItems` for bag/payment lines; client `displayLines` only match the last add’s slots and hide merged bookings. */
             const bondCartItems = normalizedCart.cartItems;
@@ -2385,6 +2431,8 @@ export function BookingExperience() {
                     return true;
                   });
                   const reservationGroups = mergeReservationGroups(siblings, bookingForLabel, newSlotKeys);
+                  const mergedRequiredProductDetailsById = mergeRequiredProductDetails(siblings);
+                  const mergedProductDownpaymentByProductId = mergeProductDownpayments(siblings);
                   const approvalByProductId: Record<number, boolean> = {};
                   for (const s of siblings) {
                     if (s.approvalByProductId) Object.assign(approvalByProductId, s.approvalByProductId);
@@ -2418,6 +2466,8 @@ export function BookingExperience() {
                         : {}),
                       reservedSlotKeys: [...mergedKeys],
                       participantHasQualifyingMembership,
+                      ...(mergedRequiredProductDetailsById != null ? { requiredProductDetailsById: mergedRequiredProductDetailsById } : {}),
+                      ...(mergedProductDownpaymentByProductId != null ? { productDownpaymentByProductId: mergedProductDownpaymentByProductId } : {}),
                       ...(displayLines != null ? { displayLines } : {}),
                       ...(reservationGroups != null ? { reservationGroups } : {}),
                     },
@@ -2439,6 +2489,8 @@ export function BookingExperience() {
                       : {}),
                     reservedSlotKeys: newSlotKeys,
                     participantHasQualifyingMembership,
+                    ...(requiredProductDetailsById != null ? { requiredProductDetailsById } : {}),
+                    ...(productDownpaymentByProductId != null ? { productDownpaymentByProductId } : {}),
                     ...(displayLines != null ? { displayLines } : {}),
                   },
                 ];

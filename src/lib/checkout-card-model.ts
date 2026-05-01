@@ -28,7 +28,7 @@ export type CheckoutCardKind =
   | "other";
 
 /** Icon hint for a meta row inside the card body. */
-export type CheckoutCardMetaIcon = "person" | "location" | "date" | "membership" | "category";
+export type CheckoutCardMetaIcon = "person" | "location" | "date" | "membership" | "category" | "renewal";
 
 export type CheckoutCardMetaLine = {
   icon: CheckoutCardMetaIcon;
@@ -62,6 +62,7 @@ export type CheckoutCardModel = {
   participantLabel: string | null;
   metaLines: CheckoutCardMetaLine[];
   badges: CheckoutCardBadge[];
+  unitSubtitle: string | null;
   /** Roll-up "Extras (N items) $X" line for a rental — `null` for non-rental cards. */
   extras: CheckoutCardExtrasSummary | null;
   /** Net (post-discount) base price for the rental row. Same as `itemTotal − extras.amount`. */
@@ -104,10 +105,25 @@ function metaLinesFromBondMeta(
   return out;
 }
 
+function membershipMetaLinesFromLine(line: CartPurchaseDisplayLine): CheckoutCardMetaLine[] {
+  const out: CheckoutCardMetaLine[] = [];
+  const summary = line.membershipSummary;
+  if (!summary?.audienceLabel && summary?.modeLabel === "Renews" && summary.detailLabel) {
+    out.push({ icon: "membership", text: `${summary.modeLabel} · ${summary.detailLabel}` });
+    return out;
+  }
+  const typeLine = [summary?.audienceLabel, summary?.modeLabel].filter(Boolean).join(" · ");
+  if (typeLine) out.push({ icon: "membership", text: typeLine });
+  if (summary?.detailLabel) {
+    out.push({ icon: summary?.modeLabel === "Renews" ? "renewal" : "date", text: summary.detailLabel });
+  }
+  return out;
+}
+
 function badgesFromLine(line: CartPurchaseDisplayLine): CheckoutCardBadge[] {
   const out: CheckoutCardBadge[] = [];
   if (line.approvalPending) out.push({ kind: "approval", text: "Approval required" });
-  if (line.depositRequired) out.push({ kind: "deposit_optional", text: "Deposit available" });
+  if (line.depositRequired) out.push({ kind: "deposit_optional", text: "Deposit required" });
   if (line.discountNote) out.push({ kind: "promo", text: line.discountNote });
   return out;
 }
@@ -179,8 +195,9 @@ export function checkoutCardsFromSnapshot(
       removable,
       title: line.title,
       participantLabel: line.bagMetaRows?.participant ?? null,
-      metaLines: metaLinesFromBondMeta(line.bagMetaRows, line.meta),
+      metaLines: kind === "membership" ? membershipMetaLinesFromLine(line) : metaLinesFromBondMeta(line.bagMetaRows, line.meta),
       badges: badgesFromLine(line),
+      unitSubtitle: line.unitSubtitle ?? null,
       extras: null,
       basePrice: ROUND(baseAmount),
       baseStrikeAmount,

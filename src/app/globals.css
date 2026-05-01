@@ -3591,8 +3591,17 @@ body {
   margin: 0.75rem 0 0;
   padding: 0;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  flex-wrap: nowrap;
   gap: 0.75rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+  scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
+}
+
+.consumer-booking .cb-addon-slot-panel-list::-webkit-scrollbar {
+  display: none;
 }
 
 .consumer-booking .cb-addon-slot-panel-row {
@@ -3600,11 +3609,13 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
+  flex: 0 0 min(20.375rem, 100%);
   min-height: 3.75rem;
   padding: 0.75rem 1.25rem;
   border-radius: 0.75rem;
   border: 1px solid #dae6f0;
   background: #ffffff;
+  scroll-snap-align: start;
 }
 
 .consumer-booking .cb-addon-slot-panel-row--on {
@@ -3645,6 +3656,17 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
+}
+
+.consumer-booking .cb-checkout-drawer .cb-addon-slot-panel-list {
+  flex-direction: column;
+  overflow-x: visible;
+  scroll-snap-type: none;
+}
+
+.consumer-booking .cb-checkout-drawer .cb-addon-slot-panel-row {
+  flex-basis: auto;
+  width: 100%;
 }
 
 .consumer-booking .cb-addon-qty--sm .cb-addon-qty-btn {
@@ -3837,12 +3859,33 @@ body {
   white-space: nowrap;
 }
 
+.consumer-booking .cb-checkout-review-membership-meta {
+  margin-top: 0.125rem;
+}
+
 .consumer-booking .cb-co-card-badge-price-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
   min-height: 1.25rem;
+}
+
+.consumer-booking .cb-co-card-price-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-height: 1.25rem;
+}
+
+.consumer-booking .cb-co-card-unit-subtitle {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.75rem;
+  color: #606e7f;
 }
 
 .consumer-booking .cb-co-card-badges {
@@ -5168,6 +5211,26 @@ body {
   padding: 0.85rem 1rem;
   box-shadow: var(--cb-shadow-card);
   animation: cb-toast-in 0.35s ease;
+}
+
+.consumer-booking .cb-welcome-toast-close {
+  margin: -0.25rem -0.35rem 0 0;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  color: var(--cb-text-muted);
+  cursor: pointer;
+}
+
+.consumer-booking .cb-welcome-toast-close:hover {
+  background: color-mix(in srgb, var(--cb-text-muted) 12%, transparent);
+  color: var(--cb-text);
 }
 
 .consumer-booking .cb-welcome-toast--out {

@@ -60,4 +60,80 @@ describe("groupSessionCartSnapshotsByLabel", () => {
 
     expect(sections.map((section) => section.label)).toEqual(["Paxton Lee", "Namie Namerson"]);
   });
+
+  it("groups merged cart items by Bond participant without relying on session reservation groups", () => {
+    const sections = groupSessionCartSnapshotsByLabel([
+      makeSnap(
+        {
+          id: 13,
+          cartItems: [
+            {
+              metadata: { description: "membership" },
+              productUser: { fullName: "Russell Burgess" },
+            },
+            {
+              metadata: { description: "reservation_type_rental" },
+              productUser: { fullName: "Russell Burgess" },
+            },
+            {
+              metadata: { description: "slot_addon" },
+              productUser: { fullName: "Russell Burgess" },
+            },
+            {
+              metadata: { description: "slot_addon" },
+              productUser: { fullName: "Russell Burgess" },
+            },
+            {
+              metadata: { description: "reservation_addon" },
+              productUser: { fullName: "Russell Burgess" },
+            },
+            {
+              metadata: { description: "reservation_type_rental" },
+              participant: { firstName: "Nicole", lastName: "Lesko" },
+            },
+            {
+              metadata: { description: "slot_addon" },
+              participant: { firstName: "Nicole", lastName: "Lesko" },
+            },
+          ],
+        },
+        "Most recent participant"
+      ),
+    ]);
+
+    expect(sections.map((section) => section.label)).toEqual(["Russell Burgess", "Nicole Lesko"]);
+    expect(sections[0]!.items[0]!.cartFlatLineIndices).toEqual([0, 1, 2, 3, 4]);
+    expect(sections[1]!.items[0]!.cartFlatLineIndices).toEqual([5, 6]);
+  });
+
+  it("attaches unlabeled membership lines to the next Bond participant booking", () => {
+    const sections = groupSessionCartSnapshotsByLabel([
+      makeSnap(
+        {
+          id: 14,
+          cartItems: [
+            {
+              metadata: { description: "reservation_type_rental" },
+              participant: { fullName: "Nicole Lesko" },
+            },
+            {
+              metadata: { description: "slot_addon" },
+            },
+            {
+              metadata: { description: "membership" },
+            },
+            {
+              metadata: { description: "reservation_type_rental" },
+              participant: { fullName: "Paxton Burgess" },
+            },
+          ],
+        },
+        "Paxton Burgess"
+      ),
+    ]);
+
+    expect(sections.map((section) => section.label)).toEqual(["Nicole Lesko", "Paxton Burgess"]);
+    expect(sections[0]!.items[0]!.cartFlatLineIndices).toEqual([0, 1]);
+    expect(sections[1]!.items[0]!.cartFlatLineIndices).toEqual([2, 3]);
+  });
 });

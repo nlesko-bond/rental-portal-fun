@@ -18,6 +18,7 @@ export type SessionCartDisplayLine = {
   lineKind?: "booking" | "membership" | "addon";
   /** Catalog / promo discount — shown under meta on bag & payment (name, %, code). */
   discountNote?: string;
+  unitSubtitle?: string;
 };
 
 /** One participant’s reservation inside a merged Bond cart (same `cart.id`). */
@@ -57,6 +58,10 @@ export type SessionCartSnapshot = {
   reservedSlotKeys?: string[];
   /** Optional legacy rows in sessionStorage; prefer Bond `cart.cartItems` when present. */
   displayLines?: SessionCartDisplayLine[];
+  /** Product details from `getUserRequiredProducts`, keyed by required product id. */
+  requiredProductDetailsById?: Record<number, Record<string, unknown>>;
+  /** Product-level downpayment metadata, keyed by product id, when the cart omits it from line items. */
+  productDownpaymentByProductId?: Record<number, number>;
   /** Human slot summary for pending / synthetic rows (payment step) when Bond cart id is not yet persisted. */
   scheduleSummary?: string;
 };
@@ -88,6 +93,10 @@ function normalizeDisplayLines(raw: unknown): SessionCartDisplayLine[] | undefin
         : undefined;
     const strikeAmount =
       typeof r.strikeAmount === "number" && Number.isFinite(r.strikeAmount) ? r.strikeAmount : undefined;
+    const unitSubtitle =
+      typeof r.unitSubtitle === "string" && r.unitSubtitle.trim().length > 0
+        ? r.unitSubtitle.trim()
+        : undefined;
     out.push({
       title,
       meta,
@@ -95,6 +104,7 @@ function normalizeDisplayLines(raw: unknown): SessionCartDisplayLine[] | undefin
       ...(lineKind ? { lineKind } : {}),
       ...(discountNote ? { discountNote } : {}),
       ...(strikeAmount != null ? { strikeAmount } : {}),
+      ...(unitSubtitle != null ? { unitSubtitle } : {}),
     });
   }
   return out.length > 0 ? out : undefined;
@@ -194,6 +204,27 @@ function normalizeRow(x: unknown, rowIndex: number): SessionCartSnapshot | null 
       }
       if (Object.keys(acc).length > 0) productNameByProductId = acc;
     }
+    let requiredProductDetailsById: Record<number, Record<string, unknown>> | undefined;
+    if (o.requiredProductDetailsById && typeof o.requiredProductDetailsById === "object") {
+      const acc: Record<number, Record<string, unknown>> = {};
+      for (const [k, v] of Object.entries(o.requiredProductDetailsById as Record<string, unknown>)) {
+        const id = /^\d+$/.test(k) ? Number(k) : NaN;
+        if (Number.isFinite(id) && id > 0 && v && typeof v === "object" && !Array.isArray(v)) {
+          acc[id] = v as Record<string, unknown>;
+        }
+      }
+      if (Object.keys(acc).length > 0) requiredProductDetailsById = acc;
+    }
+    let productDownpaymentByProductId: Record<number, number> | undefined;
+    if (o.productDownpaymentByProductId && typeof o.productDownpaymentByProductId === "object") {
+      const acc: Record<number, number> = {};
+      for (const [k, v] of Object.entries(o.productDownpaymentByProductId as Record<string, unknown>)) {
+        const id = /^\d+$/.test(k) ? Number(k) : NaN;
+        const amount = typeof v === "number" && Number.isFinite(v) ? v : NaN;
+        if (Number.isFinite(id) && id > 0 && Number.isFinite(amount) && amount > 0) acc[id] = amount;
+      }
+      if (Object.keys(acc).length > 0) productDownpaymentByProductId = acc;
+    }
     const participantHasQualifyingMembership =
       o.participantHasQualifyingMembership === true ? true : undefined;
     const scheduleSummary =
@@ -207,6 +238,8 @@ function normalizeRow(x: unknown, rowIndex: number): SessionCartSnapshot | null 
       ...(approvalRequired === true ? { approvalRequired: true } : {}),
       ...(approvalByProductId != null ? { approvalByProductId } : {}),
       ...(productNameByProductId != null ? { productNameByProductId } : {}),
+      ...(requiredProductDetailsById != null ? { requiredProductDetailsById } : {}),
+      ...(productDownpaymentByProductId != null ? { productDownpaymentByProductId } : {}),
       ...(participantHasQualifyingMembership === true ? { participantHasQualifyingMembership: true } : {}),
       ...(reservedSlotKeys != null ? { reservedSlotKeys } : {}),
       ...(displayLines != null ? { displayLines } : {}),

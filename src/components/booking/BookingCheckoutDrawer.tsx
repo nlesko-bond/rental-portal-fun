@@ -49,6 +49,7 @@ import {
   collectProductAndNestedIds,
   collectSatisfiedRequiredProductIds,
   isMembershipRequiredProduct,
+  membershipDisplaySummary,
   parseExtendedRequiredProductsList,
   partitionMembershipVsOtherRequired,
   primaryListPrice,
@@ -284,6 +285,14 @@ function membershipRequiredFromExtendedTree(
   productId: number,
   extended: ExtendedRequiredProductNode[]
 ): boolean {
+  const node = requiredProductNodeFromExtendedTree(productId, extended);
+  return node != null && isMembershipRequiredProduct(node);
+}
+
+function requiredProductNodeFromExtendedTree(
+  productId: number,
+  extended: ExtendedRequiredProductNode[]
+): ExtendedRequiredProductNode | null {
   function walk(nodes: ExtendedRequiredProductNode[]): ExtendedRequiredProductNode | undefined {
     for (const n of nodes) {
       if (n.id === productId) return n;
@@ -293,8 +302,21 @@ function membershipRequiredFromExtendedTree(
       }
     }
   }
-  const node = walk(extended);
-  return node != null && isMembershipRequiredProduct(node);
+  return walk(extended) ?? null;
+}
+
+function requiredProductDetailsByIdFromExtendedTree(
+  extended: ExtendedRequiredProductNode[]
+): Record<number, Record<string, unknown>> | undefined {
+  const out: Record<number, Record<string, unknown>> = {};
+  function walk(nodes: ExtendedRequiredProductNode[]) {
+    for (const n of nodes) {
+      out[n.id] = n as Record<string, unknown>;
+      if (n.requiredProducts?.length) walk(n.requiredProducts);
+    }
+  }
+  walk(extended);
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 /** True when this required line is submitted for venue approval vs. paid at checkout (memberships = false). */
@@ -732,24 +754,6 @@ export function BookingCheckoutDrawer({
     [requiredQuery.data]
   );
 
-  /** GET …/required marks satisfied SKUs `required: false` — we strip them from checkout UI but Bond create still needs them on `requiredProducts` (with `userId`). */
-  const requiredProductLineItemsForBond = useMemo(() => {
-    const satisfied = collectSatisfiedRequiredProductIds(extendedRequiredList);
-    const ids = new Set<number>([...requiredSelected, ...satisfied]);
-    return [...ids].map((productId) => {
-      const unit = unitPriceForRequiredProductInTree(extendedRequiredList, productId);
-      return {
-        productId,
-        ...(unit !== undefined && Number.isFinite(unit) ? { unitPrice: unit } : {}),
-      };
-    });
-  }, [requiredSelected, extendedRequiredList]);
-
-  const requiredIdsForBond = useMemo(
-    () => requiredProductLineItemsForBond.map((x) => x.productId),
-    [requiredProductLineItemsForBond]
-  );
-
   const { membershipOptions, otherRequired } = useMemo(() => {
     if (extendedRequiredList.length > 0) {
       const p = partitionMembershipVsOtherRequired(extendedRequiredList);
@@ -901,6 +905,27 @@ export function BookingCheckoutDrawer({
     if (!root) return null;
     return new Set(collectProductAndNestedIds(root));
   }, [selectedMembershipRootId, membershipOptionsForStep]);
+
+  const requiredProductLineItemsForBond = useMemo(() => {
+    const satisfied = collectSatisfiedRequiredProductIds(extendedRequiredList);
+    const requiredPurchaseIds = [...requiredSelected].filter((id) => !satisfied.has(id));
+    const ids = new Set<number>([
+      ...requiredPurchaseIds,
+      ...(selectedMembershipNestedIds ? [...selectedMembershipNestedIds] : []),
+    ]);
+    return [...ids].map((productId) => {
+      const unit = unitPriceForRequiredProductInTree(extendedRequiredList, productId);
+      return {
+        productId,
+        ...(unit !== undefined && Number.isFinite(unit) ? { unitPrice: unit } : {}),
+      };
+    });
+  }, [requiredSelected, selectedMembershipNestedIds, extendedRequiredList]);
+
+  const requiredIdsForBond = useMemo(
+    () => requiredProductLineItemsForBond.map((x) => x.productId),
+    [requiredProductLineItemsForBond]
+  );
 
   useEffect(() => {
     if (step !== "membership" || membershipOptionsForStep.length !== 1) return;
@@ -1209,12 +1234,8 @@ export function BookingCheckoutDrawer({
           : undefined,
       cartId:
         includeCartMerge && mergeCartId != null && mergeCartId > 0 ? mergeCartId : undefined,
-      /**
-       * Merging into `cartId`: omit `requiredProducts`. Bond already holds membership / required SKUs from the
-       * first reservation; resending them reprices duplicate lines and often yields ILLEGAL_PRICE or similar.
-       */
       requiredProductLineItems:
-        includeCartMerge || requiredProductLineItemsForBond.length === 0
+        requiredProductLineItemsForBond.length === 0
           ? undefined
           : requiredProductLineItemsForBond,
     });
@@ -1598,6 +1619,7 @@ export function BookingCheckoutDrawer({
   }, [depositAmount]);
   const paymentLines = useMemo((): SessionCartSnapshot[] => {
     const rows: SessionCartSnapshot[] = [...bagSnapshots];
+    const requiredProductDetailsById = requiredProductDetailsByIdFromExtendedTree(extendedRequiredList);
     const pushSynthetic = (
       lineName: string,
       amount: number,
@@ -1628,6 +1650,7 @@ export function BookingCheckoutDrawer({
         productName: lineName,
         bookingForLabel,
         displayLines: [baseLine],
+        ...(requiredProductDetailsById ? { requiredProductDetailsById } : {}),
         ...(opts?.scheduleSummary ? { scheduleSummary: opts.scheduleSummary } : {}),
         ...(opts?.approvalRequired === true ? { approvalRequired: true as const } : {}),
         ...(opts?.approvalRequired === false ? { approvalRequired: false as const } : {}),
@@ -1921,7 +1944,7 @@ export function BookingCheckoutDrawer({
       });
     }
 
-    const membershipItems: { key: string; name: string; amount: number; unitSubtitle?: string }[] = [];
+    const membershipItems: { key: string; name: string; amount: number; unitSubtitle?: string; summaryLine?: string; detailLine?: string }[] = [];
     const otherRequiredItems: { key: string; name: string; amount: number; unitSubtitle?: string }[] = [];
     const seenReqIds = new Set<number>();
     for (const r of allRequiredFlat) {
@@ -1943,7 +1966,21 @@ export function BookingCheckoutDrawer({
         unitSubtitle,
       };
       if (membershipRequiredFromExtendedTree(r.id, extendedRequiredList)) {
-        membershipItems.push(row);
+        const node = requiredProductNodeFromExtendedTree(r.id, extendedRequiredList);
+        const summary = node ? membershipDisplaySummary(node) : null;
+        const summaryLine =
+          !summary?.audienceLabel && summary?.modeLabel === "Renews" && summary.detailLabel
+            ? `${summary.modeLabel} · ${summary.detailLabel}`
+            : [summary?.audienceLabel, summary?.modeLabel].filter(Boolean).join(" · ") || undefined;
+        const detailLine =
+          !summary?.audienceLabel && summary?.modeLabel === "Renews" && summary.detailLabel
+            ? undefined
+            : summary?.detailLabel ?? undefined;
+        membershipItems.push({
+          ...row,
+          summaryLine,
+          detailLine,
+        });
       } else {
         otherRequiredItems.push(row);
       }
@@ -2598,7 +2635,7 @@ export function BookingCheckoutDrawer({
         k: string,
         title: string,
         amount: number,
-        opts2?: { classSuffix?: string; unitSubtitle?: string; onRemove?: () => void }
+        opts2?: { classSuffix?: string; unitSubtitle?: string; summaryLine?: string; detailLine?: string; onRemove?: () => void }
       ) => (
         <li
           key={k}
@@ -2621,7 +2658,34 @@ export function BookingCheckoutDrawer({
               </div>
             ) : null}
           </div>
-          {opts2?.unitSubtitle ? (
+          {opts2?.summaryLine || opts2?.detailLine ? (
+            <ul className="cb-co-card-meta cb-checkout-review-membership-meta">
+              {opts2.summaryLine ? (
+                <li className="cb-co-card-meta-row">
+                  <span className="cb-co-card-meta-icon" aria-hidden>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                      <rect x="3" y="6" width="18" height="12" rx="2" stroke="currentColor" strokeWidth="1.6" />
+                      <path d="M3 10h18" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                      <path d="M9 12.5l.7 1.4 1.55.22-1.12 1.1.26 1.55L9 16.05l-1.39.72.26-1.55-1.12-1.1 1.55-.22L9 12.5z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+                    </svg>
+                  </span>
+                  <span className="cb-co-card-meta-text">{opts2.summaryLine}</span>
+                </li>
+              ) : null}
+              {opts2.detailLine ? (
+                <li className="cb-co-card-meta-row">
+                  <span className="cb-co-card-meta-icon" aria-hidden>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                      <path d="M17.5 7.5A6.5 6.5 0 0 0 6.7 6.1L5 7.8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                      <path d="M5 4.5v3.3h3.3M6.5 16.5a6.5 6.5 0 0 0 10.8 1.4l1.7-1.7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                      <path d="M19 19.5v-3.3h-3.3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </span>
+                  <span className="cb-co-card-meta-text">{opts2.detailLine}</span>
+                </li>
+              ) : null}
+            </ul>
+          ) : opts2?.unitSubtitle ? (
             <div className="cb-checkout-review-unit-price-row">
               <p className="cb-checkout-review-card-unit cb-muted">{opts2.unitSubtitle}</p>
               <span className="cb-checkout-review-meta-price">{reviewMoney(undefined, amount)}</span>
@@ -2855,6 +2919,8 @@ export function BookingCheckoutDrawer({
               simpleExtraCard(x.key, x.name, x.amount, {
                 classSuffix: "cb-checkout-review-card--membership",
                 unitSubtitle: x.unitSubtitle,
+                summaryLine: x.summaryLine,
+                detailLine: x.detailLine,
               })
             )}
           </ul>
