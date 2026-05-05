@@ -358,6 +358,7 @@
     "cartSubtotal": "Subtotal",
     "cartDiscounts": "Discounts",
     "cartTax": "Tax",
+    "cartFees": "Fees",
     "cartTotal": "Total",
     "cartApprovalItemsBoxLabel": "Approval items",
     "cartInvoicedItemsBoxLabel": "Invoiced items (pay now or deposit)",

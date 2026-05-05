@@ -1,42 +1,37 @@
 # Next-up working checklist
 
-> Throwaway scratchpad — agent-readable to-do list for the **next set of tracks** in this branch sequence. Delete or fold into `docs/IMPLEMENTATION_AND_ROADMAP.md` when each track lands.
+Current handoff list for the rental portal polish pass. Keep this short and fold completed tracks into `docs/IMPLEMENTATION_AND_ROADMAP.md`.
 
-**Branch context:** Started from `fix/product-card-single-tag` after the addons + booking-summary redesign. Each track below should be its own focused branch off `main`.
-
----
-
-## 0a. STILL OPEN: Membership renewal cadence — blocked on Bond API field
-
-**What we know from the BFF logs (`/products/:id/user/:uid/required`):**
-- Each membership product node has these top-level keys:
-  `id, organizationId, name, quantity, description, downpayment, startDate, endDate, prices, isAll, isProRated, taxes, timezone, productType, required, requiredProducts, isGated, isPunchPass, packages`
-- `endDate: "2200-01-01"` is a **sentinel** ("no real expiration" — auto-renewing). Do **not** display.
-- `prices[].name` is the product name, not the cadence (the prior bug).
-- `membership` / `resource.membership.durationMonths` is **not** present on this endpoint — that field only shows up after the membership is added to a cart.
-- In the latest response, `packages` is present as a key but resolves to `null`, so there is no structured renewal period to extract from the current required-products payload.
-
-**Current product decision:** do not infer cadence from descriptions or marketing text. Until the API includes a structured cadence on required-products, render the amount without a `/ period` suffix.
-
-**Until then:** memberships with no derivable cadence render `"$44"` alone, which is the correct conservative output rather than the prior bogus `"exp Dec 31, 2199"` or `"/ Gold membership"` suffix.
+**Branch context:** Work is currently on `main`. Start the next focused branch from `main` unless explicitly asked to commit directly.
 
 ---
 
-## 0. STILL OPEN: "Pay minimum due" returns "invalid payment information"
+## Shipped in the last pass
 
-**Symptom (user-reported, persists after the cart-only `cartChargeableMinimum = cart.minimumPrice` fix):**
-Clicking "Pay minimum due" on a deposit-eligible booking still flashes `Invalid payment information` from Bond's `/finalize` endpoint.
+- **Membership create payloads:** satisfied memberships (`required: false`) are eligibility context only. They are not sent in `requiredProducts` unless the customer actively selects a membership to purchase.
+- **Required-products metadata:** membership display reads structured fields from `GET .../products/{productId}/user/{userId}/required`, including nested membership records, `membershipType`, `durationMonths`, `endDate`, and `customerType` when Bond returns it. No product-name inference.
+- **Mixed-participant cart grouping:** cart rows now prefer Bond participant/product-user ownership from `cartItems` and keep membership/add-on lines with the correct participant segment.
+- **Membership/deposit display:** booking summary and cart cards use required-products metadata for membership type/renewal details, and carry product downpayment metadata so deposit badges survive cart refresh/merge.
+- **Cart remove for complex rows:** deletion collects all removable cart item ids for a booking segment and removes children before roots.
+- **Welcome toast:** short duration with a dismiss button.
+- **Regression tests added:** `online-booking-create-body.test.ts`, `required-products-extended.test.ts`, `session-cart-grouping.test.ts`, and `bond-cart-removal.test.ts` cover the recent membership/cart fixes.
 
-**What we've ruled out:**
-- We are no longer summing `product.downpayment` + `cart.minimumDownpayment` (that double-count is gone).
-- `cartChargeableMinimum(cart)` now returns `cart.minimumPrice` exactly.
-- We hide the Pay-min CTA when `minimumPrice >= price`.
+---
 
-**What still to check (next session):**
-1. **`amountToPay` rounding.** Bond may reject a value with floating-point fuzz (`88.6200000001`). Confirm `bondCartPayableTotalForFinalize()` and the place that hands `amountToPay` to `finalizeCart` round to 2 decimals (or send cents int).
-2. **Multiple bags.** When the user has more than one cart in the bag, we currently sum `cartChargeableMinimum` across snapshots and POST a single number — but each Bond `finalize` call is per-cart. Confirm we're sending the right per-cart amount on each request, not the aggregate.
-3. **Currency.** Make sure we send `cart.currency` (not USD-by-default) on the finalize payload.
-4. **BFF-side correlation.** Add a one-shot debug log in `route.ts` for `POST /carts/:id/finalize` that prints the body alongside the GET-cart shape we already log, so we can diff `amountToPay` vs `minimumPrice` for the failing cart.
+## 0. Verify live: "Pay minimum due"
+
+**Why still on the list:** code and tests now use Bond's `cart.minimumPrice` for the minimum-due path, but this needs one more live end-to-end confirmation on the current API.
+
+**Current implementation:**
+- `cartChargeableMinimum(cart)` returns `cart.minimumPrice` only when the cart has a real deposit signal and `minimumPrice < price`.
+- `bondCartPayableTotalForFinalize()` still sends full `cart.price` for the full-pay path.
+- Tests in `checkout-bag-totals.test.ts` cover full-pay vs minimum-due behavior.
+
+**Live QA checklist:**
+1. Deposit-eligible purchase-only cart → Pay minimum due succeeds.
+2. Deposit-eligible purchase-only cart → Pay full succeeds.
+3. Cart with no deposit → no minimum-due option.
+4. Multiple bag rows → each finalize request sends the per-cart amount, not an aggregate from another cart.
 
 **Files to touch first:**
 - `src/lib/checkout-bag-totals.ts` — `bondCartPayableTotalForFinalize`
@@ -45,7 +40,7 @@ Clicking "Pay minimum due" on a deposit-eligible booking still flashes `Invalid 
 
 ---
 
-## 1. Mobile drawer width — **HIGH PRIORITY** (feels broken on phones)
+## 1. Mobile drawer width — high priority
 
 **Symptom:** On mobile, the right drawer (`RightDrawer.tsx`) is too wide, forcing horizontal scroll on the underlying page. The drawer should clamp to **`min(100vw, …)`** so it never exceeds viewport width.
 
@@ -64,56 +59,25 @@ Clicking "Pay minimum due" on a deposit-eligible booking still flashes `Invalid 
 
 ---
 
-## 1b. Empty cart state when last item is removed — **DONE** (2026-04-28)
-
-**Shipped:** Drawer no longer auto-closes when the bag empties. Bag-mode renders a proper empty state (icon, headline, subtitle, "Keep browsing" CTA) inside `BookingCheckoutDrawer.tsx`. Both `onRemoveBagLine` branches in `BookingExperience.tsx` updated; the X / "Keep browsing" paths still close as expected.
-
----
-
-### Original spec (kept for posterity)
-
-**Symptom:** When the user removes the last item from the bag, the bag drawer **closes entirely**. They lose context — they expect to see "Your cart is empty" with a clear way to keep browsing.
-
-**Where:** `src/components/booking/BookingExperience.tsx` `onRemoveBagLine` callback. Currently:
-```ts
-if (next.length === 0) {
-  setCheckoutDrawerOpen(false);
-  clearSlotSelection();
-}
-```
-
-**Fix:**
-- Keep the drawer open when bag becomes empty (drop the `setCheckoutDrawerOpen(false)`).
-- Add an empty-cart state inside `BookingCheckoutDrawer.tsx` bag mode: friendly headline ("Your cart is empty"), a "Keep browsing" CTA that closes the drawer, optional illustration.
-- `clearSlotSelection()` is still appropriate (no in-progress booking to keep around if the bag is gone).
-
-**Acceptance:**
-- Remove last bag item → drawer stays open, shows empty state.
-- "Keep browsing" closes the drawer and returns to the portal.
-- Auto-close still happens if the user explicitly hits X.
-
----
-
-## 2. Cart review — verify correctness
+## 2. Cart review — remaining live QA
 
 **Goal:** End-to-end audit that the cart line items, totals, and remove flow match Bond's authoritative cart shape — especially after adds/removes/merges.
 
 **Areas to walk through:**
 - `src/lib/bond-cart-api.ts` — `getOrganizationCart`, `removeCartItem(WithIllegalPriceFallback)`, `closeCart`, `finalizeCart`
-- `src/lib/bond-cart-removal.ts` — `bondRootCartItemIdForRemoval`, `bagRemovePolicyForBondItem` (subsection vs line cascade)
+- `src/lib/bond-cart-removal.ts` — removable id collection and child-before-root deletion helpers
 - `src/lib/checkout-bag-totals.ts` — `bondCartPayableTotalForFinalize` (approval-aware), `flattenBondCartItemNodes`, `aggregateBag*`
 - `src/lib/cart-purchase-lines.ts` — `bagApprovalPolicy` (`all_pay | all_submission | mixed`), `expandSnapshotForPurchaseList`
 - `src/lib/session-cart-snapshot.ts` — `coerceCartFromApi`, `loadSessionCartSnapshots`, `positiveBondCartId`
 
-**Known issues** (from `docs/IMPLEMENTATION_AND_ROADMAP.md` — fix during this pass):
-1. **Mixed-cart `finalize` 400** — `bondCartPayableTotalForFinalize` and `computedDepositDollars` sum the **whole** cart; must exclude approval-required products from `amountToPay`. Both "Pay in full" and "Pay minimum due" fail on mixed carts today.
-2. **Spurious 2nd `DELETE cart-item` 400** after a subsection cascade — Bond returns 400 for the now-orphaned child id. Cart clears correctly; noise only. Suspect: legacy per-line X button at the old offset (now removed?), or rapid-fire clicks racing.
-3. **Confirmation screen regression in prod** — after `finalizeCart` succeeds, "Booking Confirmed" / "Booking Submitted" view doesn't render. Audit `BookingCheckoutDrawer.tsx` `submitBookingRequestMutation.onSuccess`, `parseFinalizeCartResponse`, `answersStaleAfterFinalizeRef`, parent `onFinalizeBookingSuccess` ordering, and Bond response shape (`204` vs `201`).
+**Remaining checks:**
+1. **Mixed cart finalize:** approval-required products must be excluded from pay-now `amountToPay`; verify both Pay full and Pay minimum due against Bond.
+2. **Remove complex cart rows:** memberships, slot add-ons, reservation add-ons, and root rental rows should disappear together with no visible error.
+3. **Confirmation screen:** after `finalizeCart` succeeds, the "Booking Confirmed" / "Booking Submitted" view should render reliably in local and production-like builds. Audit `BookingCheckoutDrawer.tsx` `submitBookingRequestMutation.onSuccess`, `parseFinalizeCartResponse`, `answersStaleAfterFinalizeRef`, parent `onFinalizeBookingSuccess` ordering, and Bond response shape (`204` vs `201`).
 
-**Add tests for:**
-- `bondCartPayableTotalForFinalize` w/ mixed carts (approval items excluded)
-- `parseFinalizeCartResponse` w/ `204`/empty body case
-- Cart-remove cascade end-to-end (subsection delete → no spurious child delete)
+**Tests still worth adding:**
+- `parseFinalizeCartResponse` with the exact production success payload if Bond differs from the fixtures.
+- A create-payload test for "already owns membership" once a minimal required-products fixture is extracted.
 
 ---
 
@@ -126,17 +90,17 @@ if (next.length === 0) {
    - [ ] Header (logo, sign-in, theme toggle, user)
    - [ ] Selection row (facility / category / activity)
    - [ ] Sign-in strip
-   - [ ] Product cards (single-tag policy already shipped on `fix/product-card-single-tag`)
+   - [ ] Product cards
    - [ ] Product detail modal
    - [ ] Date + duration + start-time pickers (incl. modal)
    - [ ] Schedule list view + calendar view + matrix/timeline view
    - [ ] Slot pills (selected / disabled / member-priced)
-   - [ ] **Add-on rail** (this branch — verify against the Figma we just used)
+   - [ ] Add-on rail (horizontal rail, scroll affordance, quantity steppers)
    - [ ] Login modal
    - [ ] Booking-for drawer (family picker)
    - [ ] Membership step
    - [ ] Forms / questionnaires
-   - [ ] **Booking summary** (this branch)
+   - [ ] Booking summary membership/rental/add-on cards
    - [ ] "Added to cart" confirmation
    - [ ] Bag drawer
    - [ ] Cart / payment screen
@@ -145,9 +109,10 @@ if (next.length === 0) {
 3. Track in a Notion sub-page or Jira sub-tasks under [BOND-16799](https://bond-sports.atlassian.net/browse/BOND-16799).
 
 **Already noted gaps to chase:**
-- Some `.cb-*` text uses `var(--cb-text-muted)` which can be too faint in dark mode; standardize a "strong meta" variant (we just added `cb-checkout-review-meta-rows--strong` — apply the same pattern elsewhere).
-- Yellow badges (addon corner badge) — confirm Figma color matches `--cb-accent` (currently `#f7b500`).
-- Card border thickness on selected state — we use 2px; Figma may differ.
+- Some `.cb-*` text uses `var(--cb-text-muted)` which can be too faint in dark mode; standardize a strong-meta variant where Figma needs higher contrast.
+- Yellow badges and notification pills: confirm whether Figma wants `--cb-accent` or a separate token.
+- Card selected border thickness and shadow: verify against Figma per card type.
+- Confirmation screen still needs the updated Figma pass.
 
 ---
 
@@ -163,11 +128,11 @@ if (next.length === 0) {
 | Returning logged-in, single user | Schedule shows member pricing → pick slots → addons → forms → booking summary → cart → pay-now or submit-request |
 | Multi-family account | Pick participant → required products evaluated per person → membership (if needed) → switch participant mid-flow clears membership/required correctly |
 | Approval-required category | Slots picked → submit request → Bond returns approval → confirmation = "Submitted" |
-| Mixed cart (approval + pay-now) | **Currently broken** — see track #2 |
-| With required membership | Membership step lets user add the required pass; then proceeds to forms/summary |
+| Mixed cart (approval + pay-now) | Verify against current code — see track #2 |
+| With required membership | If not already owned, membership step lets user add the required pass; if already owned, gate is suppressed and no requiredProducts are sent |
 | With questionnaires | Forms step auto-collapses panel when fully satisfied; can't continue with mandatory unanswered |
-| With per-slot addons | This branch — verify across all flows |
-| With per-reservation addons | This branch — verify stepper works, qty persists into cart |
+| With per-slot addons | Verify add-to-all and manual per-slot quantities across all flows |
+| With per-reservation addons | Verify stepper works and quantity persists into cart |
 
 **Acceptance per row:** screenshots at each stage + cart payload (browser network tab) saved to a Notion page. Any mismatch = ticket.
 
@@ -225,4 +190,4 @@ if (next.length === 0) {
 - **No new Bond endpoints without updating the BFF allowlist** (`src/app/api/bond/[...path]/route.ts`).
 - **Cart math lives in lib + tests** — never inline new totals logic in components.
 - **Workspace rules apply** — see `AGENTS.md` §15: no `any`, no inline narration comments, no magic numbers, no emojis in code.
-- **Track sequencing:** ship #1 (mobile width — quick, blocking) → #2 (cart correctness — production bugs) → #3 (Figma parity) → #4 (flow QA) → #5 (refactor).
+- **Track sequencing:** ship #1 (mobile width) → #2 (cart/payment live QA) → #3 (Figma parity) → #4 (flow QA) → #5 (refactor).

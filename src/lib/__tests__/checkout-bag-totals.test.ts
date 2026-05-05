@@ -191,6 +191,25 @@ describe("cart total helpers — purchaseType-aware approval split", () => {
       expect(cartChargeableTotal(cart, { 1: true })).toBe(400);
     });
 
+    it("uses top-level productId for the legacy approval map when product is omitted", () => {
+      const cart = makeCart({
+        price: 600,
+        cartItems: [
+          { id: 100, productId: 1, subtotal: 200 },
+          { id: 200, productId: 2, subtotal: 400 },
+        ],
+      } as unknown as Partial<OrganizationCartDto>);
+      expect(cartChargeableTotal(cart, { 1: true })).toBe(400);
+    });
+
+    it("lets Bond purchaseType override a stale legacy approval map", () => {
+      const cart = makeCart({
+        price: 600,
+        cartItems: [makePurchaseItem(1, 200), makePurchaseItem(2, 400)],
+      } as unknown as Partial<OrganizationCartDto>);
+      expect(cartChargeableTotal(cart, { 1: true })).toBe(600);
+    });
+
     it("State 1.4 (request-only) — returns null when every item is approval", () => {
       const cart = makeCart({
         price: 200,

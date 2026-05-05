@@ -495,6 +495,8 @@ body {
   border-width: 1px;
   border-style: solid;
   background: var(--cb-bg-surface);
+  overflow: visible;
+  position: relative;
   -webkit-tap-highlight-color: transparent;
 }
 
@@ -736,7 +738,8 @@ body {
   justify-content: center;
   gap: 0.25rem;
   border-radius: 0.75rem;
-  overflow: hidden;
+  overflow: visible;
+  position: relative;
   border: 1px solid var(--cb-border);
   background: var(--cb-bg-slot);
   padding: 0.75rem 0.85rem;
@@ -3427,6 +3430,7 @@ body {
   font-size: 1rem;
   font-weight: 500;
   color: #333333;
+  line-height: 1;
 }
 
 .consumer-booking .cb-addon-section {
@@ -3435,6 +3439,10 @@ body {
 
 .consumer-booking .cb-addon-section:first-of-type {
   margin-top: 0;
+}
+
+.consumer-booking .cb-addon-section--headless .cb-addon-card-rail {
+  margin-top: -0.75rem;
 }
 
 .consumer-booking .cb-addon-section-title {
@@ -3450,11 +3458,11 @@ body {
   flex-wrap: nowrap;
   gap: 0.75rem;
   overflow-x: auto;
-  padding: 0.75rem 0.75rem 0.25rem 0;
+  padding: 0.75rem 1rem 0.25rem 0;
   scroll-snap-type: x proximity;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
-  mask-image: linear-gradient(90deg, #000 calc(100% - 2rem), transparent);
+  mask-image: linear-gradient(90deg, #000 calc(100% - 2.5rem), transparent);
 }
 
 .consumer-booking .cb-addon-card-rail::-webkit-scrollbar {
@@ -3581,9 +3589,37 @@ body {
 }
 
 .consumer-booking .cb-addon-slot-panel-toggle input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.consumer-booking .cb-addon-slot-panel-toggle-box {
   width: 1.25rem;
   height: 1.25rem;
-  accent-color: #0571e0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  border-radius: 2px;
+  border: 1px solid #dae6f0;
+  background: #ffffff;
+  color: var(--cb-primary);
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.consumer-booking .cb-addon-slot-panel-toggle input:checked + .cb-addon-slot-panel-toggle-box::before {
+  content: "−";
+  transform: translateY(-1px);
+}
+
+.consumer-booking .cb-addon-slot-panel-toggle input:focus-visible + .cb-addon-slot-panel-toggle-box {
+  outline: 2px solid #0571e0;
+  outline-offset: 2px;
 }
 
 .consumer-booking .cb-addon-slot-panel-list {
@@ -3609,7 +3645,7 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
-  flex: 0 0 min(20.375rem, 100%);
+  flex: 0 0 min(18.6875rem, 100%);
   min-height: 3.75rem;
   padding: 0.75rem 1.25rem;
   border-radius: 0.75rem;
@@ -3992,12 +4028,13 @@ body {
 .consumer-booking .cb-co-card-total-label {
   font-size: 0.75rem;
   color: #333333;
+  font-weight: 400;
 }
 
 .consumer-booking .cb-co-card-total-value {
-  font-size: 1.125rem;
   font-weight: 600;
   color: #333333;
+  font-size: 1.125rem;
 }
 
 /* Totals summary box (Figma `cart-summary`). */
@@ -7090,15 +7127,15 @@ body {
 }
 
 .consumer-booking .cb-checkout-review-item-total-label {
-  color: var(--cb-text-muted);
-  font-weight: 500;
+  color: #333333;
+  font-weight: 400;
 }
 
 .consumer-booking .cb-checkout-review-item-total-value {
-  font-weight: 700;
+  font-weight: 600;
   color: var(--cb-text);
   white-space: nowrap;
-  font-size: 1rem;
+  font-size: 1.125rem;
 }
 
 .consumer-booking .cb-checkout-review-nested-addon {

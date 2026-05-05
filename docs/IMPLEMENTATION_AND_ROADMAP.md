@@ -18,12 +18,12 @@
 
 | Item | Status |
 |------|--------|
-| Unit tests (lib + critical hooks) | TBD |
+| Unit tests (lib + critical hooks) | **Partial** — cart totals, purchase lines, finalize response, cart removal, required products, session grouping/snapshot, and create payload covered |
 | E2E / automation test plan | TBD |
 | SSO / full Bond auth beyond BFF cookies | In progress / TBD |
 | Payment methods (fetch + integration) | **Partial** — list via `/api/bond-payment/...`; add-card TBD |
-| Purchase / checkout APIs | **Partial** — `finalizeCart` + `getCart` / `closeCart`; **mixed-cart `amountToPay` bug open** (see Known issues) |
-| Remove cart line items API | **Done** — per-line `removeCartItem` + subsection cascade via reservation-root DELETE (`bond-cart-removal.ts`); whole-row fallback still uses `closeCart` |
+| Purchase / checkout APIs | **Partial** — `finalizeCart` + `getCart` / `closeCart`; deposit/minimum-due and mixed-cart flows need live QA |
+| Remove cart line items API | **Done** — per-line `removeCartItem` + segment-aware child-before-root deletion (`bond-cart-removal.ts`); whole-row fallback still uses `closeCart` |
 | **Per-product approval / deposit badges** (mixed cart) | **Done** — `approvalByProductId` on `SessionCartSnapshot`; `bagApprovalPolicy` per-product; dual CTAs on mixed |
 | Mixed category products + divergent rulesets | Design TBD |
 | Runtime config (org/portal/API host without hardcoding for prod) | Admin / host config TBD |
@@ -76,7 +76,7 @@ flowchart LR
   BFF --> Bond
 ```
 
-- **BFF:** `src/app/api/bond/[...path]/route.ts` — only allows paths under `v1/organization/...`; GET/POST; attaches `X-Api-Key`; forwards user JWTs from httpOnly cookies set by `/api/bond-auth/login`.
+- **BFF:** `src/app/api/bond/[...path]/route.ts` — only allows paths under `v1/organization/...`; supports GET/POST/PUT/PATCH/DELETE; attaches `X-Api-Key`; forwards user JWTs from httpOnly cookies set by `/api/bond-auth/login`.
 - **Client HTTP:** `src/lib/bond-json.ts` (`bondBffGetJson`, `bondBffPostJson`, `BondBffError`), `src/lib/bond-client.ts` (path builder).
 - **Domain API wrappers:** `src/lib/online-booking-api.ts` — portal, products, schedule settings, schedule (+ recovery). **`src/lib/online-booking-user-api.ts`** — `getUser`, booking-information, questionnaires, required products, `POST .../online-booking/create`.
 - **UI state:** `@tanstack/react-query` in `src/app/providers.tsx`.
@@ -89,10 +89,10 @@ flowchart LR
 | Slots, add-on selection, `pickedSlots`, `addonSlotTargeting` | Client (`BookingExperience`, `BookingCheckoutDrawer`) |
 | Request body for `POST …/online-booking/create` | `online-booking-create-body.ts` → BFF |
 | `OrganizationCartDto` (`cartItems`, `discounts[]`, `subtotal`, `tax`, `total`, …) | Bond response only |
-| Receipt line boxes | `getBondCartReceiptLineItems` → `cartItems[]` (`metadata.description` when Bond sends it — `bond-cart-item-classify.ts`) |
+| Receipt line boxes | `flattenBondCartItemNodes` → `cartItems[]` / `children[]` (`metadata.description` when Bond sends it — `bond-cart-item-classify.ts`) |
 | Create body vs cart line DTOs | `docs/bond/CART_ITEM_AND_CREATE_BOOKING.md` |
 | Subtotal / discount / tax / total rows (bag / payment) | `getBondCartReceiptSummaryRows`, else `getBondCartPricingDisplayRows` (`checkout-bag-totals.ts`) |
-| Cart line list | `expandSnapshotForPurchaseList` (`cart-purchase-lines.ts`) — `cartItems[]` via `cartItemLineAmountFromDto` |
+| Cart line list | `expandSnapshotForPurchaseList` (`cart-purchase-lines.ts`) — `cartItems[]` via `cartItemLineAmountFromDto`; membership display uses required-products metadata carried on `SessionCartSnapshot` |
 
 Checkout persists via `POST …/online-booking/create`; Bond may return richer line detail after a successful create than on older preview-only experiments.
 
@@ -133,9 +133,9 @@ Checkout persists via `POST …/online-booking/create`; Bond may return richer l
 - Source: `product.packages` entries with **`isAddon: true`**; nested package arrays walked (`product-package-addons.ts`).
 - Fields used: nested **`product`**, **`level`** (`reservation` \| `slot` \| `hour`), **`price`** on package row (`packagePrice`), **`isAddon`**.
 - **UI rules:** add-on panel only after **at least one slot** selected (including per-reservation add-ons — avoids implying purchase without times).
-- **Reservation:** subsection “With your reservation”; one flat charge copy.
-- **Slot / hour:** subsection “For your selected times”; per-addon **select all** + per-slot chips; targeting state `addonSlotTargeting` (`BookingAddonPanel.tsx`); pruning when slots change (`BookingExperience.tsx` effects).
-- **Pricing display:** card shows `+price` + `/ reservation` \| `/ slot` \| `/ hr`. Per-slot **estimated** lines on chips were removed per UX request; **`addonEstimatedChargeForSlot`** remains in `product-package-addons.ts` for future cart/checkout math.
+- **Reservation:** horizontal rail; one flat charge copy and quantity stepper.
+- **Slot / hour:** horizontal rail; per-addon **add to all** plus manual per-slot increments/decrements; targeting state `addonSlotTargeting` (`BookingAddonPanel.tsx`); pruning when slots change (`BookingExperience.tsx` effects).
+- **Pricing display:** card shows `+price` + `/ reservation` \| `/ slot` \| `/ hr`. Portal keeps the copy compact; cart/checkout lines include unit subtitles such as price per duration/quantity when Bond/cart data supports it.
 
 ### Theming & layout
 
@@ -157,24 +157,26 @@ Checkout persists via `POST …/online-booking/create`; Bond may return richer l
 
 ### Checkout (implemented — extensions in Roadmap)
 
-- **BFF** to Bond only; `POST .../online-booking/create` via `online-booking-user-api.ts` (`buildOnlineBookingCreateBody` — `segments` + flat `addonProductIds` + optional `answers` per Bond DTO). Hosted OpenAPI may omit `requestBody` for this operation; see `online-booking-create-body.ts`. Optional `cartId` when merge/update is documented.
+- **BFF** to Bond only; `POST .../online-booking/create` via `online-booking-user-api.ts` (`buildOnlineBookingCreateBody` — `segments` + optional `addons`, `requiredProducts`, `answers`, and `cartId`). Hosted OpenAPI may omit `requestBody` for this operation; see `online-booking-create-body.ts`.
 - **Flow:** Bottom bar opens checkout → user completes add-ons / membership / forms (if any) → **`POST …/online-booking/create`** (optional `cartId` merge). Parent then **`GET …/cart/{cartId}`** (`src/lib/bond-cart-api.ts`) to refresh authoritative lines/totals; opening the **bag** drawer triggers the same refresh per cart id.
-- **Cart lifecycle:** Bag remove now uses **per-line** + **subsection** DELETEs (`bond-cart-removal.ts` → `bagRemovePolicyForBondItem`): rental lines → `{ kind: "subsection" }` → `DELETE …/cart-item/{rootId}` (Bond cascades attached add-ons); add-on lines → `{ kind: "line", cartItemId }` → `DELETE …/cart-item/{cartItemId}`. Falls back to **`DELETE …/cart/{cartId}`** (`closeCart`) when the subsection empties. **`POST …/cart/{cartId}/finalize`** on payment/submit with `paymentMethodId` when Bond returns consumer payment options from **`GET /api/bond-payment/organization/{orgId}/user/{userId}/options`** (proxies Bond **`v4/payment/.../options?platform=consumer`**). The payment proxy defaults **`BOND_PAYMENT_API_BASE_URL`** to **`BOND_AUTH_BASE_URL`** (v4 is not on the trimmed public `v1` gateway). Override when Bond documents a different host.
+- **Cart lifecycle:** Bag remove uses segment-aware cart-item deletion (`bond-cart-removal.ts`): collect every removable id for the booking segment, delete children before the reservation root, then refetch. Falls back to **`DELETE …/cart/{cartId}`** (`closeCart`) when needed. **`POST …/cart/{cartId}/finalize`** on payment/submit with `paymentMethodId` when Bond returns consumer payment options from **`GET /api/bond-payment/organization/{orgId}/user/{userId}/options`** (proxies Bond **`v4/payment/.../options?platform=consumer`**). The payment proxy defaults **`BOND_PAYMENT_API_BASE_URL`** to **`BOND_AUTH_BASE_URL`** (v4 is not on the trimmed public `v1` gateway). Override when Bond documents a different host.
 - **Approval:** create deferred until checkout **Submit request**; **finalize** completes purchase/submit; then clear session cart + slot selection + invalidate schedule query.
-- **Payment:** Consumer **saved instruments** list from v4 proxy; **deposit / pay-in-full modal** still placeholder when product has down payment (finalize body extensions TBD).
+- **Payment:** Consumer **saved instruments** list from v4 proxy; payment amount options support minimum due, full amount, and custom amount when the cart supports them. Add-card/tokenize and 3DS remain pinned.
 
 #### Checkout UX & gating (recent)
 
 - **Bond auth:** `/api/bond-auth/*`; login modal; session; **“Who is this booking for?”** drawer (`BookingForDrawer`) — family picker; **stacking** above checkout drawer (z-index) so it is usable after login.
 - **Required products** (`GET .../products/{productId}/user/{userId}/required`): extended `ExtendedRequiredProductDto` parsing (`required-products-extended.ts`); **membership OR** vs **other required**; **membership step** in checkout (drawer) when Bond still lists membership options; **no separate modal** in the default flow.
+- **Satisfied memberships:** Bond marks already-held required products with `required: false`. The UI uses them to suppress the membership gate, but does **not** send them in `requiredProducts` unless the customer actively selects a membership to purchase.
+- **Membership display:** booking summary and cart cards read structured required-products/cart metadata (`membershipType`, `durationMonths`, `endDate`, `customerType` when present). Do not infer family/individual/fixed/renewal details from product names or marketing descriptions.
 - **Membership panel** shows **“Booking for [name]”**; header **Booking for** is clickable to switch family member — switching clears membership/required selections and refetches required products.
-- **Booking summary (confirm):** line prices for required add-ons when Bond sends `prices[]`; **totals** sum rental + required + optional add-ons (see **Open questions** below for server vs client truth).
+- **Booking summary (confirm):** line prices for required add-ons when Bond sends `prices[]`; memberships render type/renewal rows from required-products metadata; totals sum rental + required + optional add-ons until Bond cart truth exists.
 - **Approval checkout payment step:** synthetic **Purchases** lines for deferred create — rental + each required + optional add-ons (so totals are not rental-only).
 - **Errors:** `ONLINE_BOOKING.INVALID_PRODUCT` with reservation/eligibility wording mapped to friendly copy (customer + org name) in `bond-errors.ts`.
 - **Selection bar / cart FAB:** visible when session cart exists even without a product in URL; cart FAB **clickable** when bag + slots coexist; overlay rules adjusted so FAB is not hidden unnecessarily.
 - **Family member hints:** “Membership” pill when required-products API still lists a membership for that person (`required-products-eligibility.ts` — informational, not blocking).
 - **Questionnaires:** collapsed panels auto-advance when a form is fully satisfied (`CheckoutQuestionnairePanels`).
-- **Welcome toast:** ~3s default.
+- **Welcome toast:** short default duration with an explicit dismiss button.
 
 ---
 
@@ -182,7 +184,7 @@ Checkout persists via `POST …/online-booking/create`; Bond may return richer l
 
 | Topic | Notes |
 |--------|--------|
-| **Cart vs reservation** | **`GET …/cart/{cartId}`** after create and when opening the bag is the authoritative line/total source for the UI. Remaining product questions: per-line **`removeCartItem`** vs whole-cart **`close`** when unmerging a single participant from a merged cart; **finalize** body fields beyond `paymentMethodId`. |
+| **Cart vs reservation** | **`GET …/cart/{cartId}`** after create and when opening the bag is the authoritative line/total source for the UI. Remaining product questions: exact **finalize** body fields beyond `paymentMethodId` / `amountToPay`, plus add-card/tokenization. |
 | **Booking limits & windows** | `GET .../online-booking/user/{userId}/booking-information` + category `settings` — **max bookings per day / consecutive / advance window / active membership** checks: **not** fully wired at slot selection + checkout (see Phase 3 backlog). |
 
 ---
@@ -207,7 +209,7 @@ Everything below assumes **hosted Bond public APIs** and existing BFF patterns.
 
 | # | Track | Status | Work |
 |---|--------|--------|------|
-| 3.1 | **Required products** | **Partial** | Membership + nested required products in create payload; dedicated **membership step**; summary + approval **purchases** lines. **Remaining:** optional stricter blocking rules; Swagger alignment if payloads change. |
+| 3.1 | **Required products** | **Partial** | Membership + nested required products in create payload **only when purchased**; satisfied memberships suppress the gate; dedicated **membership step**; summary + approval **purchases** lines. **Remaining:** live QA across family accounts; Swagger alignment if payloads change. |
 | 3.2 | **Entitlements — forms** | **Not done** | Map questionnaire answers to entitlement / unlock rules when API documents linkage; test with Bond payloads. |
 | 3.3 | **Entitlements — memberships** | **Partial** | `applyEntitlementDiscountsToUnitPrice` on slots; member pricing on summary. **Remaining:** server-truth totals when Bond exposes them; avoid relying on client-only sums long-term. |
 | 3.4 | **Advance booking windows** | **Partial** | `filterDatesByAdvanceWindow` + VIP early access dates. **Remaining:** merge with **booking-information** per user. |
@@ -223,8 +225,8 @@ Everything below assumes **hosted Bond public APIs** and existing BFF patterns.
 | # | Track | Status | Work |
 |---|--------|--------|------|
 | 4.1 | **Questionnaires** | **Partial** | `checkout-questionnaires` + form prefill; panel UX. **Remaining:** **`cartId`** on questionnaires when spec requires; separate submit if Bond adds it. |
-| 4.2 | **Cart** | **Partial** | Session snapshots + **`getCart`** refresh; **`closeCart`** on bag remove; **`removeCartItem`** available in `bond-cart-api.ts` for future per-line UX. |
-| 4.3 | **Payment** | **Partial** | Payment options + **finalize**; add-card UX + deposit/3DS + failure recovery. |
+| 4.2 | **Cart** | **Partial** | Session snapshots + **`getCart`** refresh; mixed-participant grouping from Bond cart item ownership; segment-aware remove flow. **Remaining:** live QA matrix and confirmation-screen hardening. |
+| 4.3 | **Payment** | **Partial** | Payment options + **finalize** + payment amount selector. **Remaining:** add-card UX, 3DS, failure recovery, and live minimum-due verification. |
 
 ---
 
@@ -260,8 +262,7 @@ Everything below assumes **hosted Bond public APIs** and existing BFF patterns.
 ## Known issues / deferred
 
 - **Missing confirmation screen after pay / submit (production):** After `finalizeCart` resolves successfully, the "Booking Confirmed" / "Booking Submitted" success view is not rendering in production. Reported 2026-04-23; reproduction path + root cause TBD. Entry points to audit: `BookingCheckoutDrawer.tsx` `submitBookingRequestMutation.onSuccess` (sets `finalizeSuccess` via `parseFinalizeCartResponse`), `parseFinalizeCartResponse` in the same file, and the confirmation-view render gate. Candidates: (a) response shape mismatch so `parseFinalizeCartResponse` returns `null`; (b) `answersStaleAfterFinalizeRef` / parent `onFinalizeBookingSuccess` clearing session cart before the success screen mounts; (c) Bond returning `204`/no-body in prod vs `201` in dev.
-- **Mixed-cart `finalize` → 400 "invalid payment information":** When a cart mixes **approval-required** products with **pay-now** products, `bondCartPayableTotalForFinalize` (and `computedDepositDollars`) currently sum the **entire** cart. Approval products must be **excluded** from `amountToPay` because they submit separately as a request. Both "Pay in full" and "Pay minimum due" on a mixed cart fail until this is corrected. Next-up fix: filter the finalize amount and deposit sum to **non-approval** cart-items only (`src/lib/checkout-bag-totals.ts` + `BookingCheckoutDrawer.tsx` deposit memo).
-- **Spurious 2nd `DELETE cart-item` (400):** After a subsection DELETE returns 200 and Bond cascades child add-ons, a second DELETE on a now-orphaned child id sometimes fires and 400s. Cart clears correctly; noise only. Root cause still under investigation (candidates: legacy per-line X button at `BookingCheckoutDrawer.tsx:2964` has no `disabled` guard; rapid-fire clicks may race).
+- **Payment amount live QA:** Current helpers distinguish full cart price from `minimumPrice` and approval-required lines, with unit tests. Still verify "Pay minimum due", "Pay full", and mixed approval/pay-now carts against Bond before considering payment done.
 - **Lessons / instructor-as-resource:** Same bad responses observed in **Swagger** and the app; **no further lesson-specific fixes** until API behavior is confirmed. `fetchBookingScheduleRecovering` already tries query variants; `resourcesIds` / duration / date combos may need API-side clarity.
 - **BFF hardening:** Plan item — stricter allowlists, logging, rate limits — not fully done.
 - **OpenAPI-generated client:** Not adopted; hand-maintained types + fetch.
@@ -282,7 +283,7 @@ Everything below assumes **hosted Bond public APIs** and existing BFF patterns.
 | Slot validation | `src/lib/slot-selection.ts` |
 | Add-ons | `src/lib/product-package-addons.ts`, `BookingAddonPanel.tsx` |
 | Main UI | `BookingExperience.tsx`, `ScheduleCalendarView.tsx`, `BookingSelectionPortal.tsx`, `ProductDetailModal.tsx` |
-| Checkout | `BookingCheckoutDrawer.tsx`, `BookingForDrawer.tsx`, `MembershipRequiredModal.tsx` (panel + optional modal), `src/lib/required-products-*.ts`, `bond-errors.ts` |
+| Checkout | `BookingCheckoutDrawer.tsx`, `BookingForDrawer.tsx`, `MembershipRequiredModal.tsx` (panel + optional modal), `CheckoutItemCard.tsx`, `src/lib/required-products-*.ts`, `cart-purchase-lines.ts`, `checkout-card-model.ts`, `session-cart-grouping.ts`, `bond-errors.ts` |
 | Styles | `src/app/globals.css` (`.consumer-booking` block) |
 | Entry | `src/app/page.tsx`, `layout.tsx`, `providers.tsx` |
 
@@ -299,4 +300,4 @@ Everything below assumes **hosted Bond public APIs** and existing BFF patterns.
 
 ---
 
-*Last updated: 2026-04-23 — cart bag-row X remove (per-line + subsection cascade via `bond-cart-removal.ts`), per-product approval & deposit badges on mixed carts, `bagApprovalPolicy` per-product → dual "Pay in full" / "Pay minimum due" CTAs, $0-product deposit pill removed, "Membership charge" subtitle removed. Open: mixed-cart `finalize` `amountToPay` must exclude approval products (see Known issues).*
+*Last updated: 2026-05-04 — membership create payloads now include only actively purchased required products; satisfied memberships suppress gates only. Mixed-participant cart grouping uses Bond participant/product-user data, membership/deposit metadata is carried through cart snapshots, and complex cart removal deletes segment children before roots. Open: Figma parity pass, mobile drawer width, payment amount live QA, confirmation-screen hardening.*

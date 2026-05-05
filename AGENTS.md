@@ -116,7 +116,7 @@ Browser ──fetch──▶ /api/bond-payment/organization/{orgId}/user/{userId
 |---|---|
 | `src/lib/online-booking-api.ts` | Portal, products, schedule settings, schedule (with recovery variants for known instructor-resource quirks) |
 | `src/lib/online-booking-user-api.ts` | `getUser`, booking-information, questionnaires, required products, `POST .../online-booking/create` |
-| `src/lib/online-booking-create-body.ts` | Builds `POST create` payload (`segments` + flat `addonProductIds` + optional `answers`) — `splitAddonPayloadForCreate` separates rental/addon legs |
+| `src/lib/online-booking-create-body.ts` | Builds `POST create` payload (`segments` + add-ons + purchased `requiredProducts` + optional `answers` / `cartId`) — `splitAddonPayloadForCreate` separates rental/add-on legs |
 | `src/lib/bond-cart-api.ts` | `getOrganizationCart`, `removeCartItem(WithIllegalPriceFallback)`, `closeCart`, `closeOrganizationCartsBestEffort`, `finalizeCart` |
 | `src/lib/bond-payment-api.ts` | `fetchConsumerPaymentOptions`, fee math + flatten/format helpers |
 | `src/lib/bond-finalize-response.ts` | `parseFinalizeCartResponse` — normalizes Bond's variable-shape finalize response into `FinalizeSuccessDisplay` |
@@ -199,12 +199,13 @@ These are the canonical helpers. **Reuse before creating new files.** Group by c
 ### Cart / checkout (the densest area — read these first when touching checkout)
 - `bond-cart-api.ts` — Bond cart endpoints
 - `bond-cart-item-classify.ts` — `classifyCartItemLineKind` → `"booking" | "membership" | "addon"`
-- `bond-cart-removal.ts` — `bondRootCartItemIdForRemoval`, `bagRemovePolicyForBondItem` (subsection-vs-line cascade rules)
+- `bond-cart-removal.ts` — cart item removal id helpers, including child-before-root deletion for complex booking segments
 - `cart-purchase-lines.ts` — `bagApprovalPolicy` (`"all_pay" | "all_submission" | "mixed"`), `expandSnapshotForPurchaseList`, `countSessionCartLineItems`
+- `checkout-card-model.ts` — checkout card props, badges, icons, and membership meta lines
 - `checkout-bag-totals.ts` — `bondCartPayableTotalForFinalize` (approval-aware), `cartItemLineAmountFromDto`, `flattenBondCartItemNodes`, `aggregateBag*`
 - `bond-finalize-response.ts` — finalize response parser
 - `session-cart-snapshot.ts` — `coerceCartFromApi`, `loadSessionCartSnapshots`, `saveSessionCartSnapshots`, `positiveBondCartId`, `SessionCartSnapshot` / `SessionReservationGroup` / `SessionCartDisplayLine`
-- `session-cart-grouping.ts` — `flatLineIndexSegmentsForMergedBookings`
+- `session-cart-grouping.ts` — participant-aware cart grouping for merged/mixed-family carts
 - `session-booking-display-lines.ts` — `buildBookingDisplayLinesForCart`, `formatScheduleSummaryForBooking`
 
 ### Schedule, slots, durations
@@ -257,7 +258,7 @@ These are the canonical helpers. **Reuse before creating new files.** Group by c
 | Bag receipt line boxes | `flattenBondCartItemNodes` over `cartItems[]` (with `metadata.description` when present, classified by `bond-cart-item-classify.ts`) |
 | Subtotal / discount / tax / total rows | `getBondCartReceiptSummaryRows`, else `getBondCartPricingDisplayRows` (`checkout-bag-totals.ts`) |
 | Cart line list | `expandSnapshotForPurchaseList` (`cart-purchase-lines.ts`) → `cartItemLineAmountFromDto` |
-| `amountToPay` for `finalize` | `bondCartPayableTotalForFinalize` — **must exclude approval-required products** (see Known Issues) |
+| `amountToPay` for `finalize` | `bondCartPayableTotalForFinalize` — excludes approval-required products when approval metadata is available; minimum-due uses `cartChargeableMinimum` |
 
 ### Lifecycle
 
@@ -265,7 +266,7 @@ These are the canonical helpers. **Reuse before creating new files.** Group by c
 2. User opens checkout drawer → `BookingCheckoutDrawer` runs through: login (if needed) → participant → membership (if required) → forms → summary.
 3. **Add to Cart** → `POST .../online-booking/create` (with optional `cartId` to merge into existing cart). Bond returns `cartId` and a fresh cart shape.
 4. Parent + drawer **`GET .../cart/{cartId}`** for authoritative line items / totals; opening the bag drawer triggers the same refresh per cart id.
-5. **Bag remove** → per-line `DELETE .../cart-item/{cartItemId}` for add-ons; `{ kind: "subsection" }` `DELETE .../cart-item/{rootId}` for rentals (Bond cascades attached add-ons); falls back to `closeCart` (`DELETE .../cart/{cartId}`) when subsection empties. Logic in `bond-cart-removal.ts` → `bagRemovePolicyForBondItem`.
+5. **Bag remove** → collect removable cart item ids for the booking segment, delete children before reservation roots, then refetch. Falls back to `closeCart` (`DELETE .../cart/{cartId}`) when needed. Logic lives in `bond-cart-removal.ts`.
 6. **Pay / submit** → `POST .../cart/{cartId}/finalize` with `paymentMethodId` from the v4 options proxy. Approval-only carts submit without charge; mixed carts must filter `amountToPay` to non-approval items.
 7. Confirmation screen rendered from `parseFinalizeCartResponse` (see Known Issue: confirmation regression in prod).
 
@@ -312,7 +313,7 @@ Critical state:
 - `submitBookingRequestMutation.onSuccess` sets `finalizeSuccess` via `parseFinalizeCartResponse`.
 - `answersStaleAfterFinalizeRef` + parent `onFinalizeBookingSuccess` clear session cart after success — beware of clearing **before** the success view mounts (open prod bug).
 
-When changing checkout, **always run** `pnpm test` (most regressions land in `checkout-bag-totals.test.ts`, `cart-purchase-lines.test.ts`, `bond-cart-removal.test.ts`, `bond-finalize-response.test.ts`, `session-cart-snapshot.test.ts`).
+When changing checkout, **always run** `pnpm test` or the focused affected specs (most regressions land in `checkout-bag-totals.test.ts`, `cart-purchase-lines.test.ts`, `bond-cart-removal.test.ts`, `bond-finalize-response.test.ts`, `session-cart-snapshot.test.ts`, `session-cart-grouping.test.ts`, `required-products-extended.test.ts`, and `online-booking-create-body.test.ts`).
 
 ---
 
@@ -321,7 +322,7 @@ When changing checkout, **always run** `pnpm test` (most regressions land in `ch
 - **Source:** `product.packages` entries with `isAddon: true` (nested package arrays walked) — `product-package-addons.ts → bookingOptionalAddons`.
 - **Levels:** `reservation` (one flat charge) | `slot` (per slot) | `hour` (per booked hour).
 - **UI gating:** add-on panel only renders after at least one slot is picked — even per-reservation add-ons (avoids implying purchase without times).
-- **Per-slot targeting:** slot/hour add-ons expose **select-all + per-slot chips**; targeting state is `addonSlotTargeting: Record<addonId, { all: boolean; keys: string[] }>` (`BookingAddonPanel.tsx`). `getEffectiveAddonSlotKeys` resolves the active set (handles `all=true` + keys empty case). `BookingExperience` prunes targeting when slots change.
+- **Per-slot targeting:** slot/hour add-ons expose **add to all + per-slot controls**; targeting state is `addonSlotTargeting: Record<addonId, { all: boolean; keys: string[] }>` (`BookingAddonPanel.tsx`). `getEffectiveAddonSlotKeys` resolves the active set (handles `all=true` + keys empty case). `BookingExperience` prunes targeting when slots change.
 - **Quantities:** per-add-on quantity (`addonQuantities`) and per-slot-per-add-on quantity (`addonSlotQuantities`) supported by `BookingAddonPanel` via `QtyStepperInline`. Max qty 50.
 - **Pricing display:** `+price / reservation | / slot | / hr`. Per-slot estimated chip lines were intentionally removed; `addonEstimatedChargeForSlot` remains for cart/checkout math.
 
@@ -399,7 +400,7 @@ The repo inherits all the always-applied workspace rules. The most relevant for 
 - Don't import from `node_modules/next/dist/...` runtime — read its `docs/` directory if you need Next 16 specifics.
 - Don't widen `category.settings` to `any` — extend `src/types/online-booking.ts` and parse explicitly.
 - Don't compute totals from client state when a `cartId` exists — refetch and use Bond's authoritative figures.
-- Don't push to `main` — open a PR.
+- Don't push to `main` unless the user explicitly asks. Otherwise open a PR.
 
 ---
 
@@ -425,10 +426,9 @@ The repo inherits all the always-applied workspace rules. The most relevant for 
 
 From `docs/IMPLEMENTATION_AND_ROADMAP.md` — keep that file in sync if status changes.
 
-- **Pinned (not in active build):** SSO / enterprise identity; payment add-card / tokenize; deposit modal + 3DS.
-- **Mixed-cart `finalize` 400** ("invalid payment information"): `bondCartPayableTotalForFinalize` and `computedDepositDollars` currently sum the entire cart. Approval items must be excluded from `amountToPay`. Fix points: `src/lib/checkout-bag-totals.ts` + deposit memo in `BookingCheckoutDrawer.tsx`.
+- **Pinned (not in active build):** SSO / enterprise identity; payment add-card / tokenize; 3DS.
+- **Payment amount live QA:** helpers distinguish full cart price, `minimumPrice`, and approval-required lines, with tests. Still verify Pay minimum due / Pay full / mixed approval+pay-now carts against Bond.
 - **Confirmation screen regression in prod:** After successful `finalizeCart`, "Booking Confirmed" / "Booking Submitted" view does not render. Audit: `BookingCheckoutDrawer.tsx` `submitBookingRequestMutation.onSuccess`, `parseFinalizeCartResponse`, `answersStaleAfterFinalizeRef` / parent `onFinalizeBookingSuccess` ordering, response shape (`204`/`201`/body variations).
-- **Spurious 2nd `DELETE cart-item` 400** after subsection cascade — noise only, cart clears correctly. Suspects: legacy per-line X button, rapid clicks racing.
 - **Lessons / instructor-as-resource:** Bond returns inconsistent shapes; recovery variants live in `fetchBookingScheduleRecovering`. **Do not** add more variants until Bond clarifies the API.
 - **BFF hardening backlog:** stricter allowlists, structured logging, rate limits — not done.
 

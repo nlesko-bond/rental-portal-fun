@@ -26,11 +26,13 @@ The main orchestrator. Owns the full page: breadcrumb nav, product card grid, sc
 ---
 
 ### `BookingCheckoutDrawer.tsx`
-The right-side checkout drawer. Steps: slot summary → questionnaires → required products → payment. Manages its own cart lifecycle (create, finalize, confirmation screen).
+The right-side checkout drawer. Steps: auth/login → participant → add-ons → membership (if required and not already satisfied) → questionnaires → booking summary → added-to-cart → bag/payment → confirmation. Manages create, merge, cart refresh, finalize, and confirmation state.
 
-**Deposit logic:** `depositAmount` useMemo — sums `downPayment` from booking products + full price of memberships + full price of addons. Passed as `amountToPay` to finalize.
+**Payment amount logic:** full-pay uses Bond cart totals via `bondCartPayableTotalForFinalize`; minimum-due uses `cartChargeableMinimum` when Bond exposes a real deposit/minimum signal. Custom amount is supported where the cart/payment UI allows it.
 
 **Approval logic:** Products that require approval are submitted without charge. `combinedApprovalMap` (built from `bagSnapshots`) filters them out of `amountToPay`.
+
+**Required products:** `required-products-extended.ts` parses the required-products tree. Satisfied memberships (`required: false`) suppress the membership step but are not sent to `POST .../online-booking/create` unless the customer actively selects a membership to purchase.
 
 ---
 
@@ -45,7 +47,7 @@ Info modal opened from the product card `ⓘ` button. Shows: panoramic hero imag
 ---
 
 ### `BookingAddonPanel.tsx`
-Addon selection UI rendered below the slot grid. Groups addons into three rails: Per Reservation, Per Slot, Per Hour. Each card supports quantity steppers and (for slot/hour addons) per-slot targeting checkboxes.
+Addon selection UI rendered below the slot grid and reused in checkout. Groups add-ons into reservation, slot, and hour rails. Reservation add-ons use a simple quantity stepper; slot/hour add-ons support "add to all" plus manual per-slot increments/decrements.
 
 ---
 
@@ -101,7 +103,7 @@ Inline mini-calendar used in the wide desktop left column. Also powers the date-
 | `bond-cart-api.ts` | `getOrganizationCart`, `removeCartItem`, `closeCart`, `finalizeCart` |
 | `bond-payment-api.ts` | `getPaymentOptions` (consumer payment methods) |
 | `online-booking-user-api.ts` | `getUser`, booking-information, questionnaires, required products, `createBooking` |
-| `online-booking-create-body.ts` | Builds the create-booking POST payload |
+| `online-booking-create-body.ts` | Builds the create-booking POST payload: `segments`, add-ons, purchased `requiredProducts`, answers, optional `cartId` |
 | `bond-client.ts` | Fetch wrapper with `credentials: include` for cookie forwarding |
 
 ---
@@ -112,11 +114,14 @@ Inline mini-calendar used in the wide desktop left column. Also powers the date-
 |---|---|
 | `checkout-bag-totals.ts` | `bondCartPayableTotalForFinalize` (approval-aware), `cartItemLineAmountFromDto`, `flattenBondCartItemNodes` |
 | `bond-cart-item-classify.ts` | `classifyCartItemLineKind` → `"booking" \| "membership" \| "addon"` |
-| `cart-purchase-lines.ts` | `bagApprovalPolicy` → `"all_pay" \| "all_submission" \| "mixed"` |
-| `session-cart-snapshot.ts` | `coerceCartFromApi`, `positiveBondCartId` |
+| `cart-purchase-lines.ts` | `bagApprovalPolicy` → `"all_pay" \| "all_submission" \| "mixed"`; cart display lines and membership summaries |
+| `checkout-card-model.ts` | Converts purchase display lines into checkout card props, badges, icons, and membership meta lines |
+| `session-cart-snapshot.ts` | `coerceCartFromApi`, `positiveBondCartId`, persisted metadata for required products and product downpayments |
+| `session-cart-grouping.ts` | Participant-aware cart grouping for merged/mixed-family carts |
 | `bond-finalize-response.ts` | `parseFinalizeCartResponse` — normalises Bond's variable invoice response shape |
-| `bond-cart-removal.ts` | `bondRootCartItemIdForRemoval` — finds the right cart item to delete |
+| `bond-cart-removal.ts` | Finds removable cart item ids and supports child-before-root segment deletion |
 | `product-package-addons.ts` | `bookingOptionalAddons`, `resolveAddonDisplayPrice`, `addonLevelLabel` |
+| `required-products-extended.ts` | Parses required-products trees, satisfied product ids, membership display summaries, and nested purchased ids |
 | `booking-pricing.ts` | `productCatalogAllPricesNearZero`, `productHasVariableSchedulePricing`, `productMembershipGated` |
 | `entitlement-discount.ts` | `describeEntitlementsForDisplay` — formats member discount labels |
 | `schedule-settings.ts` | Parses Bond schedule settings (advance window, slot intervals, etc.) |
@@ -183,8 +188,11 @@ Tests live in `src/lib/__tests__/`. Run with `pnpm test`. Framework: Vitest + `v
 
 | Test file | Covers |
 |---|---|
-| `checkout-bag-totals.test.ts` | `bondCartPayableTotalForFinalize`, deposit helpers |
-| `cart-purchase-lines.test.ts` | `bagApprovalPolicy` |
-| `bond-cart-removal.test.ts` | `bondRootCartItemIdForRemoval` |
+| `checkout-bag-totals.test.ts` | `bondCartPayableTotalForFinalize`, deposit/minimum-due helpers |
+| `cart-purchase-lines.test.ts` | `bagApprovalPolicy`, display-line expansion |
+| `bond-cart-removal.test.ts` | cart item removal id selection and fallback behavior |
 | `bond-finalize-response.test.ts` | `parseFinalizeCartResponse` |
 | `session-cart-snapshot.test.ts` | `coerceCartFromApi`, `positiveBondCartId` |
+| `required-products-extended.test.ts` | membership type/renewal/customer-type display parsing |
+| `session-cart-grouping.test.ts` | participant-aware grouping for mixed-family carts |
+| `online-booking-create-body.test.ts` | create payload shape, including required products during cart merge |

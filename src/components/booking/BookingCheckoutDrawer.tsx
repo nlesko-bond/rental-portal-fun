@@ -3223,6 +3223,8 @@ export function BookingCheckoutDrawer({
         ? bagSessionAggregates.discountTotal
         : null;
     const aggregateTaxTotal = bagSessionAggregates.taxTotal ?? null;
+    const aggregateFeeTotal =
+      bagFeeRowAmount != null && bagFeeRowAmount > BOND_KIND_LINE_MIN ? bagFeeRowAmount : null;
     const hasDepositEntry = cartFooterState === "deposit" || cartFooterState === "split";
     const customDepositMin = cartMinimumDollars ?? 0;
     const customDepositMax = cartChargeableDollars;
@@ -3425,12 +3427,13 @@ export function BookingCheckoutDrawer({
               ) : null}
 
               {cartFooterState !== "request_only" ? (() => {
-                const grand = cartChargeableDollars || cartFullDollars;
+                const grand = bagEstimatedTotal ?? (cartChargeableDollars || cartFullDollars);
                 const taxN = aggregateTaxTotal ?? 0;
                 const discN = aggregateDiscountTotal ?? 0;
+                const feeN = aggregateFeeTotal ?? 0;
                 const preTaxSubtotal = Math.max(
                   0,
-                  Math.round((grand - taxN + discN) * CURRENCY_CENTS) / CURRENCY_CENTS,
+                  Math.round((grand - taxN - feeN + discN) * CURRENCY_CENTS) / CURRENCY_CENTS,
                 );
                 return (
                   <div className="cb-co-totals-box">
@@ -3451,6 +3454,12 @@ export function BookingCheckoutDrawer({
                       <div className="cb-co-totals-row cb-co-totals-row--tax">
                         <span className="cb-co-totals-row-label">{tx("cartTax")}</span>
                         <span>{formatPrice(aggregateTaxTotal, bagCurrency)}</span>
+                      </div>
+                    ) : null}
+                    {aggregateFeeTotal != null ? (
+                      <div className="cb-co-totals-row cb-co-totals-row--fees">
+                        <span className="cb-co-totals-row-label">{tx("cartFees")}</span>
+                        <span>{formatPrice(aggregateFeeTotal, bagCurrency)}</span>
                       </div>
                     ) : null}
                     <div className="cb-co-totals-row cb-co-totals-row--grand">
@@ -3476,6 +3485,12 @@ export function BookingCheckoutDrawer({
                     <div className="cb-co-totals-row cb-co-totals-row--tax">
                       <span>{tx("cartTax")}</span>
                       <span>{formatPrice(aggregateTaxTotal, bagCurrency)}</span>
+                    </div>
+                  ) : null}
+                  {aggregateFeeTotal != null ? (
+                    <div className="cb-co-totals-row cb-co-totals-row--fees">
+                      <span>{tx("cartFees")}</span>
+                      <span>{formatPrice(aggregateFeeTotal, bagCurrency)}</span>
                     </div>
                   ) : null}
                   <div className="cb-co-totals-row cb-co-totals-row--grand">
@@ -3828,8 +3843,18 @@ export function BookingCheckoutDrawer({
 
             {(() => {
               const checkoutTotal = checkoutPaymentTotal;
+              const checkoutFeeTotal =
+                feesIncludedInEstimate &&
+                bagAggregatesForPaymentTotal.feeTotal != null &&
+                bagAggregatesForPaymentTotal.feeTotal > BOND_KIND_LINE_MIN
+                  ? bagAggregatesForPaymentTotal.feeTotal
+                  : null;
               const checkoutSubtotal =
-                bagAggregates.lineSubtotal ?? Math.max(0, checkoutTotal - (bagAggregates.taxTotal ?? 0) + (displayDiscountTotal ?? 0));
+                bagAggregates.lineSubtotal ??
+                Math.max(
+                  0,
+                  checkoutTotal - (bagAggregates.taxTotal ?? 0) - (checkoutFeeTotal ?? 0) + (displayDiscountTotal ?? 0)
+                );
               const checkoutDepositMin = computedDepositDollars ?? 0;
               const checkoutDepositValue = customAmountInput;
               const checkoutDepositErrorVisible = checkoutDepositValue.trim().length > 0 && !checkoutDepositValid;
@@ -3880,6 +3905,12 @@ export function BookingCheckoutDrawer({
                         <div className="cb-co-totals-row cb-co-totals-row--tax">
                           <span>{tx("cartTax")}</span>
                           <span>{formatPrice(bagAggregates.taxTotal, bagCurrency)}</span>
+                        </div>
+                      ) : null}
+                      {checkoutFeeTotal != null ? (
+                        <div className="cb-co-totals-row cb-co-totals-row--fees">
+                          <span>{tx("cartFees")}</span>
+                          <span>{formatPrice(checkoutFeeTotal, bagCurrency)}</span>
                         </div>
                       ) : null}
                       <div className="cb-co-totals-row cb-co-totals-row--grand">

@@ -13,6 +13,8 @@ import {
 } from "@/lib/bond-cart-item-classify";
 import {
   cartItemLineAmountFromDto,
+  cartItemApprovalSettlement,
+  cartItemPurchaseType,
   computeBondLineStrikeAmount,
   describeCartItemDiscountLabels,
   flattenBondCartItemNodes,
@@ -24,7 +26,7 @@ import {
   bagRemovePolicyForBondItem,
   bondCartItemIdFromRecord,
 } from "@/lib/bond-cart-removal";
-import { dedupeDiscountCaptionSegments } from "@/lib/entitlement-discount";
+import { dedupeDiscountCaptionSegments, describeEntitlementsForDisplay } from "@/lib/entitlement-discount";
 import { membershipDisplaySummary, type MembershipDisplaySummary } from "@/lib/required-products-extended";
 import type { SessionCartSnapshot } from "@/lib/session-cart-snapshot";
 import { flatLineIndexSegmentsForMergedBookings } from "@/lib/session-cart-grouping";
@@ -281,6 +283,26 @@ function mergeDiscountNotes(...parts: (string | undefined)[]): string | undefine
   return dedupeDiscountCaptionSegments(s.length > 0 ? s.join(" · ") : undefined);
 }
 
+function snapshotDiscountLabelForProduct(
+  row: SessionCartSnapshot,
+  it: Record<string, unknown> | null,
+  kind: CartLineKind,
+  amount: number | null | undefined,
+  strikeAmount: number | null | undefined
+): string | undefined {
+  if (kind !== "booking" && kind !== "membership") return undefined;
+  if (it == null || typeof amount !== "number" || !Number.isFinite(amount)) return undefined;
+  if (typeof strikeAmount !== "number" || !Number.isFinite(strikeAmount) || strikeAmount <= amount + 0.005) {
+    return undefined;
+  }
+  const pid = productIdFromBondItem(it);
+  const snapshotLabel = pid != null ? row.productDiscountLabelByProductId?.[pid] : undefined;
+  if (typeof snapshotLabel === "string" && snapshotLabel.trim().length > 0) return snapshotLabel.trim();
+  const product = it.product && typeof it.product === "object" ? (it.product as Record<string, unknown>) : null;
+  const entitlements = product?.entitlementDiscounts ?? it.entitlementDiscounts;
+  return Array.isArray(entitlements) ? describeEntitlementsForDisplay(entitlements) : undefined;
+}
+
 /** When the cart groups by person, strip trailing ` · For {name}` from saved slot summaries (heading already names them). */
 function stripBookingForFromMeta(meta: string, bookingForLabel: string | undefined, omit: boolean): string {
   if (!omit) return meta;
@@ -460,6 +482,15 @@ function finalizePurchaseDisplayLines(
 
   const segByFlat = flatIndexToSegmentMap(c);
   const segApprovalCache = new Map<number, boolean>();
+  const bondItemApprovalPending = (item: Record<string, unknown> | undefined, kind: CartLineKind): boolean | null => {
+    if (item == null) return null;
+    const settlement = cartItemApprovalSettlement(item, approvalMap);
+    if (settlement === "approval") return true;
+    if (kind !== "booking") return false;
+    if (cartItemPurchaseType(item) != null) return false;
+    if (!hasPerProductApproval && needApprovalFlags) return true;
+    return false;
+  };
   const segmentHasApprovalProduct = (segIdx: number): boolean => {
     if (segApprovalCache.has(segIdx)) return segApprovalCache.get(segIdx)!;
     let has = false;
@@ -467,8 +498,7 @@ function finalizePurchaseDisplayLines(
       if ((segByFlat.get(k) ?? 0) !== segIdx) continue;
       const kind = classifyCartItemLineKind(flatBond[k]!);
       if (kind !== "booking") continue;
-      const pid = productIdFromBondItem(flatBond[k]!);
-      if (pid != null && approvalMap && approvalMap[pid] === true) {
+      if (bondItemApprovalPending(flatBond[k]!, kind) === true) {
         has = true;
         break;
       }
@@ -489,13 +519,8 @@ function finalizePurchaseDisplayLines(
     /** Per-product approval when available; otherwise row-level. Addons inherit the segment's booking. */
     let approvalPending = false;
     if (coKind === "booking") {
-      if (hasPerProductApproval) {
-        const pid = bondRec != null ? productIdFromBondItem(bondRec) : null;
-        approvalPending = pid != null && approvalMap![pid] === true;
-      } else {
-        approvalPending = needApprovalFlags;
-      }
-    } else if (coKind === "addon" && hasPerProductApproval) {
+      approvalPending = bondItemApprovalPending(bondRec, coKind) ?? needApprovalFlags;
+    } else if (coKind === "addon") {
       approvalPending = segmentHasApprovalProduct(segIdx);
     }
     const depositRequired =
@@ -671,7 +696,7 @@ export function expandSnapshotForPurchaseList(
         (kindMeta === "booking" || kindMeta === "membership") && bondItem
           ? describeCartItemDiscountLabels(bondItem)
           : undefined;
-      const discountNote = mergeDiscountNotes(
+      const sourceDiscountNote = mergeDiscountNotes(
         line.discountNote,
         bondZipOk ? bondLine?.discountNote ?? bondItemLabels : bondItemLabels
       );
@@ -710,6 +735,10 @@ export function expandSnapshotForPurchaseList(
         bondLine != null && Number.isFinite(bondLine.amount) ? bondLine.amount : resolved?.net ?? displayBase;
       const bondRec =
         bondItem && typeof bondItem === "object" ? (bondItem as Record<string, unknown>) : null;
+      const discountNote = mergeDiscountNotes(
+        sourceDiscountNote,
+        snapshotDiscountLabelForProduct(row, bondRec, kindMeta, amount, strikeAmount)
+      );
       const bondId = bondRec != null ? bondCartItemIdFromRecord(bondRec) : null;
       const bagRemove =
         typeof cartId === "number" && Number.isFinite(cartId) && cartId > 0 && bondRec != null
@@ -791,7 +820,7 @@ export function expandSnapshotForPurchaseList(
         fromItem <= 0.0001
           ? "Qualifying membership — reservation at member rate ($0)"
           : undefined;
-      const discountNote =
+      const sourceDiscountNote =
         kind === "booking" || kind === "membership"
           ? describeCartItemDiscountLabels(it)
           : undefined;
@@ -804,6 +833,10 @@ export function expandSnapshotForPurchaseList(
         (kind === "booking" || kind === "membership"
           ? computeBondLineStrikeAmount(it, lineAmount)
           : undefined);
+      const discountNote = mergeDiscountNotes(
+        sourceDiscountNote,
+        snapshotDiscountLabelForProduct(row, it, kind, lineAmount, strikeAmount)
+      );
       const lineCartId = bondCartItemIdFromRecord(it);
       const bagRemove =
         typeof cartId === "number" && Number.isFinite(cartId) && cartId > 0

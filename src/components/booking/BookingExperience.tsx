@@ -27,7 +27,7 @@ import {
   productHasVariableSchedulePricing,
   productMembershipGated,
 } from "@/lib/booking-pricing";
-import { applyEntitlementDiscountsToUnitPrice } from "@/lib/entitlement-discount";
+import { applyEntitlementDiscountsToUnitPrice, describeEntitlementsForDisplay } from "@/lib/entitlement-discount";
 import {
   filterStartTimesByMinimumNotice,
   snapPreferredStartToEligible,
@@ -2352,6 +2352,18 @@ export function BookingExperience() {
               }
               return undefined;
             })();
+            const productDiscountLabelByProductId = (() => {
+              const label = describeEntitlementsForDisplay(selectedProduct?.entitlementDiscounts);
+              if (
+                typeof state.productId === "number" &&
+                state.productId > 0 &&
+                typeof label === "string" &&
+                label.trim().length > 0
+              ) {
+                return { [state.productId]: label.trim() };
+              }
+              return undefined;
+            })();
             const mergeRequiredProductDetails = (siblings: SessionCartSnapshot[]) => {
               const out: Record<number, Record<string, unknown>> = {};
               for (const row of siblings) {
@@ -2366,6 +2378,14 @@ export function BookingExperience() {
                 if (row.productDownpaymentByProductId) Object.assign(out, row.productDownpaymentByProductId);
               }
               if (productDownpaymentByProductId) Object.assign(out, productDownpaymentByProductId);
+              return Object.keys(out).length > 0 ? out : undefined;
+            };
+            const mergeProductDiscountLabels = (siblings: SessionCartSnapshot[]) => {
+              const out: Record<number, string> = {};
+              for (const row of siblings) {
+                if (row.productDiscountLabelByProductId) Object.assign(out, row.productDiscountLabelByProductId);
+              }
+              if (productDiscountLabelByProductId) Object.assign(out, productDiscountLabelByProductId);
               return Object.keys(out).length > 0 ? out : undefined;
             };
             const newSlotKeys = pickedSlotsOrdered.map((s) => s.key);
@@ -2433,6 +2453,7 @@ export function BookingExperience() {
                   const reservationGroups = mergeReservationGroups(siblings, bookingForLabel, newSlotKeys);
                   const mergedRequiredProductDetailsById = mergeRequiredProductDetails(siblings);
                   const mergedProductDownpaymentByProductId = mergeProductDownpayments(siblings);
+                  const mergedProductDiscountLabelByProductId = mergeProductDiscountLabels(siblings);
                   const approvalByProductId: Record<number, boolean> = {};
                   for (const s of siblings) {
                     if (s.approvalByProductId) Object.assign(approvalByProductId, s.approvalByProductId);
@@ -2468,6 +2489,7 @@ export function BookingExperience() {
                       participantHasQualifyingMembership,
                       ...(mergedRequiredProductDetailsById != null ? { requiredProductDetailsById: mergedRequiredProductDetailsById } : {}),
                       ...(mergedProductDownpaymentByProductId != null ? { productDownpaymentByProductId: mergedProductDownpaymentByProductId } : {}),
+                      ...(mergedProductDiscountLabelByProductId != null ? { productDiscountLabelByProductId: mergedProductDiscountLabelByProductId } : {}),
                       ...(displayLines != null ? { displayLines } : {}),
                       ...(reservationGroups != null ? { reservationGroups } : {}),
                     },
@@ -2491,6 +2513,7 @@ export function BookingExperience() {
                     participantHasQualifyingMembership,
                     ...(requiredProductDetailsById != null ? { requiredProductDetailsById } : {}),
                     ...(productDownpaymentByProductId != null ? { productDownpaymentByProductId } : {}),
+                    ...(productDiscountLabelByProductId != null ? { productDiscountLabelByProductId } : {}),
                     ...(displayLines != null ? { displayLines } : {}),
                   },
                 ];

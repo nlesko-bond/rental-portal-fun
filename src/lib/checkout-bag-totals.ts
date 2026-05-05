@@ -464,11 +464,23 @@ export function getBondCartTotalsSummary(cart: OrganizationCartDto): {
   };
 }
 
-/** Extract `product.id` from a Bond cart item — used to match against `approvalByProductId`. */
-function cartItemProductId(it: Record<string, unknown>): number | null {
+/** Extract product id from a Bond cart item — used to match against `approvalByProductId`. */
+export function cartItemProductId(it: Record<string, unknown>): number | null {
   const prod = it.product as Record<string, unknown> | undefined;
-  const pid = typeof prod?.id === "number" ? prod.id : null;
+  const raw = it.productId ?? prod?.id;
+  const pid = typeof raw === "number" ? raw : typeof raw === "string" && /^\d+$/.test(raw.trim()) ? Number(raw.trim()) : null;
   return pid != null && Number.isFinite(pid) && pid > 0 ? pid : null;
+}
+
+export type CartItemApprovalSettlement = "approval" | "invoiceable";
+
+export function cartItemPurchaseType(it: Record<string, unknown>): string | null {
+  const meta =
+    it.metadata && typeof it.metadata === "object"
+      ? (it.metadata as Record<string, unknown>)
+      : null;
+  const pt = meta?.purchaseType ?? it.purchaseType;
+  return typeof pt === "string" && pt.trim().length > 0 ? pt.trim() : null;
 }
 
 /** Round to 2 decimal places (matches the rest of the cart math). */
@@ -493,20 +505,16 @@ function finiteNonNegative(n: unknown): number | null {
  * comparison is also true for any deposit-required cart, so deposit-only categories were being
  * shown as "approval split", which surfaced a bogus orange "Approval items" totals box.
  */
-function isApprovalCartItem(
+export function cartItemApprovalSettlement(
   it: Record<string, unknown>,
   approvalByProductId: Record<number, boolean> | undefined,
-): boolean {
-  const meta =
-    it.metadata && typeof it.metadata === "object"
-      ? (it.metadata as Record<string, unknown>)
-      : null;
-  const pt = meta?.purchaseType ?? it.purchaseType;
-  if (pt === "order") return true;
-  if (pt === "purchase") return false;
+): CartItemApprovalSettlement {
+  const pt = cartItemPurchaseType(it);
+  if (pt === "order") return "approval";
+  if (pt === "purchase") return "invoiceable";
   const pid = cartItemProductId(it);
-  if (pid != null && approvalByProductId?.[pid] === true) return true;
-  return false;
+  if (pid != null && approvalByProductId?.[pid] === true) return "approval";
+  return "invoiceable";
 }
 
 type ApprovalSplitInfo = {
@@ -536,7 +544,7 @@ function classifyCartApproval(
   let purchasableCount = 0;
   for (const it of flat) {
     const amt = getCartItemLineAmount(it) ?? 0;
-    if (isApprovalCartItem(it, approvalByProductId)) {
+    if (cartItemApprovalSettlement(it, approvalByProductId) === "approval") {
       approvalAmount += amt;
       approvalCount += 1;
     } else {
@@ -717,8 +725,7 @@ export function bondCartPayableTotalForFinalize(
   let payableSum = 0;
   let any = false;
   for (const it of flat) {
-    const pid = cartItemProductId(it);
-    if (pid != null && approvalByProductId![pid] === true) continue;
+    if (cartItemApprovalSettlement(it, approvalByProductId) === "approval") continue;
     const amt = getCartItemLineAmount(it);
     if (amt == null) continue;
     payableSum += amt;

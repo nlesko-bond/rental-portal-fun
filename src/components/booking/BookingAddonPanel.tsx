@@ -219,6 +219,7 @@ type SlotPanelProps = {
   onToggleSlot: (addonId: number, slotKey: string, allKeys: string[]) => void;
   onSelectAllSlots: (addonId: number, checked: boolean, allKeys: string[]) => void;
   onSetSlotQty?: (addonId: number, slotKey: string, qty: number) => void;
+  selectAllLabel: string;
   copy: ReturnType<typeof useTranslations>;
 };
 
@@ -232,6 +233,7 @@ function SlotPanel({
   onToggleSlot,
   onSelectAllSlots,
   onSetSlotQty,
+  selectAllLabel,
   copy,
 }: SlotPanelProps) {
   /** Intent-based: reflects whether the user explicitly enabled "Add to all", not derived from per-slot membership. */
@@ -269,7 +271,8 @@ function SlotPanel({
             checked={allOn}
             onChange={(e) => onSelectAllSlots(addon.id, e.target.checked, allSlotKeys)}
           />
-          <span>{copy("addToAllTimeSlots")}</span>
+          <span className="cb-addon-slot-panel-toggle-box" aria-hidden="true" />
+          <span>{selectAllLabel}</span>
         </label>
         {allOn && onSetSlotQty ? (
           <QtyStepper
@@ -353,6 +356,8 @@ export function BookingAddonPanel({
   const hour = visibleAddons.filter((a) => a.level === "hour");
 
   const hasAny = reservation.length > 0 || slot.length > 0 || hour.length > 0;
+  const addOnLevelCount = [reservation, slot, hour].filter((items) => items.length > 0).length;
+  const showSectionHeadings = omitPanelHeading || addOnLevelCount > 1;
 
   useEffect(() => {
     if (activeSlotAddonId != null && !visibleAddons.some((addon) => addon.id === activeSlotAddonId)) {
@@ -371,10 +376,15 @@ export function BookingAddonPanel({
   const renderReservationSection = () => {
     if (reservation.length === 0) return null;
     return (
-      <section className="cb-addon-section" aria-labelledby="addon-section-reservation">
-        <h4 id="addon-section-reservation" className="cb-addon-section-title">
-          {ta("extrasPerBooking", { count: reservation.length })}
-        </h4>
+      <section
+        className={`cb-addon-section ${showSectionHeadings ? "" : "cb-addon-section--headless"}`}
+        {...(showSectionHeadings ? { "aria-labelledby": "addon-section-reservation" } : {})}
+      >
+        {showSectionHeadings ? (
+          <h4 id="addon-section-reservation" className="cb-addon-section-title">
+            {ta("extrasPerBooking", { count: reservation.length })}
+          </h4>
+        ) : null}
         <div className="cb-addon-card-rail">
           {reservation.map((a) => {
             const sel = selectedAddonIds.has(a.id);
@@ -410,10 +420,15 @@ export function BookingAddonPanel({
         ? firstSelected(items)
         : items.find((addon) => addon.id === activeSlotAddonId && selectedAddonIds.has(addon.id)) ?? firstSelected(items);
     return (
-      <section className="cb-addon-section" aria-labelledby={sectionId}>
-        <h4 id={sectionId} className="cb-addon-section-title">
-          {ta(titleKey, { count: items.length })}
-        </h4>
+      <section
+        className={`cb-addon-section ${showSectionHeadings ? "" : "cb-addon-section--headless"}`}
+        {...(showSectionHeadings ? { "aria-labelledby": sectionId } : {})}
+      >
+        {showSectionHeadings ? (
+          <h4 id={sectionId} className="cb-addon-section-title">
+            {ta(titleKey, { count: items.length })}
+          </h4>
+        ) : null}
         <div className="cb-addon-card-rail">
           {items.map((a) => {
             const sel = selectedAddonIds.has(a.id);
@@ -446,6 +461,7 @@ export function BookingAddonPanel({
             onToggleSlot={onToggleAddonSlot}
             onSelectAllSlots={onAddonSelectAllSlots}
             onSetSlotQty={onSetAddonSlotQty}
+            selectAllLabel={omitPanelHeading ? ta("addToAllTimeSlots") : ta("selectAllSlots")}
             copy={ta}
           />
         ) : active && pickedSlots.length === 0 ? (

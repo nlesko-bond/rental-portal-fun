@@ -52,6 +52,7 @@ export type SessionCartSnapshot = {
    * mapping is present (e.g. legacy session rows from before this field existed).
    */
   productNameByProductId?: Record<number, string>;
+  productDiscountLabelByProductId?: Record<number, string>;
   /** At add-to-cart time: GET …/required had no unpaid membership for this product (member rate for this rental). */
   participantHasQualifyingMembership?: boolean;
   /** Slot keys (`slotControlKey`) already committed with this cart row — hide from re-selection on the schedule. */
@@ -204,6 +205,17 @@ function normalizeRow(x: unknown, rowIndex: number): SessionCartSnapshot | null 
       }
       if (Object.keys(acc).length > 0) productNameByProductId = acc;
     }
+    let productDiscountLabelByProductId: Record<number, string> | undefined;
+    if (o.productDiscountLabelByProductId && typeof o.productDiscountLabelByProductId === "object") {
+      const acc: Record<number, string> = {};
+      for (const [k, v] of Object.entries(o.productDiscountLabelByProductId as Record<string, unknown>)) {
+        const id = /^\d+$/.test(k) ? Number(k) : NaN;
+        if (Number.isFinite(id) && id > 0 && typeof v === "string" && v.trim().length > 0) {
+          acc[id] = v.trim();
+        }
+      }
+      if (Object.keys(acc).length > 0) productDiscountLabelByProductId = acc;
+    }
     let requiredProductDetailsById: Record<number, Record<string, unknown>> | undefined;
     if (o.requiredProductDetailsById && typeof o.requiredProductDetailsById === "object") {
       const acc: Record<number, Record<string, unknown>> = {};
@@ -238,6 +250,7 @@ function normalizeRow(x: unknown, rowIndex: number): SessionCartSnapshot | null 
       ...(approvalRequired === true ? { approvalRequired: true } : {}),
       ...(approvalByProductId != null ? { approvalByProductId } : {}),
       ...(productNameByProductId != null ? { productNameByProductId } : {}),
+      ...(productDiscountLabelByProductId != null ? { productDiscountLabelByProductId } : {}),
       ...(requiredProductDetailsById != null ? { requiredProductDetailsById } : {}),
       ...(productDownpaymentByProductId != null ? { productDownpaymentByProductId } : {}),
       ...(participantHasQualifyingMembership === true ? { participantHasQualifyingMembership: true } : {}),
