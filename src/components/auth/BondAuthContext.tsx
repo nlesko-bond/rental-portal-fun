@@ -24,10 +24,17 @@ import {
 } from "@/lib/jwt-payload";
 
 const SDK_RETURN_TARGET_KEY = "bondSdk:returnTarget";
-/** Polling interval for SDK token-store changes; the SDK refreshes silently on its own. */
-const SESSION_POLL_INTERVAL_MS = 30_000;
+/**
+ * Polling interval for SDK token-store changes as a safety net. Real updates flow through the
+ * `BOND_AUTH_SESSION_CHANGED_EVENT` custom event (dispatched from `/auth/callback` after
+ * `parseCallback()`), so polling only catches edge cases like the SDK silently refreshing tokens
+ * during a long idle session.
+ */
+const SESSION_POLL_INTERVAL_MS = 5_000;
 const SDK_ACCESS_TOKEN_KEY = "BondSdkAccessToken";
 const SDK_ID_TOKEN_KEY = "BondSdkIdToken";
+/** Public so `/auth/callback` and other auth-state mutators can ping the provider after writes. */
+export const BOND_AUTH_SESSION_CHANGED_EVENT = "bond-auth:session-changed";
 
 export type BondSession =
   | { status: "loading" }
@@ -138,12 +145,15 @@ export function BondAuthProvider({ children }: { children: ReactNode }) {
       if (e.key === null || e.key === "BondSdkRefreshToken") refresh();
     };
     const onFocus = () => refresh();
+    const onCustom = () => refresh();
     window.addEventListener("storage", onStorage);
     window.addEventListener("focus", onFocus);
+    window.addEventListener(BOND_AUTH_SESSION_CHANGED_EVENT, onCustom);
     return () => {
       window.clearInterval(interval);
       window.removeEventListener("storage", onStorage);
       window.removeEventListener("focus", onFocus);
+      window.removeEventListener(BOND_AUTH_SESSION_CHANGED_EVENT, onCustom);
     };
   }, []);
 

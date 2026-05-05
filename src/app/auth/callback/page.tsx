@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { PageLoadingFallback } from "@/components/PageLoadingFallback";
+import { BOND_AUTH_SESSION_CHANGED_EVENT } from "@/components/auth/BondAuthContext";
 import { loadBondSportsSdk, readBondSdkOAuthConfig } from "@/lib/bond-sdk-loader";
 
 const SDK_RETURN_TARGET_KEY = "bondSdk:returnTarget";
@@ -70,6 +71,7 @@ function CallbackInner() {
         return;
       }
       if (cancelled) return;
+      window.dispatchEvent(new Event(BOND_AUTH_SESSION_CHANGED_EVENT));
       const target = readReturnTarget();
       const preserved = new URLSearchParams();
       for (const key of RETURN_PARAM_ALLOWLIST) {
