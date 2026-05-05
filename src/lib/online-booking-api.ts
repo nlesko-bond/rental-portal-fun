@@ -43,6 +43,7 @@ export async function fetchCategoryProducts(
     q.append("sports", s);
   }
   if (opts.userId != null) q.set("userId", String(opts.userId));
+  q.append("expand", "media");
   return bondBffGetJson<PaginatedProductsResponse>(path, q);
 }
 

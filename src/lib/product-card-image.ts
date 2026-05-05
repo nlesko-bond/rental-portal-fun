@@ -1,21 +1,5 @@
 import type { ExtendedProductDto } from "@/types/online-booking";
 
-function hashPick(seed: string, modulo: number): number {
-  let h = 0;
-  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
-  return modulo <= 0 ? 0 : h % modulo;
-}
-
-/** Slugs like `basket_ball` → words Bond may send from the portal. */
-function normalizeForStockMatch(raw: string): string {
-  return raw
-    .trim()
-    .toLowerCase()
-    .replace(/_/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
 function mediaUrlFromProduct(product: ExtendedProductDto): string | undefined {
   const u = product.mainMedia?.url ?? product.media?.find((m) => m.url)?.url;
   return typeof u === "string" && u.trim() ? u.trim() : undefined;
@@ -26,190 +10,27 @@ function envPlaceholderUrl(): string | undefined {
   return typeof v === "string" && v.trim() ? v.trim() : undefined;
 }
 
-/** Bundled in `public/images/booking/` — real rink photos (no Unsplash). */
-const ICE_HOCKEY_IMAGES = ["/images/booking/hockey-1.png", "/images/booking/hockey-2.png"];
-const ICE_SKATING_IMAGES = ["/images/booking/skating-1.png", "/images/booking/skating-2.png"];
-
-/**
- * Indoor / court imagery only — avoid track & field photos mistaken for “court”.
- * Unsplash often 404s older `photo-*` ids; keep this list to URLs that still resolve.
- * Prefer adding assets under `public/images/booking/` over growing this list.
- */
-const BASKETBALL_IMAGES = [
-  "https://images.unsplash.com/photo-1546519638-68e109498ffc?w=640&q=80&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1518609878373-06d740f60d8b?w=640&q=80&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1577416412292-747c6607f055?w=640&q=80&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1600534220378-df36338afc40?w=640&q=80&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1615174438196-b3538fe68737?w=640&q=80&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1602357280104-742c517a1d82?w=640&q=80&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1563302905-4830598613c0?w=640&q=80&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1572454181157-0b40dd7667fe?w=640&q=80&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1559692048-79a3f837883d?w=640&q=80&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1709264407689-da8c63f63c2d?w=640&q=80&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1521412644187-c49fa049e84d?w=640&q=80&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1719521178357-64ac2316f0ea?w=640&q=80&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1488085061387-422e29b40080?w=640&q=80&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1601391721091-4646369e0bb5?w=640&q=80&auto=format&fit=crop",
-];
-
-const SOCCER_IMAGES = [
-  "https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=640&q=80&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1431324155629-1a6deb1dec8d?w=640&q=80&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1522778119026-d647f0596c20?w=640&q=80&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1579952363873-27f3bade9f55?w=640&q=80&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1560272564-c83b66b1ad12?w=640&q=80&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?w=640&q=80&auto=format&fit=crop",
-];
-
-const TENNIS_IMAGES = [
-  "https://images.unsplash.com/photo-1595435934249-5df7ed86e1c0?w=640&q=80&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1622279457486-62dcc4a431d6?w=640&q=80&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1554068865-24cecd4e34b8?w=640&q=80&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1599586120429-48281b6a0a3d?w=640&q=80&auto=format&fit=crop",
-];
-
-const VOLLEYBALL_IMAGES = [
-  "https://images.unsplash.com/photo-1612872087720-bb876e2e67d1?w=640&q=80&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1592656094267-764a45160876?w=640&q=80&auto=format&fit=crop",
-];
-
-const BASEBALL_IMAGES = [
-  "https://images.unsplash.com/photo-1566577739112-5180d4a8772a?w=640&q=80&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1471295253337-3ceaaed13298?w=640&q=80&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1516738901171-8eb4fc13bd20?w=640&q=80&auto=format&fit=crop",
-];
-
-const AMERICAN_FOOTBALL_IMAGES = [
-  "https://images.unsplash.com/photo-1504450758481-7338bbe7529a?w=640&q=80&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1489944440615-453fc2b6a9a9?w=640&q=80&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1496886849808-1e5ef8361222?w=640&q=80&auto=format&fit=crop",
-];
-
-/** When activity slug is unknown — still rotate across several indoor / court photos (not one static URL). */
-const GENERIC_INDOOR_SPORTS_IMAGES = [
-  "https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=640&q=80&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?w=640&q=80&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=640&q=80&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1517836357463-d25dfeac3438?w=640&q=80&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1593079831263-33839b7ae2b5?w=640&q=80&auto=format&fit=crop",
-  "https://images.unsplash.com/photo-1540497077202-7c8a3999166f?w=640&q=80&auto=format&fit=crop",
-];
-
-type StockRow = {
-  test: (s: string) => boolean;
-  url: string | ((seed: string) => string);
-};
-
-const STOCK: StockRow[] = [
-  {
-    test: (s) => /american football|\bflag football\b|\bnfl\b/i.test(s),
-    url: (seed) => AMERICAN_FOOTBALL_IMAGES[hashPick(seed, AMERICAN_FOOTBALL_IMAGES.length)]!,
-  },
-  {
-    test: (s) => /\bfield\s+hockey\b/i.test(s),
-    url: (seed) => SOCCER_IMAGES[hashPick(seed, SOCCER_IMAGES.length)]!,
-  },
-  {
-    test: (s) => /\b(ice[\s-]?skating|figure\s+skating|speed\s+skating)\b/i.test(s),
-    url: (seed) => ICE_SKATING_IMAGES[hashPick(seed, ICE_SKATING_IMAGES.length)]!,
-  },
-  {
-    test: (s) => /\b(ringette|sledge\s*hockey|ice\s*hockey)\b/i.test(s),
-    url: (seed) => ICE_HOCKEY_IMAGES[hashPick(seed, ICE_HOCKEY_IMAGES.length)]!,
-  },
-  {
-    test: (s) => /\blacrosse\b/i.test(s),
-    url: (seed) => SOCCER_IMAGES[hashPick(seed, SOCCER_IMAGES.length)]!,
-  },
-  {
-    test: (s) => /\bhockey\b/i.test(s),
-    url: (seed) => ICE_HOCKEY_IMAGES[hashPick(seed, ICE_HOCKEY_IMAGES.length)]!,
-  },
-  {
-    test: (s) => /soccer|foot\s*ball|futbol/i.test(s) && !/american|nfl/i.test(s),
-    url: (seed) => SOCCER_IMAGES[hashPick(seed, SOCCER_IMAGES.length)]!,
-  },
-  {
-    test: (s) => /basket\s*ball|basketball|hoops?/i.test(s),
-    url: (seed) => BASKETBALL_IMAGES[hashPick(seed, BASKETBALL_IMAGES.length)]!,
-  },
-  {
-    test: (s) => /tennis/i.test(s),
-    url: (seed) => TENNIS_IMAGES[hashPick(seed, TENNIS_IMAGES.length)]!,
-  },
-  {
-    test: (s) => /volleyball/i.test(s),
-    url: (seed) => VOLLEYBALL_IMAGES[hashPick(seed, VOLLEYBALL_IMAGES.length)]!,
-  },
-  {
-    test: (s) => /baseball|softball|batting/i.test(s),
-    url: (seed) => BASEBALL_IMAGES[hashPick(seed, BASEBALL_IMAGES.length)]!,
-  },
-  {
-    test: (s) => /pickle\s*ball|pickleball/i.test(s),
-    url: (seed) => TENNIS_IMAGES[hashPick(seed, TENNIS_IMAGES.length)]!,
-  },
-  {
-    test: (s) => /\b(cage|simulator|hittrax|batting\s*cage)\b/i.test(s),
-    url: (seed) => BASEBALL_IMAGES[hashPick(seed, BASEBALL_IMAGES.length)]!,
-  },
-  {
-    test: (s) => /\b(badminton|squash|racquetball)\b/i.test(s),
-    url: (seed) => TENNIS_IMAGES[hashPick(seed, TENNIS_IMAGES.length)]!,
-  },
-];
-
-function pickStock(needle: string, seed: string): string {
-  const s = normalizeForStockMatch(needle);
-  for (const row of STOCK) {
-    if (row.test(s)) {
-      return typeof row.url === "function" ? row.url(seed) : row.url;
-    }
-  }
-  return GENERIC_INDOOR_SPORTS_IMAGES[hashPick(seed, GENERIC_INDOOR_SPORTS_IMAGES.length)]!;
-}
-
-/**
- * Stock art uses portal **activity** + **product name** (Bond slugs often omit the sport word),
- * with a stable per-product seed so the same service keeps the same image while different products vary.
- */
-export function resolveCuratedStockImageUrl(product: ExtendedProductDto, activity: string): string {
-  const seed = `${product.id}-${activity}`;
-  const name = typeof product.name === "string" ? product.name : "";
-  const needle = `${normalizeForStockMatch(activity)} ${name}`;
-  return pickStock(needle, seed);
-}
-
 export type ProductCardImageFallbackStep = 0 | 1 | 2;
 
 /**
- * Tiered sources so a broken Bond URL can fall back to activity-matched stock (Unsplash / bundled SVGs) before the abstract gradient.
+ * Source priority for product card art:
  *
- * - **0:** API media → env placeholder → curated stock
- * - **1:** curated stock (skipped if step 0 was already stock-only, to avoid a load loop)
- * - **2:** deterministic SVG data URL
+ * - **0:** Bond `mainMedia.url` (from products API with `expand=media`) → first `media[]` entry
+ *   → `NEXT_PUBLIC_BOOKING_PRODUCT_PLACEHOLDER_IMAGE` → deterministic SVG gradient.
+ * - **1, 2:** SVG gradient (used when the previous tier's image fired `onError`).
  */
 export function resolveProductCardImageAtStep(
   product: ExtendedProductDto,
   activity: string,
   step: ProductCardImageFallbackStep
 ): string {
-  const fromApi = mediaUrlFromProduct(product);
-  const envUrl = envPlaceholderUrl();
-  const curated = resolveCuratedStockImageUrl(product, activity);
-  const svg = productPlaceholderSvgDataUrl(product, activity);
-
   if (step === 0) {
+    const fromApi = mediaUrlFromProduct(product);
     if (fromApi) return fromApi;
+    const envUrl = envPlaceholderUrl();
     if (envUrl) return envUrl;
-    return curated;
   }
-  if (step === 1) {
-    const primaryWasOnlyCurated = !fromApi && !envUrl;
-    if (primaryWasOnlyCurated) return svg;
-    return curated;
-  }
-  return svg;
+  return productPlaceholderSvgDataUrl(product, activity);
 }
 
 /** Deterministic abstract SVG when no remote image succeeds (no external fetch). */
@@ -229,15 +50,10 @@ export function productPlaceholderSvgDataUrl(product: ExtendedProductDto, activi
 }
 
 /**
- * Image for service card: Bond `mainMedia` / first `media[]` when present, else env default,
- * else activity/product-matched stock photo. Use {@link resolveProductCardImageAtStep} with a step counter
- * when handling `onError` on `<img>`.
+ * Image source for service cards: Bond `mainMedia` / first `media[]` when present, else env
+ * placeholder, else a deterministic SVG gradient. Use {@link resolveProductCardImageAtStep} with
+ * a step counter when handling `onError` on `<img>`.
  */
 export function resolveProductCardImageSrc(product: ExtendedProductDto, activity: string): string {
   return resolveProductCardImageAtStep(product, activity, 0);
-}
-
-/** @deprecated Prefer `resolveProductCardImageAtStep(..., 2)` — kept for older call sites. */
-export function productCardBackgroundFallback(product: ExtendedProductDto, activity: string): string {
-  return resolveProductCardImageAtStep(product, activity, 2);
 }
