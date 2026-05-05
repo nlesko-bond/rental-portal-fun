@@ -453,6 +453,8 @@ type Props = {
   onFinalizeBookingSuccess?: (finalizedSlotKeys: string[]) => void;
   /** Shown in user-facing eligibility errors (e.g. product reserved for specific clients). */
   orgDisplayName?: string;
+  /** Org logo URL used in summary/cart/confirmation chrome when configured. */
+  orgLogoUrl?: string | null;
   /** Opens family picker so the user can switch who the booking is for (re-fetches required products). */
   onBookingForClick?: () => void;
   /** When set, `POST …/create` includes `cartId` so Bond appends to an existing cart (e.g. after “Add another booking”). */
@@ -581,6 +583,7 @@ export function BookingCheckoutDrawer({
   approvalRequired = false,
   onFinalizeBookingSuccess,
   orgDisplayName,
+  orgLogoUrl,
   onBookingForClick,
   mergeCartId,
   onAddedToCart,

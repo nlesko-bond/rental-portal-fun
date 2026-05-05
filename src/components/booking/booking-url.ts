@@ -30,6 +30,10 @@ export const BOOKING_URL_DEV_PARAM_KEYS = [
   "accent",
   "secondary",
   "success",
+  "surface",
+  "tertiary",
+  "orgName",
+  "logoUrl",
 ] as const;
 
 function parseHexColorParam(raw: string | null): string | undefined {
@@ -48,12 +52,37 @@ export type BookingDevUrlOverrides = {
     primary?: string;
     accent?: string;
     success?: string;
+    surface?: string;
+  };
+  branding?: {
+    orgName?: string;
+    logoUrl?: string;
   };
 };
 
+function parseStringParam(raw: string | null, maxLen: number): string | undefined {
+  if (raw == null) return undefined;
+  const s = raw.trim();
+  if (s.length === 0 || s.length > maxLen) return undefined;
+  return s;
+}
+
+const MAX_ORG_NAME_LEN = 64;
+const MAX_LOGO_URL_LEN = 2_048;
+
+function parseLogoUrlParam(raw: string | null): string | undefined {
+  const s = parseStringParam(raw, MAX_LOGO_URL_LEN);
+  if (s == null) return undefined;
+  if (!/^https?:\/\//i.test(s) && !s.startsWith("/")) return undefined;
+  return s;
+}
+
 /**
- * Optional URL overrides for local testing: `?orgId=155&portalId=42&primary=%230d4774&accent=%23f7b500&success=%2324c875`
- * (`secondary` is an alias for `accent`). Hex values should be encoded (`%23` for `#`).
+ * Optional URL overrides for local testing / demo:
+ * `?orgId=155&portalId=42&primary=%230d4774&accent=%23f7b500&surface=%23f0f4f7
+ *   &orgName=Sonic+Squad&logoUrl=https%3A%2F%2F…%2Flogo.png`
+ * Hex colors should be `%23`-encoded; `secondary` is an alias for `accent`,
+ * `tertiary` is an alias for `surface`.
  */
 export function readBookingDevOverrides(searchParams: URLSearchParams): BookingDevUrlOverrides {
   const orgId = parseIntParam(searchParams, "orgId") ?? parseIntParam(searchParams, "org") ?? undefined;
@@ -63,15 +92,27 @@ export function readBookingDevOverrides(searchParams: URLSearchParams): BookingD
   const accent =
     parseHexColorParam(searchParams.get("accent")) ?? parseHexColorParam(searchParams.get("secondary"));
   const success = parseHexColorParam(searchParams.get("success"));
+  const surface =
+    parseHexColorParam(searchParams.get("surface")) ?? parseHexColorParam(searchParams.get("tertiary"));
   const theme =
-    primary != null || accent != null || success != null
+    primary != null || accent != null || success != null || surface != null
       ? {
           ...(primary != null ? { primary } : {}),
           ...(accent != null ? { accent } : {}),
           ...(success != null ? { success } : {}),
+          ...(surface != null ? { surface } : {}),
         }
       : undefined;
-  return { orgId, portalId, theme };
+  const orgName = parseStringParam(searchParams.get("orgName"), MAX_ORG_NAME_LEN);
+  const logoUrl = parseLogoUrlParam(searchParams.get("logoUrl"));
+  const branding =
+    orgName != null || logoUrl != null
+      ? {
+          ...(orgName != null ? { orgName } : {}),
+          ...(logoUrl != null ? { logoUrl } : {}),
+        }
+      : undefined;
+  return { orgId, portalId, theme, branding };
 }
 
 export function readBookingUrl(searchParams: URLSearchParams): Partial<BookingUrlState> {

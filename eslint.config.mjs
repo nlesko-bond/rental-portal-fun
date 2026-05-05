@@ -22,6 +22,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Vendored Bond Sports SDK type declarations (auto-generated from OpenAPI).
+    "src/vendor/**",
   ]),
 ]);
 

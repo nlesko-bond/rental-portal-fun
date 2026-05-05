@@ -25,7 +25,7 @@ The UI implements the full consumer rental v2 epic ([BOND-9840](https://bond-spo
 1. **`X-Api-Key` is server-only.** Never appears in client bundles, never `NEXT_PUBLIC_*`. All Bond traffic goes through `/api/bond/...`.
 2. **Standalone repo.** No imports from Bond `squad-c` / `apiv2`. Integration is **hosted Swagger only**: [Squad C public API](https://public.api.squad-c.bondsports.co/public-api/).
 3. **BFF allowlist only.** `src/app/api/bond/[...path]/route.ts` rejects anything outside `v1/organization/{numericOrgId}/...` and explicit `cart` shapes. Adding a new Bond endpoint = update the allowlist.
-4. **User JWTs flow via httpOnly cookies** set by `/api/bond-auth/login`. The BFF reads them and forwards `X-BondUserAccessToken` / `X-BondUserIdToken` / `X-BondUserUsername`. Client code never touches tokens directly.
+4. **User JWTs are managed by the Bond Sports SDK** (browser PKCE — see `src/components/auth/BondAuthContext.tsx`). The browser stores tokens in `sessionStorage` / `localStorage`; `bondBffFetch` forwards them as `X-BondUser*` headers when calling the BFF. There is no httpOnly-cookie session anymore.
 5. **Trust hosted Swagger over local types.** OpenAPI is loose for `category.settings` and similar — extend types locally in `src/types/online-booking.ts` and validate against real JSON.
 6. **Server truth wins.** When Bond returns a `cartId`, refetch via `getOrganizationCart` for authoritative line items / totals. Client estimates are display-only fallbacks.
 
@@ -64,6 +64,27 @@ Copy `.env.example` → `.env.local`:
 | `NEXT_PUBLIC_BOOKING_PRIMARY` / `_ACCENT` / `_SUCCESS` | client | Optional theme defaults |
 | `NEXT_PUBLIC_BOOKING_FONT_FAMILY` / `_FONT` | client | Optional font overrides |
 | `NEXT_PUBLIC_BOOKING_APPEARANCE` | client | `system` / `light` / `dark` default |
+| `NEXT_PUBLIC_BOND_OAUTH_AUTHORITY` | client | Cognito user pool URL for the Bond Sports SDK |
+| `NEXT_PUBLIC_BOND_OAUTH_CLIENT_ID` | client | Cognito app client id for the SDK PKCE flow |
+| `NEXT_PUBLIC_BOND_OAUTH_REDIRECT_URI` | client | Absolute URL pointing at this app's `/auth/callback` |
+| `NEXT_PUBLIC_BOND_PUBLIC_API_KEY` | client | Org public API key consumed by the SDK |
+| `NEXT_PUBLIC_BOND_PUBLIC_API_BASE_URL` | client | Public API host the SDK calls |
+
+### Bond Sports SDK bundle
+
+The `Bond-Sports/api-sdk` repo `.gitignore`s `dist/`. To refresh the vendored bundle:
+
+```bash
+git clone git@github.com:Bond-Sports/api-sdk.git /tmp/bond-api-sdk
+cd /tmp/bond-api-sdk && npm ci && npm run build
+cp dist/BondSportsSdk.js   <repo>/public/vendor/bond-sports-sdk/BondSportsSdk.js
+cp -R dist/.source-sdk     <repo>/src/vendor/bond-sports-sdk/source-sdk
+cp dist/BondSportsApi.d.ts dist/errors.d.ts dist/index.d.ts <repo>/src/vendor/bond-sports-sdk/
+cp -R dist/types           <repo>/src/vendor/bond-sports-sdk/types
+```
+
+After copying, fix the `./.source-sdk` imports in the two top-level `.d.ts` files to `./source-sdk`.
+See `public/vendor/bond-sports-sdk/README.md` for the full procedure.
 
 **URL dev overrides** (read by `src/components/booking/booking-url.ts`, preserved across writes):
 - `?orgId=` / `?org=`, `?portalId=` / `?portal=`
@@ -75,17 +96,39 @@ Theme resolution order: **URL → portal `options.branding` → env → CSS defa
 
 ## 5. Architecture
 
+Two parallel paths reach Bond's public API. New code that needs an authenticated call should
+**prefer the SDK path**; anything that runs while the user is anonymous (most read paths) **must**
+keep using the BFF.
+
 ```
 Browser ──fetch──▶ /api/bond/v1/organization/...        (BFF — Next route handler)
                     │
-                    │ + X-Api-Key
-                    │ + X-BondUser* (from httpOnly cookies)
+                    │ + X-Api-Key (server-only)
+                    │ + X-BondUser* (forwarded from client headers when authenticated)
                     ▼
               Bond public API  (https://public.api.squad-c.bondsports.co)
 
-Browser ──fetch──▶ /api/bond-auth/login | session | logout    (proxies BOND_AUTH_BASE_URL)
+Browser ──Bond Sports SDK──▶ Bond public API directly
+   (typed API classes from `useBondAuth().getApiClients()` — see `BondSportsApi.getApiConfig()`)
+
+Browser ──redirect──▶ Cognito hosted UI  (PKCE login via `bondSportsApi.login()`)
+   ▲
+   └── /auth/callback runs `bondSportsApi.parseCallback()` and routes back into the app
+
 Browser ──fetch──▶ /api/bond-payment/organization/{orgId}/user/{userId}/options   (proxies v4)
 ```
+
+### BFF vs SDK — when to use each
+
+| Endpoint kind | Use | Why |
+|---|---|---|
+| Anonymous read (portal, products, schedule, public categories) | BFF (`bondBffFetch`) | SDK middleware throws without an authenticated session |
+| Authenticated user-scoped read (required products, profile, cart) | Either; SDK if convenient | BFF still works because `bondBffFetch` forwards SDK tokens; SDK gives typed responses |
+| Cart finalize / write that needs JWT | BFF or SDK; today we use BFF for retry/recovery hooks | SDK doesn't expose the same recovery layer |
+| `v4/payment/.../options` | BFF (`/api/bond-payment/...`) | Not on the trimmed public API; not in SDK |
+
+Tokens flow from the SDK's `sessionStorage` (`BondSdkAccessToken` / `BondSdkIdToken`) into BFF
+requests via `src/lib/bond-bff-headers.ts` — no cookies, no server session.
 
 ### BFF entry: `src/app/api/bond/[...path]/route.ts`
 
@@ -94,20 +137,22 @@ Browser ──fetch──▶ /api/bond-payment/organization/{orgId}/user/{userId
 - Forwards raw body for write methods, transparently passes through response status + body + content-type.
 - Always sets `cache: "no-store"` (BFF is a pure pass-through).
 
-### Auth proxy: `src/app/api/bond-auth/*`
+### Auth: Bond Sports SDK (browser PKCE)
 
-- `POST /login` — issues `bond_access`, `bond_id`, `bond_username` httpOnly cookies on success.
-- `GET /session` — checks cookies, refreshes near expiry.
-- `POST /logout` — clears cookies.
-- Cookie names live in `src/lib/bond-auth-cookies.ts`.
+- `src/components/auth/BondAuthContext.tsx` owns a singleton `BondSportsApi` instance (loaded lazily via `src/lib/bond-sdk-loader.ts` from `/vendor/bond-sports-sdk/BondSportsSdk.js`).
+- `useBondAuth().login()` calls `bondSportsApi.login()` (Cognito redirect).
+- `/auth/callback` (`src/app/auth/callback/page.tsx`) calls `bondSportsApi.parseCallback()` and routes back to whatever path triggered login (saved in `sessionStorage` under `bondSdk:returnTarget`).
+- `useBondAuth().getApiClients()` returns the typed SDK API classes sharing one auth/refresh middleware. **Required claim:** `custom:consumerDataAdded === "true"` — the SDK middleware throws otherwise, which is why anonymous flows still go through the BFF.
+- Tokens live in `sessionStorage` (`BondSdkAccessToken`, `BondSdkIdToken`) and `localStorage` (`BondSdkRefreshToken`). The session poll in `BondAuthContext` watches them.
 
 ### Payment proxy: `src/app/api/bond-payment/organization/[orgId]/user/[userId]/options/route.ts`
 
 - Hits `v4/payment/organization/{orgId}/{userId}/options?platform=consumer` on `BOND_PAYMENT_API_BASE_URL` (defaults to `BOND_AUTH_BASE_URL` because v4 is **not** on the trimmed `v1` public host).
+- Reads `X-BondUser*` from the **request headers** (the browser forwards them via `bondSdkAuthHeaders()`); never reads cookies.
 
 ### Client HTTP
 
-- `src/lib/bond-client.ts` — builds `/api/bond/...` URLs and wraps `fetch` with `credentials: "include"` (so the BFF receives the auth cookies).
+- `src/lib/bond-client.ts` — builds `/api/bond/...` URLs and wraps `fetch`. Attaches SDK access/ID tokens as `X-BondUser*` headers when present (via `src/lib/bond-bff-headers.ts`).
 - `src/lib/bond-json.ts` — `bondBffGetJson` / `bondBffPostJson`, `BondBffError` (carries Bond error envelope).
 
 ### Domain wrappers (one file per concern)
@@ -191,9 +236,10 @@ These are the canonical helpers. **Reuse before creating new files.** Group by c
 
 ### HTTP / errors
 - `bond-client.ts`, `bond-json.ts` — fetch wrappers + `BondBffError`
+- `bond-bff-headers.ts` — reads SDK tokens from sessionStorage and produces the `X-BondUser*` headers the BFF expects
+- `bond-sdk-loader.ts` — lazy-loads the vendored `BondSportsSdk.js` global once
 - `bond-errors.ts` — friendly error copy (e.g. `ONLINE_BOOKING.INVALID_PRODUCT`, customer/org name interpolation)
-- `bond-refresh-fetch.ts` — auth-refresh-aware fetch
-- `bond-auth-cookies.ts`, `bond-auth-tokens.ts`, `bond-auth-clear.ts`, `jwt-payload.ts`
+- `jwt-payload.ts` — JWT decode (no signature verification) for expiry checks and user-id extraction
 - `bond-user-types.ts`, `bond-consumer-web.ts` (consumer reservations/invoice URLs)
 
 ### Cart / checkout (the densest area — read these first when touching checkout)

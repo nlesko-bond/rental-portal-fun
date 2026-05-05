@@ -1,4 +1,5 @@
 import { BondBffError } from "@/lib/bond-json";
+import { bondSdkAuthHeaders } from "@/lib/bond-bff-headers";
 
 export type ConsumerPaymentOptionDto = {
   id?: string | number;
@@ -251,7 +252,9 @@ function normalizeOptionsPayload(parsed: unknown): ConsumerPaymentOptionDto[] {
 }
 
 /**
- * `GET /api/bond-payment/organization/{orgId}/user/{userId}/options` — cookies only; proxies v4 Bond.
+ * `GET /api/bond-payment/organization/{orgId}/user/{userId}/options` — proxies Bond v4. The client
+ * forwards the SDK-managed access/ID tokens as `X-BondUser*` headers so the BFF never has to read
+ * cookies.
  */
 export async function fetchConsumerPaymentOptions(
   orgId: number,
@@ -259,9 +262,8 @@ export async function fetchConsumerPaymentOptions(
 ): Promise<ConsumerPaymentOptionDto[]> {
   const path = `/api/bond-payment/organization/${orgId}/user/${userId}/options`;
   const res = await fetch(`${path}?platform=consumer`, {
-    credentials: "include",
     cache: "no-store",
-    headers: { Accept: "application/json" },
+    headers: { Accept: "application/json", ...bondSdkAuthHeaders() },
   });
   const raw = await res.text();
   const text = raw.replace(/^\uFEFF/, "").trim();

@@ -45,6 +45,12 @@ export type PortalBranding = {
   textPrimaryColor?: string;
   textMutedColor?: string;
   borderColor?: string;
+  /** Org logo. Bond payloads have used several spellings — read in priority order. */
+  logoUrl?: string;
+  logo?: string;
+  logoLightUrl?: string;
+  /** Optional dark-mode logo override. */
+  logoDarkUrl?: string;
 } & Record<string, unknown>;
 
 export type ExtendedOnlineBookingPortalOptionsDto = {

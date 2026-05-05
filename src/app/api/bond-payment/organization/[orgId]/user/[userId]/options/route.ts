@@ -1,13 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  BOND_COOKIE_ACCESS,
-  BOND_COOKIE_ID,
-  BOND_COOKIE_USERNAME,
-} from "@/lib/bond-auth-cookies";
 
 /**
- * Proxies `GET /v4/payment/organization/{orgId}/{userId}/options?platform=consumer`
- * with JWT cookies → Bond `X-BondUser*` headers. Never call Bond v4 from the browser.
+ * Proxies `GET /v4/payment/organization/{orgId}/{userId}/options?platform=consumer` to Bond.
+ * The browser forwards Bond SDK access/ID tokens via `X-BondUser*` headers; this route adds the
+ * server-only `X-Api-Key` and never touches cookies.
  */
 export async function GET(
   request: NextRequest,
@@ -38,9 +34,9 @@ export async function GET(
     );
   }
 
-  const access = request.cookies.get(BOND_COOKIE_ACCESS)?.value;
-  const id = request.cookies.get(BOND_COOKIE_ID)?.value;
-  const usernameRaw = request.cookies.get(BOND_COOKIE_USERNAME)?.value;
+  const access = request.headers.get("x-bonduseraccesstoken");
+  const id = request.headers.get("x-bonduseridtoken");
+  const username = request.headers.get("x-bonduserusername");
   if (!access || !id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -56,8 +52,8 @@ export async function GET(
     "X-BondUserAccessToken": access,
     "X-BondUserIdToken": id,
   };
-  if (usernameRaw) {
-    headers["X-BondUserUsername"] = decodeURIComponent(usernameRaw);
+  if (username) {
+    headers["X-BondUserUsername"] = username;
   }
 
   const res = await fetch(url.toString(), { method: "GET", headers, cache: "no-store" });

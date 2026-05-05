@@ -56,7 +56,12 @@ import { BondBffError } from "@/lib/bond-json";
 import type { OnlineBookingView, OrganizationCartDto, ScheduleTimeSlotDto } from "@/types/online-booking";
 import type { PackageAddonLine } from "@/lib/product-package-addons";
 import { CB_BOOKING_APPEARANCE_EVENT, CB_BOOKING_APPEARANCE_KEY } from "@/lib/booking-appearance";
-import { bookingAppearanceClass, resolveBookingThemeStyle, type BookingThemeUrlOverrides } from "@/lib/booking-theme";
+import {
+  bookingAppearanceClass,
+  resolveBookingBranding,
+  resolveBookingThemeStyle,
+  type BookingThemeUrlOverrides,
+} from "@/lib/booking-theme";
 import { clientScheduleViews } from "@/lib/booking-views";
 import { resolveProductCardImageAtStep, type ProductCardImageFallbackStep } from "@/lib/product-card-image";
 import { sanitizeBookingDescriptionHtml } from "@/lib/sanitize-html";
@@ -144,7 +149,13 @@ const START_TIME_AUTO = "__auto__";
 type PickerKind = "facility" | "category" | "activity" | "date" | "start" | "duration" | null;
 
 type BondEnv =
-  | { ok: true; orgId: number; portalId: number; devTheme?: BookingThemeUrlOverrides }
+  | {
+      ok: true;
+      orgId: number;
+      portalId: number;
+      devTheme?: BookingThemeUrlOverrides;
+      devBranding?: { orgName?: string; logoUrl?: string };
+    }
   | { ok: false };
 
 /** Env IDs from `NEXT_PUBLIC_*` or URL `?orgId=&portalId=` (or `org` / `portal`). */
@@ -161,7 +172,13 @@ function useBondEnv(searchParamsKey: string): BondEnv {
     if (!Number.isFinite(orgId) || !Number.isFinite(portalId)) {
       return { ok: false };
     }
-    return { ok: true, orgId, portalId, devTheme: dev.theme };
+    return {
+      ok: true,
+      orgId,
+      portalId,
+      devTheme: dev.theme,
+      devBranding: dev.branding,
+    };
   }, [searchParamsKey]);
 }
 
@@ -502,6 +519,11 @@ export function BookingExperience() {
   }, [bondProfileQuery.data, bondAuth.session, tb]);
 
   const portal = portalQuery.data;
+
+  const branding = useMemo(
+    () => resolveBookingBranding(portal ?? undefined, env.ok ? env.devBranding : undefined),
+    [portal, env]
+  );
 
   const themeStyle = useMemo(
     () => resolveBookingThemeStyle(portal ?? undefined, env.ok ? env.devTheme : undefined),
@@ -1462,10 +1484,12 @@ export function BookingExperience() {
               </span>
             </button>
           ) : (
-            <>
-              <h1 className="text-lg font-semibold text-[var(--cb-primary)] sm:text-xl">{tb("bookYourSession")}</h1>
-              <p className="sr-only">{portal.name}</p>
-            </>
+            <div className="cb-brand-stack flex flex-col items-center gap-1">
+              <h1 className="text-lg font-semibold text-[var(--cb-primary)] sm:text-xl">
+                {portal?.name ?? ""}
+              </h1>
+              <p className="sr-only">{tb("bookYourSession")}</p>
+            </div>
           )}
         </div>
         <div className="flex items-center justify-end gap-2 justify-self-end">
@@ -2179,7 +2203,7 @@ export function BookingExperience() {
         />
       ) : null}
 
-      <LoginModal />
+      <LoginModal orgName={branding.orgName} orgLogoUrl={branding.logoUrl} />
 
       <WelcomeToast
         open={welcomeToastOpen}
@@ -2581,7 +2605,8 @@ export function BookingExperience() {
           bondProfile={bondProfileQuery.data}
           primaryAccountUserId={bondUserIdResolved ?? 0}
           approvalRequired={categoryApprovalRequired}
-          orgDisplayName={portal?.name}
+          orgDisplayName={portal?.name ?? undefined}
+          orgLogoUrl={null}
           mergeCartId={mergeCartId}
           productCatalogPending={Boolean(state?.productId && productsQuery.isPending)}
           requiredMembershipAlreadySatisfied={!participantNeedsMembershipForCheckout}

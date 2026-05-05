@@ -3749,6 +3749,15 @@ body {
   color: #1a1a1a;
 }
 
+.consumer-booking .cb-co-hero-org-logo {
+  display: block;
+  max-height: 2.25rem;
+  width: auto;
+  max-width: 12rem;
+  object-fit: contain;
+  margin-bottom: 0.25rem;
+}
+
 .consumer-booking .cb-co-hero-title {
   margin: 0.35rem 0 0;
   font-size: 1.125rem;
@@ -5085,6 +5094,14 @@ body {
   padding: 1.5rem 1.5rem 0.75rem;
 }
 
+.cb-login-org-logo {
+  display: block;
+  max-height: 4rem;
+  width: auto;
+  max-width: 20rem;
+  object-fit: contain;
+}
+
 .cb-login-drawer-inner {
   padding: 1.5rem 1.25rem 2rem;
   display: flex;
@@ -5231,6 +5248,50 @@ body {
   color: #7C9CB4;
   line-height: 1.5;
   margin: 0;
+}
+
+.cb-login-tos-link {
+  color: var(--cb-primary, #0d4774);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  font-weight: 600;
+}
+
+.cb-login-tos-link:hover,
+.cb-login-tos-link:focus-visible {
+  color: var(--cb-accent, #f7b500);
+}
+
+.cb-login-org-name {
+  display: inline-block;
+  font-weight: 700;
+  font-size: 1.25rem;
+  letter-spacing: -0.01em;
+  color: var(--cb-primary, #0d4774);
+  text-align: center;
+}
+
+.cb-login-powered-by {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  margin-top: 1.25rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid color-mix(in srgb, var(--cb-border, #d8e2eb) 80%, transparent);
+  color: #7C9CB4;
+  font-size: 0.6875rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.cb-login-powered-by-label {
+  display: inline-block;
+}
+
+.cb-login-powered-by svg {
+  display: block;
+  opacity: 0.85;
 }
 
 .consumer-booking .cb-welcome-toast {
@@ -6235,6 +6296,15 @@ body {
 
 .consumer-booking .cb-booking-confirmed-hero {
   margin-bottom: 1rem;
+}
+
+.consumer-booking .cb-booking-confirmed-org-logo {
+  display: block;
+  max-height: 2.5rem;
+  width: auto;
+  max-width: 14rem;
+  object-fit: contain;
+  margin: 0 auto 0.5rem;
 }
 
 .consumer-booking .cb-booking-confirmed-icon {

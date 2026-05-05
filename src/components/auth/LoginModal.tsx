@@ -7,9 +7,9 @@ import { RightDrawer } from "@/components/ui/RightDrawer";
 import { CbBusyInline } from "@/components/booking/primitives/CbBusyInline";
 import { useBondAuth } from "./BondAuthContext";
 
-function BondSportsLogo() {
+function BondSportsLogo({ width = 88, height = 24 }: { width?: number; height?: number } = {}) {
   return (
-    <svg width="88" height="24" viewBox="0 0 88 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Bond Sports">
+    <svg width={width} height={height} viewBox="0 0 88 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Bond Sports">
       <path d="M0 21.0512C0 21.25 0.159545 21.4289 0.378919 21.4289H5.32481C7.69803 21.4289 9.6724 19.8188 9.6724 17.5924C9.6724 15.7636 8.05701 14.7895 7.00003 14.3522C7.93735 13.8552 9.31343 12.742 9.31343 11.2114C9.31343 9.12413 7.37895 7.51397 5.02566 7.51397H0.378919C0.159545 7.51397 0 7.69288 0 7.89166V21.0512ZM3.11112 13.1595V10.3765H4.66668C5.42452 10.3765 6.0627 10.9331 6.0627 11.7282C6.0627 12.5234 5.42452 13.1595 4.66668 13.1595H3.11112ZM3.11112 18.5863V15.7437H4.72651C5.50429 15.7437 6.36185 16.34 6.36185 17.1352C6.36185 17.9502 5.70372 18.5863 4.92594 18.5863H3.11112Z" fill="#0D4774"/>
       <path d="M11.1942 14.4913C11.1942 18.467 14.3651 21.6277 18.3537 21.6277C22.3423 21.6277 25.5332 18.467 25.5332 14.4913C25.5332 10.5156 22.3423 7.31519 18.3537 7.31519C14.3651 7.31519 11.1942 10.5156 11.1942 14.4913ZM14.385 14.4913C14.385 12.3047 16.1799 10.4957 18.3537 10.4957C20.5475 10.4957 22.3423 12.3047 22.3423 14.4913C22.3423 16.6581 20.5475 18.4472 18.3537 18.4472C16.1799 18.4472 14.385 16.6581 14.385 14.4913Z" fill="#0D4774"/>
       <path d="M27.9476 21.0512C27.9476 21.25 28.1271 21.4289 28.3265 21.4289H30.6997C30.9191 21.4289 31.0787 21.25 31.0787 21.0512V13.6366H31.0986L38.9761 21.5283C39.016 21.5681 39.1756 21.6277 39.2354 21.6277H39.5545C39.7539 21.6277 39.9334 21.4687 39.9334 21.2699V7.89166C39.9334 7.69288 39.7539 7.51397 39.5545 7.51397H37.1613C36.9419 7.51397 36.7824 7.69288 36.7824 7.89166V14.9485H36.7624L28.8051 7.31519H28.3066C28.1071 7.31519 27.9277 7.47421 27.9277 7.673L27.9476 21.0512Z" fill="#0D4774"/>
@@ -24,161 +24,100 @@ function BondSportsLogo() {
   );
 }
 
-function IconGoogle() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden>
-      <path d="M15.68 8.18c0-.57-.05-1.12-.15-1.65H8v3.12h4.3a3.67 3.67 0 0 1-1.6 2.41v2h2.6c1.52-1.4 2.38-3.47 2.38-5.88z" fill="#4285F4"/>
-      <path d="M8 16c2.16 0 3.97-.71 5.3-1.94l-2.6-2c-.71.48-1.62.76-2.7.76-2.08 0-3.84-1.4-4.47-3.29H.85v2.07A8 8 0 0 0 8 16z" fill="#34A853"/>
-      <path d="M3.53 9.53A4.8 4.8 0 0 1 3.28 8c0-.53.09-1.04.25-1.53V4.4H.85A8 8 0 0 0 0 8c0 1.29.31 2.51.85 3.6l2.68-2.07z" fill="#FBBC05"/>
-      <path d="M8 3.18c1.17 0 2.22.4 3.05 1.19l2.28-2.28A8 8 0 0 0 .85 4.4l2.68 2.07C4.16 4.58 5.92 3.18 8 3.18z" fill="#EA4335"/>
-    </svg>
-  );
-}
+type LoginModalProps = {
+  /** Org name from the loaded portal — falls back to "Bond Sports". */
+  orgName?: string;
+  /** Light-mode org logo URL. */
+  orgLogoUrl?: string | null;
+};
 
-function IconApple() {
-  return (
-    <svg width="13" height="16" viewBox="0 0 13 16" aria-hidden>
-      <path d="M12.07 5.48c-.07.05-1.7.98-1.7 2.99 0 2.33 2.05 3.16 2.11 3.18-.01.05-.33 1.13-1.08 2.23-.67.97-1.38 1.94-2.45 1.94s-1.35-.62-2.58-.62c-1.2 0-1.63.64-2.61.64-.97 0-1.66-.91-2.45-2.01C.43 12.35 0 10.15 0 8.06c0-2.13 1.38-3.26 2.73-3.26.99 0 1.77.65 2.34.65.53 0 1.44-.7 2.6-.7.42 0 1.7.04 2.65 1.24zM7.68 2.18c.43-.52.76-1.25.76-1.97 0-.1-.01-.2-.03-.28-.71.03-1.56.47-2.07 1.07-.4.44-.79 1.16-.79 1.89 0 .11.02.22.03.25.05.01.11.02.18.02.64 0 1.44-.43 1.92-.98z" fill="#111"/>
-    </svg>
-  );
-}
-
-function IconMicrosoft() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden>
-      <rect width="7" height="7" fill="#F25022"/>
-      <rect x="9" width="7" height="7" fill="#7FBA00"/>
-      <rect y="9" width="7" height="7" fill="#00A4EF"/>
-      <rect x="9" y="9" width="7" height="7" fill="#FFB900"/>
-    </svg>
-  );
-}
-
-function IconYahoo() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden>
-      <path d="M2 2h3.2l2.8 5 2.8-5H14l-4.4 7.8V16H6.4V9.8z" fill="#6001D2"/>
-    </svg>
-  );
-}
-
-export function LoginModal() {
+export function LoginModal({ orgName, orgLogoUrl }: LoginModalProps = {}) {
   const ta = useTranslations("auth");
   const appearanceClass = useBookingAppearanceClass();
   const { loginOpen, setLoginOpen, login } = useBondAuth();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const onSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const onContinue = async () => {
     setError(null);
     setBusy(true);
-    try {
-      const r = await login(email.trim(), password);
-      if (!r.ok) {
-        setError(r.message);
-        return;
-      }
-      setPassword("");
-      setLoginOpen(false);
-    } finally {
+    const r = await login();
+    if (!r.ok) {
+      setError(r.message);
       setBusy(false);
     }
   };
+
+  const displayName = orgName && orgName.trim().length > 0 ? orgName.trim() : "Bond Sports";
 
   return (
     <RightDrawer
       open={loginOpen}
       onClose={() => setLoginOpen(false)}
       hideTitle
-      ariaLabel={ta("loginDrawerAria")}
+      ariaLabel={ta("loginDrawerAria", { orgName: displayName })}
       panelClassName={`consumer-booking ${appearanceClass} cb-login-drawer`.trim()}
     >
       <div className="cb-login-logo-strip">
-        <BondSportsLogo />
+        {orgLogoUrl ? (
+          <img
+            src={orgLogoUrl}
+            alt={displayName}
+            className="cb-login-org-logo h-16 w-auto max-w-[20rem] object-contain"
+          />
+        ) : (
+          <span className="cb-login-org-name">{displayName}</span>
+        )}
       </div>
       <div className="cb-login-drawer-inner">
-        <h2 className="cb-login-heading">{ta("loginTitle")}</h2>
+        <h2 className="cb-login-heading">{ta("loginTitle", { orgName: displayName })}</h2>
+        <p className="cb-login-tagline">{ta("ssoTagline", { orgName: displayName })}</p>
 
-        <div className="cb-login-sso-grid">
-          <button type="button" className="cb-login-sso-btn" disabled>
-            <IconGoogle />{ta("ssoGoogle")}
-          </button>
-          <button type="button" className="cb-login-sso-btn" disabled>
-            <IconApple />{ta("ssoApple")}
-          </button>
-          <button type="button" className="cb-login-sso-btn" disabled>
-            <IconMicrosoft />{ta("ssoMicrosoft")}
-          </button>
-          <button type="button" className="cb-login-sso-btn" disabled>
-            <IconYahoo />{ta("ssoYahoo")}
-          </button>
-        </div>
+        {error ? (
+          <p className="text-sm text-red-600" role="alert">{error}</p>
+        ) : null}
 
-        <div className="cb-login-or-divider" role="separator">
-          <span>{ta("ssoOr")}</span>
-        </div>
+        <button
+          type="button"
+          className="cb-login-submit-btn"
+          onClick={onContinue}
+          disabled={busy}
+          aria-busy={busy ? true : undefined}
+        >
+          <CbBusyInline busy={busy}>
+            {busy ? ta("redirecting") : ta("continueLogin", { orgName: displayName })}
+          </CbBusyInline>
+        </button>
 
-        <form onSubmit={onSubmit} className="cb-login-form">
-          <div className="cb-login-field">
-            <label className="cb-login-label" htmlFor="cb-login-email">
-              {ta("email")}
-            </label>
-            <input
-              id="cb-login-email"
-              type="email"
-              autoComplete="username"
-              className="cb-input w-full"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              disabled={busy}
-            />
-          </div>
-
-          <div className="cb-login-field">
-            <label className="cb-login-label" htmlFor="cb-login-password">
-              {ta("password")}
-            </label>
-            <input
-              id="cb-login-password"
-              type="password"
-              autoComplete="current-password"
-              className="cb-input w-full"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              disabled={busy}
-            />
-            <button type="button" className="cb-login-forgot-link">
-              {ta("forgotPassword")}
-            </button>
-          </div>
-
-          {error ? (
-            <p className="text-sm text-red-600" role="alert">{error}</p>
-          ) : null}
-
-          <button
-            type="submit"
-            className="cb-login-submit-btn"
-            disabled={busy}
-            aria-busy={busy ? true : undefined}
-          >
-            <CbBusyInline busy={busy}>{busy ? ta("signingIn") : ta("signInSubmit")}</CbBusyInline>
-          </button>
-        </form>
-
-        <p className="cb-login-signup-prompt">
-          {ta("noAccount")}{" "}
-          <button type="button" className="cb-login-signup-link">
-            {ta("signUpLink")}
-          </button>
+        <p className="cb-login-tos">
+          {ta.rich("tosNote", {
+            terms: (chunks) => (
+              <a
+                href="https://bondsports.co/terms"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="cb-login-tos-link"
+              >
+                {chunks}
+              </a>
+            ),
+            privacy: (chunks) => (
+              <a
+                href="https://bondsports.co/statics/privacy.html"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="cb-login-tos-link"
+              >
+                {chunks}
+              </a>
+            ),
+          })}
         </p>
 
-        <p className="cb-login-tos">{ta("tosNote")}</p>
+        <div className="cb-login-powered-by" aria-label={ta("poweredByAria")}>
+          <span className="cb-login-powered-by-label">{ta("poweredByLabel")}</span>
+          <BondSportsLogo width={68} height={18} />
+        </div>
       </div>
     </RightDrawer>
   );

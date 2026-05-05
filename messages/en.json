@@ -449,20 +449,13 @@
     "viewMore": "View more ({count} more)"
   },
   "auth": {
-    "loginDrawerAria": "Sign in to Bond Sports",
-    "loginTitle": "Log in to Bond Sports",
-    "email": "Email",
-    "password": "Password",
-    "signingIn": "Signing in…",
-    "signInSubmit": "Log In",
-    "forgotPassword": "Forgot your password?",
-    "ssoGoogle": "Google",
-    "ssoApple": "Apple",
-    "ssoMicrosoft": "Microsoft",
-    "ssoYahoo": "Yahoo",
-    "ssoOr": "Or",
-    "noAccount": "Don't have an account?",
-    "signUpLink": "Sign up here",
-    "tosNote": "By continuing, you agree to Bond Sports' Terms of Service and Privacy Policy."
+    "loginDrawerAria": "Sign in to {orgName}",
+    "loginTitle": "Log in to {orgName}",
+    "ssoTagline": "Click to log in or create a {orgName} account and complete your booking.",
+    "continueLogin": "Log in or sign up with {orgName}",
+    "redirecting": "Redirecting…",
+    "tosNote": "By continuing, you agree to Bond Sports's <terms>Terms of Service</terms> & <privacy>Privacy Policy</privacy>.",
+    "poweredByAria": "Powered by Bond Sports",
+    "poweredByLabel": "Powered by"
   }
 }

@@ -1,9 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  BOND_COOKIE_ACCESS,
-  BOND_COOKIE_ID,
-  BOND_COOKIE_USERNAME,
-} from "@/lib/bond-auth-cookies";
 
 /**
  * Allowlisted BFF paths to Bond `v1/organization/...`.
@@ -33,25 +28,14 @@ function isAllowedBondPath(segments: string[]): boolean {
   return true;
 }
 
-function safeDecodeURIComponent(raw: string): string {
-  try {
-    return decodeURIComponent(raw);
-  } catch {
-    return raw;
-  }
-}
-
 function userHeadersFrom(request: NextRequest): Record<string, string> {
   const out: Record<string, string> = {};
-  const access =
-    request.headers.get("x-bonduseraccesstoken") ?? request.cookies.get(BOND_COOKIE_ACCESS)?.value;
-  const id = request.headers.get("x-bonduseridtoken") ?? request.cookies.get(BOND_COOKIE_ID)?.value;
-  const username =
-    request.headers.get("x-bonduserusername") ??
-    request.cookies.get(BOND_COOKIE_USERNAME)?.value;
+  const access = request.headers.get("x-bonduseraccesstoken");
+  const id = request.headers.get("x-bonduseridtoken");
+  const username = request.headers.get("x-bonduserusername");
   if (access) out["X-BondUserAccessToken"] = access;
   if (id) out["X-BondUserIdToken"] = id;
-  if (username) out["X-BondUserUsername"] = safeDecodeURIComponent(username);
+  if (username) out["X-BondUserUsername"] = username;
   return out;
 }
 
