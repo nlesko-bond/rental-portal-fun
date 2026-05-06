@@ -73,8 +73,24 @@ export async function removeCartItem(
 }
 
 /**
+ * Last-resort recovery for a poisoned cart: when Bond rejects every per-line / per-root DELETE
+ * with `Illegal price` (a stale line whose price no longer matches Bond's pricing engine
+ * gates the whole cart), abandon the cart via `closeCart` so the user can start fresh.
+ * Returns `null` so callers route through the "cart is gone, drop the row" UI path.
+ */
+async function closeCartAsLastResort(orgId: number, cartId: number): Promise<null> {
+  try {
+    await closeCart(orgId, cartId);
+  } catch {
+    /* cart already finalized / closed by another tab — proceed with null result */
+  }
+  return null;
+}
+
+/**
  * DELETE one line; if Bond responds with illegal-price repricing 400, retry once by removing the
  * reservation root for this snapshot (removes the whole booking subtree Bond ties together).
+ * If that also fails with illegal-price, the cart is poisoned — close it so the user isn't stuck.
  */
 export async function removeCartItemWithIllegalPriceFallback(
   orgId: number,
@@ -94,14 +110,24 @@ export async function removeCartItemWithIllegalPriceFallback(
     }
     if (!isBondIllegalPriceError(e)) throw e;
     const rootId = bondRootCartItemIdForRemoval(cart, cartFlatLineIndices);
-    if (rootId == null || rootId === cartItemId) throw e;
-    return removeCartItem(orgId, cartId, rootId);
+    if (rootId == null || rootId === cartItemId) {
+      return closeCartAsLastResort(orgId, cartId);
+    }
+    try {
+      return await removeCartItem(orgId, cartId, rootId);
+    } catch (e2) {
+      if (isBondIllegalPriceError(e2) || isBondMissingCartItemError(e2)) {
+        return closeCartAsLastResort(orgId, cartId);
+      }
+      throw e2;
+    }
   }
 }
 
 /**
  * DELETE multiple lines in order; if Bond returns illegal price mid-way (stale tree / bundle rules),
- * GET a fresh cart and remove the reservation root once.
+ * GET a fresh cart and remove the reservation root once. If even the root DELETE returns illegal-price,
+ * abandon the whole cart via `closeCart` so a stuck cart doesn't trap the user.
  */
 export async function removeCartItemsSequentiallyWithFallback(
   orgId: number,
@@ -126,8 +152,17 @@ export async function removeCartItemsSequentiallyWithFallback(
     if (!isBondIllegalPriceError(e)) throw e;
     const fresh = await getFreshCart();
     const rootId = bondRootCartItemIdForRemoval(fresh, cartFlatLineIndices);
-    if (rootId == null) throw e;
-    return removeCartItem(orgId, cartId, rootId);
+    if (rootId == null) {
+      return closeCartAsLastResort(orgId, cartId);
+    }
+    try {
+      return await removeCartItem(orgId, cartId, rootId);
+    } catch (e2) {
+      if (isBondIllegalPriceError(e2) || isBondMissingCartItemError(e2)) {
+        return closeCartAsLastResort(orgId, cartId);
+      }
+      throw e2;
+    }
   }
 }
 
