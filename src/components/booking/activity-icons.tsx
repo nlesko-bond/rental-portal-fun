@@ -114,12 +114,13 @@ function IconVolleyball(props: SvgProps) {
 function IconHockey(props: SvgProps) {
   return (
     <svg viewBox="0 0 24 24" fill="none" aria-hidden {...props}>
-      <ellipse cx="10" cy="16.5" rx="2.8" ry="1.4" fill="currentColor" />
+      <path d="M7.5 4.5l4.2 14M16.5 4.5l-4.2 14" {...sharedPathProps} strokeWidth={ACTIVITY_ICON_STROKE_WIDTH} />
       <path
-        d="M13.5 5.5l3.5 10.5H11l-1.2-4"
+        d="M8.6 15.8h6.8"
         {...sharedPathProps}
-        strokeWidth={ACTIVITY_ICON_STROKE_WIDTH}
+        strokeWidth={ACTIVITY_ICON_DETAIL_STROKE_WIDTH}
       />
+      <ellipse cx="12" cy="18.4" rx="2.8" ry="1.1" fill="currentColor" />
     </svg>
   );
 }

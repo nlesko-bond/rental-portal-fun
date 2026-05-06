@@ -17,6 +17,7 @@ type Props = {
   children: ReactNode;
   panelClassName?: string;
   rootClassName?: string;
+  hideCloseButton?: boolean;
 };
 
 /**
@@ -32,6 +33,7 @@ export function RightDrawer({
   children,
   panelClassName,
   rootClassName,
+  hideCloseButton,
 }: Props) {
   useEffect(() => {
     if (!open) return;
@@ -76,9 +78,13 @@ export function RightDrawer({
               {title}
             </h2>
           )}
-          <button type="button" className="cb-drawer-close" onClick={onClose} aria-label="Close">
-            ×
-          </button>
+          {hideCloseButton ? (
+            <span className="cb-drawer-toolbar-lead" aria-hidden />
+          ) : (
+            <button type="button" className="cb-drawer-close" onClick={onClose} aria-label="Close">
+              ×
+            </button>
+          )}
         </div>
         <div className="cb-drawer-body">{children}</div>
       </aside>

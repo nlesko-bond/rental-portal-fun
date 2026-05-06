@@ -1,11 +1,48 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 import { useTranslations } from "next-intl";
 import { useBookingAppearanceClass } from "@/hooks/useBookingAppearanceClass";
 import { RightDrawer } from "@/components/ui/RightDrawer";
 import { CbBusyInline } from "@/components/booking/primitives/CbBusyInline";
-import { useBondAuth } from "./BondAuthContext";
+import { type BondProfileGender, useBondAuth } from "./BondAuthContext";
+
+const PROFILE_GENDER_VALUES = {
+  OTHER: 1,
+  MALE: 2,
+  FEMALE: 3,
+} as const satisfies Record<string, BondProfileGender>;
+
+type ProfileGenderKey = keyof typeof PROFILE_GENDER_VALUES;
+
+const PROFILE_GENDER_OPTIONS: Array<{ value: ProfileGenderKey; labelKey: "genderOther" | "genderMale" | "genderFemale" }> = [
+  { value: "FEMALE", labelKey: "genderFemale" },
+  { value: "MALE", labelKey: "genderMale" },
+  { value: "OTHER", labelKey: "genderOther" },
+];
+
+const PROFILE_BIRTH_MONTH_COUNT = 12;
+const PROFILE_BIRTH_DAY_COUNT = 31;
+const PROFILE_BIRTH_YEAR_COUNT = 120;
+const PROFILE_BIRTH_MONTHS = Array.from({ length: PROFILE_BIRTH_MONTH_COUNT }, (_, i) => i + 1);
+const PROFILE_BIRTH_DAYS = Array.from({ length: PROFILE_BIRTH_DAY_COUNT }, (_, i) => i + 1);
+const PROFILE_CURRENT_YEAR = new Date().getFullYear();
+const PROFILE_BIRTH_YEARS = Array.from({ length: PROFILE_BIRTH_YEAR_COUNT }, (_, i) => PROFILE_CURRENT_YEAR - i);
+
+function toSelectNumber(value: string): number | "" {
+  return value === "" ? "" : Number(value);
+}
+
+function formatBirthDate(year: number, month: number, day: number): string {
+  const monthText = String(month).padStart(2, "0");
+  const dayText = String(day).padStart(2, "0");
+  return `${year}-${monthText}-${dayText}`;
+}
+
+function daysInBirthMonth(year: number | "", month: number | ""): number {
+  if (year === "" || month === "") return PROFILE_BIRTH_DAY_COUNT;
+  return new Date(year, month, 0).getDate();
+}
 
 function BondSportsLogo({ width = 88, height = 24 }: { width?: number; height?: number } = {}) {
   return (
@@ -34,9 +71,18 @@ type LoginModalProps = {
 export function LoginModal({ orgName, orgLogoUrl }: LoginModalProps = {}) {
   const ta = useTranslations("auth");
   const appearanceClass = useBookingAppearanceClass();
-  const { loginOpen, setLoginOpen, login } = useBondAuth();
+  const { loginOpen, setLoginOpen, login, completeProfile, logout, session } = useBondAuth();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [birthMonth, setBirthMonth] = useState<number | "">("");
+  const [birthDay, setBirthDay] = useState<number | "">("");
+  const [birthYear, setBirthYear] = useState<number | "">("");
+  const [gender, setGender] = useState<ProfileGenderKey | "">("");
+  const birthDayLimit = daysInBirthMonth(birthYear, birthMonth);
+  const visibleBirthDays = useMemo(
+    () => PROFILE_BIRTH_DAYS.filter((day) => day <= birthDayLimit),
+    [birthDayLimit],
+  );
 
   const onContinue = async () => {
     setError(null);
@@ -48,13 +94,39 @@ export function LoginModal({ orgName, orgLogoUrl }: LoginModalProps = {}) {
     }
   };
 
+  const onCompleteProfile = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setError(null);
+    if (birthMonth === "" || birthDay === "" || birthYear === "" || !gender) {
+      setError(ta("profileRequiredError"));
+      return;
+    }
+    if (birthDay > daysInBirthMonth(birthYear, birthMonth)) {
+      setError(ta("profileDateInvalidError"));
+      return;
+    }
+    setBusy(true);
+    const birthDate = formatBirthDate(birthYear, birthMonth, birthDay);
+    const result = await completeProfile(birthDate, PROFILE_GENDER_VALUES[gender]);
+    if (!result.ok) {
+      setError(result.message);
+      setBusy(false);
+      return;
+    }
+    setBusy(false);
+  };
+
   const displayName = orgName && orgName.trim().length > 0 ? orgName.trim() : "Bond Sports";
+  const needsProfileCompletion = session.status === "authenticated" && !session.profileComplete;
 
   return (
     <RightDrawer
       open={loginOpen}
-      onClose={() => setLoginOpen(false)}
+      onClose={() => {
+        if (!needsProfileCompletion) setLoginOpen(false);
+      }}
       hideTitle
+      hideCloseButton={needsProfileCompletion}
       ariaLabel={ta("loginDrawerAria", { orgName: displayName })}
       panelClassName={`consumer-booking ${appearanceClass} cb-login-drawer`.trim()}
     >
@@ -70,24 +142,114 @@ export function LoginModal({ orgName, orgLogoUrl }: LoginModalProps = {}) {
         )}
       </div>
       <div className="cb-login-drawer-inner">
-        <h2 className="cb-login-heading">{ta("loginTitle", { orgName: displayName })}</h2>
-        <p className="cb-login-tagline">{ta("ssoTagline", { orgName: displayName })}</p>
+        <h2 className="cb-login-heading">
+          {needsProfileCompletion ? ta("completeProfileTitle") : ta("loginTitle", { orgName: displayName })}
+        </h2>
+        {needsProfileCompletion ? null : (
+          <p className="cb-login-tagline">{ta("ssoTagline", { orgName: displayName })}</p>
+        )}
 
         {error ? (
           <p className="text-sm text-red-600" role="alert">{error}</p>
         ) : null}
 
-        <button
-          type="button"
-          className="cb-login-submit-btn"
-          onClick={onContinue}
-          disabled={busy}
-          aria-busy={busy ? true : undefined}
-        >
-          <CbBusyInline busy={busy}>
-            {busy ? ta("redirecting") : ta("continueLogin", { orgName: displayName })}
-          </CbBusyInline>
-        </button>
+        {needsProfileCompletion ? (
+          <form className="cb-login-form" onSubmit={onCompleteProfile}>
+            <label className="cb-login-field">
+              <span className="cb-login-label">{ta("dateOfBirth")}</span>
+              <span className="cb-login-date-grid">
+                <select
+                  className="cb-login-input cb-login-select"
+                  value={birthMonth}
+                  onChange={(e) => setBirthMonth(toSelectNumber(e.target.value))}
+                  required
+                  aria-label={ta("birthMonth")}
+                >
+                  <option value="">{ta("birthMonth")}</option>
+                  {PROFILE_BIRTH_MONTHS.map((month) => (
+                    <option key={month} value={month}>
+                      {month}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  className="cb-login-input cb-login-select"
+                  value={birthDay}
+                  onChange={(e) => setBirthDay(toSelectNumber(e.target.value))}
+                  required
+                  aria-label={ta("birthDay")}
+                >
+                  <option value="">{ta("birthDay")}</option>
+                  {visibleBirthDays.map((day) => (
+                    <option key={day} value={day}>
+                      {day}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  className="cb-login-input cb-login-select"
+                  value={birthYear}
+                  onChange={(e) => setBirthYear(toSelectNumber(e.target.value))}
+                  required
+                  aria-label={ta("birthYear")}
+                >
+                  <option value="">{ta("birthYear")}</option>
+                  {PROFILE_BIRTH_YEARS.map((year) => (
+                    <option key={year} value={year}>
+                      {year}
+                    </option>
+                  ))}
+                </select>
+              </span>
+            </label>
+            <label className="cb-login-field">
+              <span className="cb-login-label">{ta("gender")}</span>
+              <select
+                className="cb-login-input cb-login-select"
+                value={gender}
+                onChange={(e) => setGender(e.target.value as ProfileGenderKey | "")}
+                required
+              >
+                <option value="">{ta("selectGender")}</option>
+                {PROFILE_GENDER_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {ta(option.labelKey)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="submit"
+              className="cb-login-submit-btn"
+              disabled={busy}
+              aria-busy={busy ? true : undefined}
+            >
+              <CbBusyInline busy={busy}>
+                {busy ? ta("savingProfile") : ta("saveProfile")}
+              </CbBusyInline>
+            </button>
+            <button
+              type="button"
+              className="cb-login-secondary-btn"
+              onClick={() => void logout()}
+              disabled={busy}
+            >
+              {ta("signOutRestart")}
+            </button>
+          </form>
+        ) : (
+          <button
+            type="button"
+            className="cb-login-submit-btn"
+            onClick={onContinue}
+            disabled={busy}
+            aria-busy={busy ? true : undefined}
+          >
+            <CbBusyInline busy={busy}>
+              {busy ? ta("redirecting") : ta("continueLogin", { orgName: displayName })}
+            </CbBusyInline>
+          </button>
+        )}
 
         <p className="cb-login-tos">
           {ta.rich("tosNote", {

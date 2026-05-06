@@ -37,10 +37,20 @@ export function jwtEmailHint(token: string): string | undefined {
   return undefined;
 }
 
+export function jwtConsumerDataAdded(token: string): boolean {
+  const p = decodeJwtPayload(token);
+  return p?.["custom:consumerDataAdded"] === "true";
+}
+
 const BOND_USER_ID_CLAIM_KEYS = [
   "custom:userId",
+  "custom:UserId",
+  "custom:bondUserId",
+  "custom:bond_user_id",
   "custom:user_id",
+  "custom:id",
   "bondUserId",
+  "bond_user_id",
   "userId",
   "user_id",
 ] as const;
@@ -55,4 +65,12 @@ export function bondNumericUserIdFromIdToken(idToken: string): number | null {
     if (typeof raw === "string" && /^\d+$/.test(raw)) return Number(raw);
   }
   return null;
+}
+
+export function jwtDiagnosticClaimKeys(token: string): string[] {
+  const p = decodeJwtPayload(token);
+  if (!p) return [];
+  return Object.keys(p)
+    .filter((key) => /user|id|consumer|sub|email/i.test(key))
+    .sort();
 }

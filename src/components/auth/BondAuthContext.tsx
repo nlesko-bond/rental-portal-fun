@@ -15,10 +15,13 @@ import {
   getBondSdkEndSessionEndpoint,
   loadBondSportsSdk,
   readBondSdkOAuthConfig,
+  type BondSdkOAuthConfig,
   type BondSportsSdkGlobal,
 } from "@/lib/bond-sdk-loader";
 import {
   bondNumericUserIdFromIdToken,
+  jwtConsumerDataAdded,
+  jwtDiagnosticClaimKeys,
   jwtEmailHint,
   jwtExpSeconds,
 } from "@/lib/jwt-payload";
@@ -36,11 +39,16 @@ const SDK_ID_TOKEN_KEY = "BondSdkIdToken";
 /** Public so `/auth/callback` and other auth-state mutators can ping the provider after writes. */
 export const BOND_AUTH_SESSION_CHANGED_EVENT = "bond-auth:session-changed";
 const BOND_AUTH_LOGIN_COMPLETED_KEY = "bond-auth:login-completed";
+const BOND_AUTH_MISSING_USER_ID_CLAIM_ERROR = "No user ID claim available";
 
 export type BondSession =
   | { status: "loading" }
   | { status: "anonymous" }
-  | { status: "authenticated"; email?: string; bondUserId?: number };
+  | { status: "authenticated"; email?: string; bondUserId?: number; profileComplete: boolean };
+
+export type BondProfileGender = Parameters<
+  InstanceType<BondSportsSdkGlobal["BondSportsApi"]>["updateProfileDetails"]
+>[1];
 
 export type BondSdkApiClients = {
   config: ReturnType<InstanceType<BondSportsSdkGlobal["BondSportsApi"]>["getApiConfig"]>;
@@ -63,6 +71,10 @@ type Ctx = {
    * Resolves with `{ ok: false }` only when configuration is missing or the SDK fails to load.
    */
   login: () => Promise<{ ok: true } | { ok: false; message: string }>;
+  completeProfile: (
+    birthDate: string,
+    gender: BondProfileGender,
+  ) => Promise<{ ok: true } | { ok: false; message: string }>;
   logout: () => Promise<void>;
   loginOpen: boolean;
   setLoginOpen: (v: boolean) => void;
@@ -77,6 +89,10 @@ type Ctx = {
 
 const BondAuthContext = createContext<Ctx | null>(null);
 
+type RefreshableBondApi = {
+  refreshTokens: () => Promise<void>;
+};
+
 function readStoredSession(): BondSession {
   if (typeof window === "undefined") return { status: "loading" };
   const accessToken = window.sessionStorage.getItem(SDK_ACCESS_TOKEN_KEY) ?? "";
@@ -90,7 +106,60 @@ function readStoredSession(): BondSession {
     status: "authenticated",
     email: jwtEmailHint(idToken),
     bondUserId: bondNumericUserIdFromIdToken(idToken) ?? undefined,
+    profileComplete: jwtConsumerDataAdded(idToken),
   };
+}
+
+function profileApiEndpoint(apiBaseUrl: string): string {
+  if (!/^https?:\/\//.test(apiBaseUrl)) return apiBaseUrl.replace(/\/$/, "");
+  const apiEndpointUrl = new URL(apiBaseUrl);
+  apiEndpointUrl.hostname = apiEndpointUrl.hostname.replace(/^public\./, "");
+  return apiEndpointUrl.toString().replace(/\/$/, "");
+}
+
+async function patchProfileDetails(
+  config: BondSdkOAuthConfig,
+  birthDate: string,
+  gender: BondProfileGender,
+  api: InstanceType<BondSportsSdkGlobal["BondSportsApi"]>,
+): Promise<void> {
+  if (typeof window === "undefined") throw new Error("Profile completion must run in the browser");
+  const accessToken = window.sessionStorage.getItem(SDK_ACCESS_TOKEN_KEY) ?? "";
+  const idToken = window.sessionStorage.getItem(SDK_ID_TOKEN_KEY) ?? "";
+  if (!accessToken || !idToken) throw new Error("No access or id token available");
+  const userId = bondNumericUserIdFromIdToken(idToken) ?? bondNumericUserIdFromIdToken(accessToken);
+  if (userId == null) {
+    const idClaimKeys = jwtDiagnosticClaimKeys(idToken);
+    const accessClaimKeys = jwtDiagnosticClaimKeys(accessToken);
+    throw new Error(
+      [
+        "We received auth tokens, but neither token includes a numeric Bond user id claim.",
+        `ID token keys: ${idClaimKeys.length > 0 ? idClaimKeys.join(", ") : "none"}.`,
+        `Access token keys: ${accessClaimKeys.length > 0 ? accessClaimKeys.join(", ") : "none"}.`,
+      ].join(" "),
+    );
+  }
+  const response = await fetch(`${profileApiEndpoint(config.apiBaseUrl)}/v4/user/${userId}/profile`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Api-Key": config.apiKey,
+      "X-BondUserAccessToken": accessToken,
+      "X-BondUserIdToken": idToken,
+    },
+    body: JSON.stringify({
+      profile: { birthDate, gender },
+      skipUpdateNotification: true,
+    }),
+  });
+  if (!response.ok) {
+    const body: unknown = await response.json().catch(() => null);
+    const message = body && typeof body === "object" && "message" in body && typeof body.message === "string"
+      ? body.message
+      : "Could not save profile details";
+    throw new Error(message);
+  }
+  await (api as unknown as RefreshableBondApi).refreshTokens();
 }
 
 export function BondAuthProvider({ children }: { children: ReactNode }) {
@@ -100,6 +169,11 @@ export function BondAuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<BondSession>({ status: "loading" });
   const apiInstanceRef = useRef<InstanceType<BondSportsSdkGlobal["BondSportsApi"]> | null>(null);
   const sdkClientsRef = useRef<BondSdkApiClients | null>(null);
+
+  const resetSdkRefs = useCallback(() => {
+    apiInstanceRef.current = null;
+    sdkClientsRef.current = null;
+  }, []);
 
   const ensureSdkInstance = useCallback(async () => {
     const config = readBondSdkOAuthConfig();
@@ -141,12 +215,16 @@ export function BondAuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const refresh = () => setSession(readStoredSession());
+    const refreshAfterTokenStoreChange = () => {
+      resetSdkRefs();
+      refresh();
+    };
     const interval = window.setInterval(refresh, SESSION_POLL_INTERVAL_MS);
     const onStorage = (e: StorageEvent) => {
-      if (e.key === null || e.key === "BondSdkRefreshToken") refresh();
+      if (e.key === null || e.key === "BondSdkRefreshToken") refreshAfterTokenStoreChange();
     };
     const onFocus = () => refresh();
-    const onCustom = () => refresh();
+    const onCustom = () => refreshAfterTokenStoreChange();
     window.addEventListener("storage", onStorage);
     window.addEventListener("focus", onFocus);
     window.addEventListener(BOND_AUTH_SESSION_CHANGED_EVENT, onCustom);
@@ -156,11 +234,14 @@ export function BondAuthProvider({ children }: { children: ReactNode }) {
       window.removeEventListener("focus", onFocus);
       window.removeEventListener(BOND_AUTH_SESSION_CHANGED_EVENT, onCustom);
     };
-  }, []);
+  }, [resetSdkRefs]);
 
   const wasAuthenticatedRef = useRef(false);
   useEffect(() => {
     const isAuth = session.status === "authenticated";
+    if (isAuth && !session.profileComplete) {
+      setLoginOpen(true);
+    }
     if (isAuth && !wasAuthenticatedRef.current) {
       let justCompletedLogin = false;
       try {
@@ -169,12 +250,14 @@ export function BondAuthProvider({ children }: { children: ReactNode }) {
       } catch {
         justCompletedLogin = false;
       }
-      if (justCompletedLogin) {
+      if (justCompletedLogin && session.profileComplete) {
         setWelcomeToastTick((t) => t + 1);
+      } else if (justCompletedLogin) {
+        setLoginOpen(true);
       }
     }
     wasAuthenticatedRef.current = isAuth;
-  }, [session.status]);
+  }, [session]);
 
   const login = useCallback(async (): Promise<{ ok: true } | { ok: false; message: string }> => {
     try {
@@ -221,6 +304,44 @@ export function BondAuthProvider({ children }: { children: ReactNode }) {
     router.refresh();
   }, [router]);
 
+  const completeProfile = useCallback(
+    async (
+      birthDate: string,
+      gender: BondProfileGender,
+    ): Promise<{ ok: true } | { ok: false; message: string }> => {
+      try {
+        const config = readBondSdkOAuthConfig();
+        if (!config) throw new Error("Bond SDK is not configured. Set NEXT_PUBLIC_BOND_OAUTH_* env vars.");
+        resetSdkRefs();
+        const { api } = await ensureSdkInstance();
+        try {
+          await api.updateProfileDetails(birthDate, gender);
+        } catch (err) {
+          if (!(err instanceof Error) || err.message !== BOND_AUTH_MISSING_USER_ID_CLAIM_ERROR) {
+            throw err;
+          }
+          await patchProfileDetails(config, birthDate, gender, api);
+        }
+        sdkClientsRef.current = null;
+        const nextSession = readStoredSession();
+        setSession(nextSession);
+        if (nextSession.status !== "authenticated" || !nextSession.profileComplete) {
+          return { ok: false, message: "Could not save profile details" };
+        }
+        setLoginOpen(false);
+        setWelcomeToastTick((t) => t + 1);
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new Event(BOND_AUTH_SESSION_CHANGED_EVENT));
+        }
+        return { ok: true };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Could not save profile details";
+        return { ok: false, message };
+      }
+    },
+    [ensureSdkInstance, resetSdkRefs],
+  );
+
   const getApiClients = useCallback(async (): Promise<BondSdkApiClients> => {
     if (sdkClientsRef.current) return sdkClientsRef.current;
     const { sdk, api } = await ensureSdkInstance();
@@ -245,13 +366,14 @@ export function BondAuthProvider({ children }: { children: ReactNode }) {
     () => ({
       session,
       login,
+      completeProfile,
       logout,
       loginOpen,
       setLoginOpen,
       welcomeToastTick,
       getApiClients,
     }),
-    [session, login, logout, loginOpen, welcomeToastTick, getApiClients],
+    [session, login, completeProfile, logout, loginOpen, welcomeToastTick, getApiClients],
   );
 
   return <BondAuthContext.Provider value={value}>{children}</BondAuthContext.Provider>;

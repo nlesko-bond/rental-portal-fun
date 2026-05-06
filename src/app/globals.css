@@ -2144,6 +2144,67 @@ body {
   color: #ea5b25;
 }
 
+@media (max-width: 767px) {
+  .consumer-booking .cb-product-solo-group {
+    gap: 0.75rem;
+    border: 1px solid var(--cb-border);
+    border-radius: 1.25rem;
+    background: var(--cb-bg-surface);
+    padding: 0.75rem;
+    box-shadow: var(--cb-shadow-card);
+  }
+
+  .consumer-booking .cb-product-solo-group .cb-services-rail--solo {
+    width: 100%;
+  }
+
+  .consumer-booking .cb-product-card--solo .cb-product-card-media {
+    height: 9rem;
+    border-radius: 1rem;
+  }
+
+  .consumer-booking .cb-product-solo-info {
+    gap: 0.65rem;
+  }
+
+  .consumer-booking .cb-product-solo-info-title {
+    font-size: 1.2rem;
+  }
+
+  .consumer-booking .cb-product-solo-info-desc {
+    font-size: 0.86rem;
+    line-height: 1.45;
+    -webkit-line-clamp: 3;
+  }
+
+  .consumer-booking .cb-product-solo-info-rows {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.55rem;
+  }
+
+  .consumer-booking .cb-product-solo-info-row {
+    min-height: 3.5rem;
+    border: 1px solid color-mix(in srgb, var(--cb-primary) 12%, var(--cb-border));
+    border-radius: 0.9rem;
+    background: color-mix(in srgb, var(--cb-primary) 4%, var(--cb-bg-surface));
+    padding: 0.55rem;
+  }
+
+  .consumer-booking .cb-product-solo-info-row-icon {
+    width: 1.55rem;
+    height: 1.55rem;
+  }
+
+  .consumer-booking .cb-product-solo-info-row-label {
+    font-size: 0.64rem;
+  }
+
+  .consumer-booking .cb-product-solo-info-row-value {
+    font-size: 0.78rem;
+  }
+}
+
 .consumer-booking .cb-product-card {
   position: relative;
   display: flex;
@@ -5286,6 +5347,43 @@ body {
   color: #5a7a92;
 }
 
+.cb-login-input {
+  width: 100%;
+  border: 1px solid #d8e2eb;
+  border-radius: 0.5rem;
+  background: #fff;
+  color: #212427;
+  min-height: 2.75rem;
+  padding: 0.7rem 0.85rem;
+  font-size: 0.95rem;
+}
+
+.cb-login-input:focus-visible {
+  outline: 2px solid #0d4774;
+  outline-offset: 2px;
+}
+
+.cb-login-select {
+  appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, #0d4774 50%),
+    linear-gradient(135deg, #0d4774 50%, transparent 50%);
+  background-position:
+    calc(100% - 1rem) 50%,
+    calc(100% - 0.7rem) 50%;
+  background-size:
+    0.3rem 0.3rem,
+    0.3rem 0.3rem;
+  background-repeat: no-repeat;
+  padding-right: 2rem;
+}
+
+.cb-login-date-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.25fr;
+  gap: 0.5rem;
+}
+
 .cb-login-forgot-link {
   align-self: flex-start;
   font-size: 0.8125rem;
@@ -5321,6 +5419,27 @@ body {
 
 .cb-login-submit-btn:hover:not(:disabled) {
   opacity: 0.9;
+}
+
+.cb-login-secondary-btn {
+  width: 100%;
+  border-radius: 0.5rem;
+  border: 1px solid #d8e2eb;
+  background: #fff;
+  padding: 0.75rem 1rem;
+  color: #0d4774;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.cb-login-secondary-btn:hover:not(:disabled) {
+  background: #f5f7fa;
+}
+
+.cb-login-secondary-btn:disabled {
+  cursor: default;
+  opacity: 0.5;
 }
 
 .cb-login-signup-prompt {
