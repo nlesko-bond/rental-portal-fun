@@ -5,17 +5,24 @@ import type { ReactElement } from "react";
 
 type SvgProps = SVGProps<SVGSVGElement>;
 
-/** Monochrome activity glyphs (~20px in 24 viewBox), aligned with Consumer Design System activity icons. */
+const ACTIVITY_ICON_STROKE_WIDTH = 1.8;
+const ACTIVITY_ICON_DETAIL_STROKE_WIDTH = 1.35;
+
+const sharedPathProps = {
+  stroke: "currentColor",
+  strokeLinecap: "round",
+  strokeLinejoin: "round",
+  vectorEffect: "non-scaling-stroke",
+} as const;
+
 function IconActivityFallback(props: SvgProps) {
   return (
     <svg viewBox="0 0 24 24" fill="none" aria-hidden {...props}>
       <path
-        d="M4 10c3-5 13-5 16 0-3 5-13 5-16 0z"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinejoin="round"
+        d="M5 12h14M12 5v14M7.5 7.5l9 9M16.5 7.5l-9 9"
+        {...sharedPathProps}
+        strokeWidth={ACTIVITY_ICON_STROKE_WIDTH}
       />
-      <circle cx="12" cy="10" r="2.25" stroke="currentColor" strokeWidth="1.5" />
     </svg>
   );
 }
@@ -23,12 +30,11 @@ function IconActivityFallback(props: SvgProps) {
 function IconBaseballSoftball(props: SvgProps) {
   return (
     <svg viewBox="0 0 24 24" fill="none" aria-hidden {...props}>
-      <circle cx="12" cy="12" r="7.5" stroke="currentColor" strokeWidth="1.5" />
+      <circle cx="12" cy="12" r="7.5" stroke="currentColor" strokeWidth={ACTIVITY_ICON_STROKE_WIDTH} />
       <path
-        d="M7.2 7.5c1.8 2.6 3.6 5.2 4.8 8.2M16.8 7.2c-1.8 2.6-3.6 5.2-4.8 8.2M5.8 11.2c2.1.8 4.3 1.2 6.5 1.2s4.4-.4 6.5-1.2"
-        stroke="currentColor"
-        strokeWidth="1.15"
-        strokeLinecap="round"
+        d="M8 6.8c1.7 2.7 3.1 5.7 4 9.1M16 6.8c-1.7 2.7-3.1 5.7-4 9.1M5.3 11.6c2.2.7 4.4 1 6.7 1s4.5-.3 6.7-1"
+        {...sharedPathProps}
+        strokeWidth={ACTIVITY_ICON_DETAIL_STROKE_WIDTH}
       />
     </svg>
   );
@@ -37,19 +43,16 @@ function IconBaseballSoftball(props: SvgProps) {
 function IconSoccer(props: SvgProps) {
   return (
     <svg viewBox="0 0 24 24" fill="none" aria-hidden {...props}>
-      <circle cx="12" cy="12" r="7.5" stroke="currentColor" strokeWidth="1.5" />
+      <circle cx="12" cy="12" r="7.5" stroke="currentColor" strokeWidth={ACTIVITY_ICON_STROKE_WIDTH} />
       <path
-        d="M12 4.5v15M6.2 7.5l11.6 9M17.8 7.5L6.2 16.5"
-        stroke="currentColor"
-        strokeWidth="1.2"
-        strokeLinecap="round"
+        d="M12 4.5v4.2M12 15.3v4.2M8 7.1l4 2.9 4-2.9M7 16.5l3.7-2.8h2.6l3.7 2.8"
+        {...sharedPathProps}
+        strokeWidth={ACTIVITY_ICON_DETAIL_STROKE_WIDTH}
       />
       <path
-        d="M8.5 9.5l7 5M8.5 14.5l7-5"
-        stroke="currentColor"
-        strokeWidth="1"
-        strokeLinecap="round"
-        opacity={0.85}
+        d="M8.4 10l1.4 3.7M15.6 10l-1.4 3.7"
+        {...sharedPathProps}
+        strokeWidth={ACTIVITY_ICON_DETAIL_STROKE_WIDTH}
       />
     </svg>
   );
@@ -58,14 +61,12 @@ function IconSoccer(props: SvgProps) {
 function IconBasketball(props: SvgProps) {
   return (
     <svg viewBox="0 0 24 24" fill="none" aria-hidden {...props}>
-      <circle cx="12" cy="12" r="7.5" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M12 4.5v15M4.5 12h15" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      <circle cx="12" cy="12" r="7.5" stroke="currentColor" strokeWidth={ACTIVITY_ICON_STROKE_WIDTH} />
+      <path d="M12 4.5v15M4.5 12h15" {...sharedPathProps} strokeWidth={ACTIVITY_ICON_DETAIL_STROKE_WIDTH} />
       <path
-        d="M6.5 6.5c3.2 2.8 6.8 5.2 10.3 7.3M17.5 6.5c-3.2 2.8-6.8 5.2-10.3 7.3"
-        stroke="currentColor"
-        strokeWidth="1"
-        strokeLinecap="round"
-        opacity={0.9}
+        d="M6.5 6.7c3 2.7 6.5 5.1 10.2 7.1M17.5 6.7c-3 2.7-6.5 5.1-10.2 7.1"
+        {...sharedPathProps}
+        strokeWidth={ACTIVITY_ICON_DETAIL_STROKE_WIDTH}
       />
     </svg>
   );
@@ -74,12 +75,11 @@ function IconBasketball(props: SvgProps) {
 function IconFootball(props: SvgProps) {
   return (
     <svg viewBox="0 0 24 24" fill="none" aria-hidden {...props}>
-      <ellipse cx="12" cy="12" rx="7.2" ry="4.6" stroke="currentColor" strokeWidth="1.5" />
+      <ellipse cx="12" cy="12" rx="7.2" ry="4.6" stroke="currentColor" strokeWidth={ACTIVITY_ICON_STROKE_WIDTH} />
       <path
         d="M12 8.2v7.6M9.8 10.4h4.4M9.8 13.6h4.4"
-        stroke="currentColor"
-        strokeWidth="1.1"
-        strokeLinecap="round"
+        {...sharedPathProps}
+        strokeWidth={ACTIVITY_ICON_DETAIL_STROKE_WIDTH}
       />
     </svg>
   );
@@ -88,12 +88,11 @@ function IconFootball(props: SvgProps) {
 function IconTennis(props: SvgProps) {
   return (
     <svg viewBox="0 0 24 24" fill="none" aria-hidden {...props}>
-      <circle cx="12" cy="12" r="7.5" stroke="currentColor" strokeWidth="1.5" />
+      <circle cx="12" cy="12" r="7.5" stroke="currentColor" strokeWidth={ACTIVITY_ICON_STROKE_WIDTH} />
       <path
-        d="M6.2 6.2c3.4 3.4 5.6 7.8 6.4 12.6"
-        stroke="currentColor"
-        strokeWidth="1.2"
-        strokeLinecap="round"
+        d="M6.5 6.5c3.2 3.2 5.4 7.6 6.1 12.4"
+        {...sharedPathProps}
+        strokeWidth={ACTIVITY_ICON_DETAIL_STROKE_WIDTH}
       />
     </svg>
   );
@@ -102,12 +101,11 @@ function IconTennis(props: SvgProps) {
 function IconVolleyball(props: SvgProps) {
   return (
     <svg viewBox="0 0 24 24" fill="none" aria-hidden {...props}>
-      <circle cx="12" cy="12" r="7.5" stroke="currentColor" strokeWidth="1.5" />
+      <circle cx="12" cy="12" r="7.5" stroke="currentColor" strokeWidth={ACTIVITY_ICON_STROKE_WIDTH} />
       <path
-        d="M12 4.5c2.2 2.6 3.5 6 3.5 7.5S14.2 16.9 12 19.5M12 4.5c-2.2 2.6-3.5 6-3.5 7.5S9.8 16.9 12 19.5M5.2 8.8c3.6.4 7.2.4 13.6 0M5.2 15.2c3.6-.4 7.2-.4 13.6 0"
-        stroke="currentColor"
-        strokeWidth="1.05"
-        strokeLinecap="round"
+        d="M12 4.5c2.2 2.5 3.4 5.5 3.4 7.5s-1.2 5-3.4 7.5M12 4.5C9.8 7 8.6 10 8.6 12s1.2 5 3.4 7.5M5.2 8.8c4.6.7 9 .7 13.6 0M5.2 15.2c4.6-.7 9-.7 13.6 0"
+        {...sharedPathProps}
+        strokeWidth={ACTIVITY_ICON_DETAIL_STROKE_WIDTH}
       />
     </svg>
   );
@@ -119,10 +117,8 @@ function IconHockey(props: SvgProps) {
       <ellipse cx="10" cy="16.5" rx="2.8" ry="1.4" fill="currentColor" />
       <path
         d="M13.5 5.5l3.5 10.5H11l-1.2-4"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
+        {...sharedPathProps}
+        strokeWidth={ACTIVITY_ICON_STROKE_WIDTH}
       />
     </svg>
   );
@@ -131,7 +127,7 @@ function IconHockey(props: SvgProps) {
 function IconPickleball(props: SvgProps) {
   return (
     <svg viewBox="0 0 24 24" fill="none" aria-hidden {...props}>
-      <circle cx="12" cy="12" r="7.5" stroke="currentColor" strokeWidth="1.5" />
+      <circle cx="12" cy="12" r="7.5" stroke="currentColor" strokeWidth={ACTIVITY_ICON_STROKE_WIDTH} />
       <circle cx="9" cy="10" r="0.9" fill="currentColor" />
       <circle cx="15" cy="10" r="0.9" fill="currentColor" />
       <circle cx="12" cy="14.5" r="0.9" fill="currentColor" />
@@ -144,12 +140,11 @@ function IconPickleball(props: SvgProps) {
 function IconRugby(props: SvgProps) {
   return (
     <svg viewBox="0 0 24 24" fill="none" aria-hidden {...props}>
-      <ellipse cx="12" cy="12" rx="8" ry="4.8" stroke="currentColor" strokeWidth="1.5" />
+      <ellipse cx="12" cy="12" rx="8" ry="4.8" stroke="currentColor" strokeWidth={ACTIVITY_ICON_STROKE_WIDTH} />
       <path
         d="M9.5 11.2h5M11.2 9.5v5"
-        stroke="currentColor"
-        strokeWidth="1.2"
-        strokeLinecap="round"
+        {...sharedPathProps}
+        strokeWidth={ACTIVITY_ICON_DETAIL_STROKE_WIDTH}
       />
     </svg>
   );

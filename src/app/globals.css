@@ -2008,73 +2008,140 @@ body {
   -webkit-overflow-scrolling: touch;
 }
 
-/* Solo-product 2-col layout: card on left, "About this service" on right. Mobile stacks card only. */
 .consumer-booking .cb-product-solo-group {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 1fr;
   gap: 1rem;
 }
 .consumer-booking .cb-product-solo-group .cb-services-rail--solo {
   overflow: visible;
   scroll-snap-type: none;
-  padding-bottom: 0.25rem;
+  padding-bottom: 0;
 }
 .consumer-booking .cb-product-solo-info {
-  display: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-width: 0;
 }
 @media (min-width: 768px) {
   .consumer-booking .cb-product-solo-group {
-    display: grid;
-    grid-template-columns: minmax(13.75rem, 15.5rem) minmax(0, 1fr);
-    gap: 1.25rem;
-    align-items: stretch;
+    grid-template-columns: 13.75rem minmax(0, 1fr);
+    gap: 2rem;
+    align-items: start;
   }
   .consumer-booking .cb-product-solo-group .cb-services-rail--solo {
     overflow: visible;
   }
-  .consumer-booking .cb-product-solo-info {
-    display: flex;
-    flex-direction: column;
-    gap: 0.65rem;
-    padding: 1rem 1.15rem;
-    border-radius: 1rem;
-    border: 1px solid var(--cb-border);
-    background: var(--cb-bg-surface);
-    min-height: 100%;
-  }
+}
+.consumer-booking .cb-product-card--solo {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  border: none;
+  border-radius: 0.5rem;
+  box-shadow: none;
+}
+.consumer-booking .cb-product-card--solo:hover,
+.consumer-booking .cb-product-card--solo.cb-product-card--selected {
+  border: none;
+  box-shadow: none;
+}
+.consumer-booking .cb-product-card--solo .cb-product-card-main {
+  border-radius: 0.5rem;
+}
+.consumer-booking .cb-product-card--solo .cb-product-card-media {
+  height: 12.5rem;
+  border-radius: 0.5rem;
+}
+.consumer-booking .cb-product-card--solo .cb-product-card-footer,
+.consumer-booking .cb-product-card--solo .cb-product-chip,
+.consumer-booking .cb-product-card--solo .cb-product-tag-row {
+  display: none;
+}
+.consumer-booking .cb-product-card--solo .cb-product-corner {
+  right: 0.5rem;
+  bottom: 0.5rem;
+}
+.consumer-booking .cb-product-card--solo .cb-product-corner-fold {
+  display: none;
 }
 .consumer-booking .cb-product-solo-info-title {
   margin: 0;
-  font-size: 0.95rem;
-  font-weight: 700;
+  font-size: 1.125rem;
+  font-weight: 600;
+  line-height: 1.15;
   color: var(--cb-text);
+}
+.consumer-booking .cb-product-solo-info-head {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.25rem;
 }
 .consumer-booking .cb-product-solo-info-desc {
   margin: 0;
-  font-size: 0.88rem;
-  line-height: 1.45;
-  color: var(--cb-text);
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--cb-text-muted, #606e7f);
+  font-size: 0.75rem;
+  line-height: 1.35;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
-.consumer-booking .cb-product-solo-info-resources {
-  font-size: 0.82rem;
-  color: var(--cb-text-muted, var(--cb-text));
-  margin-top: auto;
+.consumer-booking .cb-product-solo-info-rows {
   display: flex;
-  gap: 0.35rem;
-  align-items: baseline;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+.consumer-booking .cb-product-solo-info-row {
+  display: flex;
   min-width: 0;
+  align-items: flex-start;
+  gap: 0.45rem;
 }
-.consumer-booking .cb-product-solo-info-resources-label {
-  font-weight: 600;
-  color: var(--cb-text);
+.consumer-booking .cb-product-solo-info-row-icon {
+  display: inline-flex;
+  width: 1.75rem;
+  height: 1.75rem;
   flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  background: var(--cb-bg-info, #edf4fc);
+  color: var(--cb-primary);
 }
-.consumer-booking .cb-product-solo-info-resources-list {
+.consumer-booking .cb-product-solo-info-row-copy {
+  display: flex;
   min-width: 0;
   flex: 1;
-  white-space: nowrap;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.consumer-booking .cb-product-solo-info-row-label {
+  color: var(--cb-text-muted, #606e7f);
+  font-size: 0.7rem;
+  font-weight: 500;
+}
+.consumer-booking .cb-product-solo-info-row-value {
+  color: var(--cb-text);
+  font-size: 0.82rem;
+  font-weight: 600;
+  line-height: 1.25;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.consumer-booking .cb-product-solo-info-price {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--cb-primary);
+}
+.consumer-booking .cb-product-solo-info-peak {
+  width: 0.8rem;
+  height: 0.8rem;
+  flex-shrink: 0;
+  color: #ea5b25;
 }
 
 .consumer-booking .cb-product-card {
@@ -2313,12 +2380,34 @@ body {
   filter: brightness(1.04);
 }
 
-/* Product detail modal — structured sections */
+.consumer-booking .cb-product-detail-drawer {
+  width: min(100vw, 24rem);
+  max-width: 24rem;
+}
+
+.consumer-booking.cb-product-detail-drawer-root.cb-drawer-root {
+  background: transparent;
+}
+
+.consumer-booking.cb-product-detail-drawer-root .cb-drawer-backdrop {
+  background: transparent;
+  backdrop-filter: none;
+}
+
+.consumer-booking .cb-product-detail-drawer .cb-drawer-body {
+  padding-inline: 1rem;
+}
+
+.consumer-booking .cb-product-detail-drawer .cb-product-detail-body {
+  display: flex;
+  flex-direction: column;
+}
+
 .consumer-booking .cb-product-detail {
   display: flex;
   flex-direction: column;
   gap: 1.15rem;
-  padding: 0 1rem 1rem;
+  padding: 0 0 1rem;
 }
 
 .consumer-booking .cb-product-detail-hero {
@@ -4951,16 +5040,21 @@ body {
 }
 
 /* Right drawers (login, family, checkout) */
-.consumer-booking .cb-drawer-root {
+.consumer-booking .cb-drawer-root,
+.consumer-booking.cb-drawer-root {
   position: fixed;
   inset: 0;
+  width: 100vw;
+  max-width: 100vw;
   z-index: 80;
   display: flex;
   justify-content: flex-end;
   pointer-events: none;
+  background: transparent;
 }
 
-.consumer-booking .cb-drawer-root > * {
+.consumer-booking .cb-drawer-root > *,
+.consumer-booking.cb-drawer-root > * {
   pointer-events: auto;
 }
 
@@ -4998,6 +5092,14 @@ body {
   background: var(--cb-bg-surface);
   box-shadow: -8px 0 32px color-mix(in srgb, var(--cb-primary) 12%, transparent);
   animation: cb-drawer-slide 0.28s ease;
+}
+
+.consumer-booking.cb-drawer-root .cb-drawer-panel {
+  position: fixed;
+  top: 0;
+  right: auto;
+  bottom: 0;
+  left: calc(100vw - min(100vw, 24rem));
 }
 
 @keyframes cb-drawer-slide {

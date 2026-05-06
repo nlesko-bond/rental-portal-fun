@@ -35,6 +35,7 @@ const SDK_ACCESS_TOKEN_KEY = "BondSdkAccessToken";
 const SDK_ID_TOKEN_KEY = "BondSdkIdToken";
 /** Public so `/auth/callback` and other auth-state mutators can ping the provider after writes. */
 export const BOND_AUTH_SESSION_CHANGED_EVENT = "bond-auth:session-changed";
+const BOND_AUTH_LOGIN_COMPLETED_KEY = "bond-auth:login-completed";
 
 export type BondSession =
   | { status: "loading" }
@@ -161,7 +162,16 @@ export function BondAuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const isAuth = session.status === "authenticated";
     if (isAuth && !wasAuthenticatedRef.current) {
-      setWelcomeToastTick((t) => t + 1);
+      let justCompletedLogin = false;
+      try {
+        justCompletedLogin = window.sessionStorage.getItem(BOND_AUTH_LOGIN_COMPLETED_KEY) === "true";
+        window.sessionStorage.removeItem(BOND_AUTH_LOGIN_COMPLETED_KEY);
+      } catch {
+        justCompletedLogin = false;
+      }
+      if (justCompletedLogin) {
+        setWelcomeToastTick((t) => t + 1);
+      }
     }
     wasAuthenticatedRef.current = isAuth;
   }, [session.status]);

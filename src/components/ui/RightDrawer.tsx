@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { lockBodyScroll, unlockBodyScroll } from "@/lib/body-scroll-lock";
 
 type Props = {
@@ -15,6 +16,7 @@ type Props = {
   onBack?: () => void;
   children: ReactNode;
   panelClassName?: string;
+  rootClassName?: string;
 };
 
 /**
@@ -29,6 +31,7 @@ export function RightDrawer({
   onBack,
   children,
   panelClassName,
+  rootClassName,
 }: Props) {
   useEffect(() => {
     if (!open) return;
@@ -43,10 +46,10 @@ export function RightDrawer({
     };
   }, [open, onClose]);
 
-  if (!open) return null;
+  if (!open || typeof document === "undefined") return null;
 
-  return (
-    <div className="cb-drawer-root">
+  const drawer = (
+    <div className={`cb-drawer-root consumer-booking ${rootClassName ?? ""}`.trim()}>
       <button type="button" className="cb-drawer-backdrop" aria-label="Close panel" onClick={onClose} />
       <aside
         className={`cb-drawer-panel ${panelClassName ?? ""}`.trim()}
@@ -81,4 +84,6 @@ export function RightDrawer({
       </aside>
     </div>
   );
+
+  return createPortal(drawer, document.body);
 }

@@ -53,7 +53,7 @@ import {
 import { parseExtendedRequiredProductsList } from "@/lib/required-products-extended";
 import { bookingPartyMembersFromProfile } from "@/lib/booking-party-options";
 import { BondBffError } from "@/lib/bond-json";
-import type { OnlineBookingView, OrganizationCartDto, ScheduleTimeSlotDto } from "@/types/online-booking";
+import type { ExtendedProductDto, OnlineBookingView, OrganizationCartDto, ScheduleTimeSlotDto } from "@/types/online-booking";
 import type { PackageAddonLine } from "@/lib/product-package-addons";
 import { CB_BOOKING_APPEARANCE_EVENT, CB_BOOKING_APPEARANCE_KEY } from "@/lib/booking-appearance";
 import {
@@ -106,6 +106,7 @@ import {
 import { BookingDelayedFunLoader } from "./BookingDelayedFunLoader";
 import {
   IconClockDetail,
+  IconDollarDetail,
   IconLockDetail,
   IconLogIn,
   IconPassTicket,
@@ -129,6 +130,8 @@ import { BookingCheckoutDrawer, type CheckoutStep } from "./BookingCheckoutDrawe
 import { WelcomeToast } from "@/components/ui/WelcomeToast";
 
 const PRODUCTS_PAGE_SIZE = 30;
+const SOLO_ADDON_PREVIEW_COUNT = 3;
+const MINUTES_PER_HOUR = 60;
 
 function IconUserCircle() {
   return (
@@ -201,6 +204,21 @@ function formatPrice(amount: number, currency: string): string {
   }
 }
 
+function productPriceRangeForDuration(product: ExtendedProductDto | undefined, durationMinutes: number): string {
+  const prices = product?.prices ?? [];
+  const nums = prices.map((x) => x.price).filter((n) => Number.isFinite(n));
+  if (nums.length === 0) return "—";
+  const currency = prices[0]?.currency ?? "USD";
+  const multiplier = durationMinutes / MINUTES_PER_HOUR;
+  const min = Math.min(...nums) * multiplier;
+  const max = Math.max(...nums) * multiplier;
+  const duration = formatDurationPriceBadge(durationMinutes);
+  const range = min === max
+    ? formatSlotCurrency(min, currency)
+    : `${formatSlotCurrency(min, currency)} – ${formatSlotCurrency(max, currency)}`;
+  return `${range} / ${duration}`;
+}
+
 function bookingHeaderInitials(label: string, email?: string | null): string {
   const t = label.trim();
   const parts = t.split(/\s+/).filter(Boolean);
@@ -250,6 +268,7 @@ export function BookingExperience() {
   const tb = useTranslations("booking");
   const te = useTranslations("errors");
   const tc = useTranslations("common");
+  const tx = useTranslations("checkout");
   const sportsFacts = useMemo(() => {
     const raw = tb.raw("sportsFacts");
     return Array.isArray(raw) ? (raw as string[]) : [];
@@ -1621,7 +1640,11 @@ export function BookingExperience() {
               return (
                 <div
                   key={p.id}
-                  className={`cb-product-card ${selected ? "cb-product-card--selected" : ""}`}
+                  className={[
+                    "cb-product-card",
+                    soloProduct ? "cb-product-card--solo" : "",
+                    selected ? "cb-product-card--selected" : "",
+                  ].filter(Boolean).join(" ")}
                 >
                   <button
                     type="button"
@@ -1706,7 +1729,9 @@ export function BookingExperience() {
           </div>
           {soloProduct ? (
             <aside className="cb-product-solo-info" aria-label={tb("productDetailAbout")}>
-              <h3 className="cb-product-solo-info-title">{tb("productDetailAbout")}</h3>
+              <div className="cb-product-solo-info-head">
+                <h3 className="cb-product-solo-info-title">{soloProduct.name}</h3>
+              </div>
               {soloProductDescriptionHtml ? (
                 <div
                   className="cb-product-solo-info-desc cb-detail-html"
@@ -1717,18 +1742,83 @@ export function BookingExperience() {
               ) : (
                 <p className="cb-product-solo-info-desc cb-muted">{tb("productDetailDescriptionFallback")}</p>
               )}
-              {(() => {
-                const resources = scheduleSettingsQuery.data?.resources ?? [];
-                if (resources.length === 0) return null;
-                return (
-                  <div className="cb-product-solo-info-resources">
-                    <span className="cb-product-solo-info-resources-label">{tb("productDetailResources")}:</span>{" "}
-                    <span className="cb-product-solo-info-resources-list" title={resources.map((r) => r.name).join(", ")}>
-                      {resources.map((r) => r.name).join(", ")}
+              <div className="cb-product-solo-info-rows">
+                {(() => {
+                  const selectedDuration = state.duration ?? MINUTES_PER_HOUR;
+                  const memberFreeChip = productCatalogShowsMemberFree(soloProduct);
+                  const priceLabel = memberFreeChip
+                    ? tb("freeForMembers")
+                    : productPriceRangeForDuration(soloProduct, selectedDuration);
+                  const hasPeakPricing = productHasVariableSchedulePricing(soloProduct);
+                  return (
+                    <div className="cb-product-solo-info-row">
+                      <span className="cb-product-solo-info-row-icon" aria-hidden>
+                        <IconDollarDetail className="size-4" />
+                      </span>
+                      <span className="cb-product-solo-info-row-copy">
+                        <span className="cb-product-solo-info-row-label">{tb("productDetailPrice")}</span>
+                        <span
+                          className="cb-product-solo-info-row-value cb-product-solo-info-price"
+                          title={hasPeakPricing ? tx("peakPricingHint") : undefined}
+                        >
+                          {priceLabel}
+                          {hasPeakPricing ? <IconPeakTrend className="cb-product-solo-info-peak" aria-hidden /> : null}
+                        </span>
+                        {hasPeakPricing ? <span className="sr-only">{tx("peakPricingHint")}</span> : null}
+                      </span>
+                    </div>
+                  );
+                })()}
+                {(() => {
+                  const resources = scheduleSettingsQuery.data?.resources ?? [];
+                  if (resources.length === 0) return null;
+                  const names = resources.map((r) => r.name).join(", ");
+                  return (
+                    <div className="cb-product-solo-info-row">
+                      <span className="cb-product-solo-info-row-icon" aria-hidden>
+                        <IconClockDetail className="size-4" />
+                      </span>
+                      <span className="cb-product-solo-info-row-copy">
+                        <span className="cb-product-solo-info-row-label">{tb("productDetailResources")}</span>
+                        <span className="cb-product-solo-info-row-value" title={names}>{names}</span>
+                      </span>
+                    </div>
+                  );
+                })()}
+                {productMembershipGated(soloProduct) ? (
+                  <div className="cb-product-solo-info-row">
+                    <span className="cb-product-solo-info-row-icon" aria-hidden>
+                      <IconLockDetail className="size-4" />
+                    </span>
+                    <span className="cb-product-solo-info-row-copy">
+                      <span className="cb-product-solo-info-row-label">{tb("productDetailAccess")}</span>
+                      <span className="cb-product-solo-info-row-value">{tb("productDetailMembersOnly")}</span>
                     </span>
                   </div>
-                );
-              })()}
+                ) : null}
+                {(() => {
+                  const addons = bookingOptionalAddons(soloProduct);
+                  if (addons.length === 0) return null;
+                  const names = addons
+                    .slice(0, SOLO_ADDON_PREVIEW_COUNT)
+                    .map((a) => a.name)
+                    .join(", ");
+                  const more = addons.length > SOLO_ADDON_PREVIEW_COUNT ? ` +${addons.length - SOLO_ADDON_PREVIEW_COUNT}` : "";
+                  return (
+                    <div className="cb-product-solo-info-row">
+                      <span className="cb-product-solo-info-row-icon" aria-hidden>
+                        <IconPassTicket className="size-4" />
+                      </span>
+                      <span className="cb-product-solo-info-row-copy">
+                        <span className="cb-product-solo-info-row-label">{tb("productDetailAvailableAddons")}</span>
+                        <span className="cb-product-solo-info-row-value" title={addons.map((a) => a.name).join(", ")}>
+                          {names}{more}
+                        </span>
+                      </span>
+                    </div>
+                  );
+                })()}
+              </div>
             </aside>
           ) : null}
           </div>

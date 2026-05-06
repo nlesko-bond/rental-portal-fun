@@ -7,6 +7,7 @@ import { BOND_AUTH_SESSION_CHANGED_EVENT } from "@/components/auth/BondAuthConte
 import { loadBondSportsSdk, readBondSdkOAuthConfig } from "@/lib/bond-sdk-loader";
 
 const SDK_RETURN_TARGET_KEY = "bondSdk:returnTarget";
+const BOND_AUTH_LOGIN_COMPLETED_KEY = "bond-auth:login-completed";
 const RETURN_PARAM_ALLOWLIST = [
   "portalId",
   "portal",
@@ -71,6 +72,7 @@ function CallbackInner() {
         return;
       }
       if (cancelled) return;
+      window.sessionStorage.setItem(BOND_AUTH_LOGIN_COMPLETED_KEY, "true");
       window.dispatchEvent(new Event(BOND_AUTH_SESSION_CHANGED_EVENT));
       const target = readReturnTarget();
       const preserved = new URLSearchParams();

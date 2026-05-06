@@ -2,7 +2,8 @@
 
 import type { ExtendedProductDto, PublicResourceDto } from "@/types/online-booking";
 import { formatDurationLabel } from "@/lib/category-booking-settings";
-import { ModalShell } from "./ModalShell";
+import { RightDrawer } from "@/components/ui/RightDrawer";
+import { useBookingAppearanceClass } from "@/hooks/useBookingAppearanceClass";
 import { resolveProductCardImageAtStep, type ProductCardImageFallbackStep } from "@/lib/product-card-image";
 import {
   addonLevelLabel,
@@ -289,6 +290,7 @@ export function ProductDetailModal({
   scheduleResourcesLoading = false,
   onClose,
 }: Props) {
+  const appearanceClass = useBookingAppearanceClass();
   const tb = useTranslations("booking");
   const tc = useTranslations("checkout");
   const tcommon = useTranslations("common");
@@ -311,7 +313,14 @@ export function ProductDetailModal({
   const currency = product.prices[0]?.currency ?? "USD";
 
   return (
-    <ModalShell open={open} title={product.name} panelClassName="cb-modal-panel--detail" onClose={onClose}>
+    <RightDrawer
+      open={open}
+      title={product.name}
+      ariaLabel={tb("moreAboutProduct", { name: product.name })}
+      rootClassName={`${appearanceClass} cb-product-detail-drawer-root`.trim()}
+      panelClassName="cb-product-detail-drawer"
+      onClose={onClose}
+    >
       <div className="cb-product-detail">
         <div className="cb-product-detail-hero">
           <ProductDetailHeroImage
@@ -409,6 +418,6 @@ export function ProductDetailModal({
           </button>
         </div>
       </div>
-    </ModalShell>
+    </RightDrawer>
   );
 }
