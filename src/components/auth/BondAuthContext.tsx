@@ -239,9 +239,6 @@ export function BondAuthProvider({ children }: { children: ReactNode }) {
   const wasAuthenticatedRef = useRef(false);
   useEffect(() => {
     const isAuth = session.status === "authenticated";
-    if (isAuth && !session.profileComplete) {
-      setLoginOpen(true);
-    }
     if (isAuth && !wasAuthenticatedRef.current) {
       let justCompletedLogin = false;
       try {
@@ -250,10 +247,8 @@ export function BondAuthProvider({ children }: { children: ReactNode }) {
       } catch {
         justCompletedLogin = false;
       }
-      if (justCompletedLogin && session.profileComplete) {
+      if (justCompletedLogin) {
         setWelcomeToastTick((t) => t + 1);
-      } else if (justCompletedLogin) {
-        setLoginOpen(true);
       }
     }
     wasAuthenticatedRef.current = isAuth;

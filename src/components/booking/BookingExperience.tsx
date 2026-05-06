@@ -284,7 +284,7 @@ export function BookingExperience() {
       if (!env.ok) throw new Error("Bond env not configured");
       return fetchCurrentBondUser(env.orgId, ["family", "address"]);
     },
-    enabled: env.ok && bondAuth.session.status === "authenticated" && bondAuth.session.profileComplete,
+    enabled: env.ok && bondAuth.session.status === "authenticated",
   });
 
   const profileRootUserId = useMemo(() => {

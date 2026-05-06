@@ -28,6 +28,7 @@ const PROFILE_BIRTH_MONTHS = Array.from({ length: PROFILE_BIRTH_MONTH_COUNT }, (
 const PROFILE_BIRTH_DAYS = Array.from({ length: PROFILE_BIRTH_DAY_COUNT }, (_, i) => i + 1);
 const PROFILE_CURRENT_YEAR = new Date().getFullYear();
 const PROFILE_BIRTH_YEARS = Array.from({ length: PROFILE_BIRTH_YEAR_COUNT }, (_, i) => PROFILE_CURRENT_YEAR - i);
+const PROFILE_COMPLETION_ENABLED = false;
 
 function toSelectNumber(value: string): number | "" {
   return value === "" ? "" : Number(value);
@@ -117,7 +118,7 @@ export function LoginModal({ orgName, orgLogoUrl }: LoginModalProps = {}) {
   };
 
   const displayName = orgName && orgName.trim().length > 0 ? orgName.trim() : "Bond Sports";
-  const needsProfileCompletion = session.status === "authenticated" && !session.profileComplete;
+  const needsProfileCompletion = PROFILE_COMPLETION_ENABLED && session.status === "authenticated" && !session.profileComplete;
 
   return (
     <RightDrawer
