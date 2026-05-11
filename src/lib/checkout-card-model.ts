@@ -177,7 +177,7 @@ export function checkoutCardsFromSnapshot(
     const removeKind: "line" | "subsection" = kind === "rental" ? "subsection" : "line";
     const cartItemId =
       line.bagRemove?.kind === "line" ? line.bagRemove.cartItemId : null;
-    const removable = line.bagRemove != null && kind !== "membership";
+    const removable = line.bagRemove != null;
 
     const baseStrikeAmount =
       typeof line.strikeAmount === "number" &&

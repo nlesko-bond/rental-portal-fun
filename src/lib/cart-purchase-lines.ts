@@ -584,12 +584,22 @@ export function expandSnapshotForPurchaseList(
   const scheduleForMeta = scheduleSummaryForLineMeta(row.scheduleSummary, metaBookingFor, omit);
   const idxFilter = options?.cartFlatLineIndexFilter;
   const segByFlat = flatIndexToSegmentMap(c);
+  const flatCartItems = Array.isArray(c.cartItems) ? flattenBondCartItemNodes(c.cartItems as unknown[]) : [];
+  const visibleFlatHasBooking = flatCartItems.some(
+    (o, i) => (idxFilter == null || idxFilter.has(i)) && classifyCartItemLineKind(o) === "booking"
+  );
 
   const saved = row.displayLines;
   const flatForDiscount =
     Array.isArray(saved) && saved.length > 0
-      ? flattenBondCartItemNodes(c.cartItems as unknown[] | undefined)
+      ? flatCartItems
       : [];
+  const savedHasBooking =
+    Array.isArray(saved) &&
+    saved.some((line) => {
+      const kind = line.lineKind ?? "booking";
+      return kind !== "membership" && kind !== "addon";
+    });
   const bondReceiptLines =
     Array.isArray(saved) && saved.length > 0 ? getBondCartReceiptLineItems(c) : [];
   const bondZipOk =
@@ -742,7 +752,9 @@ export function expandSnapshotForPurchaseList(
       const bondId = bondRec != null ? bondCartItemIdFromRecord(bondRec) : null;
       const bagRemove =
         typeof cartId === "number" && Number.isFinite(cartId) && cartId > 0 && bondRec != null
-          ? bagRemovePolicyForBondItem(bondRec, kindMeta, bondId)
+          ? bagRemovePolicyForBondItem(bondRec, kindMeta, bondId, {
+              allowRequiredMembership: !savedHasBooking,
+            })
           : undefined;
       const unitSubtitle =
         kindMeta === "membership" && bondRec != null
@@ -840,7 +852,9 @@ export function expandSnapshotForPurchaseList(
       const lineCartId = bondCartItemIdFromRecord(it);
       const bagRemove =
         typeof cartId === "number" && Number.isFinite(cartId) && cartId > 0
-          ? bagRemovePolicyForBondItem(it, kind, lineCartId)
+          ? bagRemovePolicyForBondItem(it, kind, lineCartId, {
+              allowRequiredMembership: !visibleFlatHasBooking,
+            })
           : undefined;
       const unitSubtitle =
         kind === "membership"

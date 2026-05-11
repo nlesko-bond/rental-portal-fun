@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { bondRootCartItemIdForRemoval } from "@/lib/bond-cart-removal";
+import { bagRemovePolicyForBondItem, bondRootCartItemIdForRemoval } from "@/lib/bond-cart-removal";
 import type { OrganizationCartDto } from "@/types/online-booking";
 
 function makeCart(items: unknown[]): OrganizationCartDto {
@@ -74,5 +74,36 @@ describe("bondRootCartItemIdForRemoval", () => {
       },
     ]);
     expect(bondRootCartItemIdForRemoval(cart)).toBe(300);
+  });
+});
+
+describe("bagRemovePolicyForBondItem", () => {
+  it("keeps required membership locked while a booking depends on it", () => {
+    expect(
+      bagRemovePolicyForBondItem(
+        {
+          organizationCartItemId: 401,
+          required: true,
+          metadata: { description: "membership_package" },
+        },
+        "membership",
+        401
+      )
+    ).toBeUndefined();
+  });
+
+  it("allows required membership removal after dependent bookings are gone", () => {
+    expect(
+      bagRemovePolicyForBondItem(
+        {
+          organizationCartItemId: 401,
+          required: true,
+          metadata: { description: "membership_package" },
+        },
+        "membership",
+        401,
+        { allowRequiredMembership: true }
+      )
+    ).toEqual({ kind: "line", cartItemId: 401 });
   });
 });

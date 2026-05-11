@@ -91,15 +91,18 @@ export function bondRootCartItemIdForRemoval(
   return null;
 }
 
-/** Bond line `required: true` (or metadata) — must stay in cart for checkout. */
-export function membershipRemovableFromBag(it: Record<string, unknown>): boolean {
+/** Bond line `required: true` (or metadata) — must stay in cart while a booking still depends on it. */
+export function membershipRemovableFromBag(
+  it: Record<string, unknown>,
+  options?: { allowRequiredMembership?: boolean }
+): boolean {
   const desc = getCartItemMetadataDescription(it);
   if (desc === "membership_package_child_item") return false;
-  if (it.required === true) return false;
+  if (it.required === true) return options?.allowRequiredMembership === true;
   if (it.required === false) return true;
   const meta =
     it.metadata && typeof it.metadata === "object" ? (it.metadata as Record<string, unknown>) : null;
-  if (meta?.required === true) return false;
+  if (meta?.required === true) return options?.allowRequiredMembership === true;
   if (meta?.required === false) return true;
   return false;
 }
@@ -112,12 +115,13 @@ export type BagRemovePolicy =
 export function bagRemovePolicyForBondItem(
   it: Record<string, unknown>,
   lineKind: CartLineKind,
-  cartItemId: number | null
+  cartItemId: number | null,
+  options?: { allowRequiredMembership?: boolean }
 ): BagRemovePolicy | undefined {
   if (cartItemId == null) return undefined;
   if (lineKind === "addon") return { kind: "line", cartItemId };
   if (lineKind === "membership") {
-    return membershipRemovableFromBag(it) ? { kind: "line", cartItemId } : undefined;
+    return membershipRemovableFromBag(it, options) ? { kind: "line", cartItemId } : undefined;
   }
   const desc = getCartItemMetadataDescription(it);
   if (lineKind === "booking" && desc != null && RENTAL_SEGMENT_ROOT_DESCRIPTIONS.has(desc)) {
