@@ -2,7 +2,7 @@
 export type OnlineBookingView = "list" | "calendar" | "matrix";
 
 export type CategorySettings = {
-  bookingDurations?: number[];
+  bookingDurations?: number[] | Record<string, unknown>;
   /** When true, bookings are requests pending approval (vs pay-now / instant book). */
   approvalRequired?: boolean;
 } & Record<string, unknown>;

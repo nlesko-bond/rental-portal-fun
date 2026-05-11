@@ -53,7 +53,7 @@ import {
   userNeedsMembershipFromRequiredResponse,
 } from "@/lib/required-products-eligibility";
 import { parseExtendedRequiredProductsList, parseProductRequiredProducts } from "@/lib/required-products-extended";
-import { bookingPartyMembersFromProfile } from "@/lib/booking-party-options";
+import { activeMembershipsFromUnknown, bookingPartyMembersFromProfile } from "@/lib/booking-party-options";
 import { BondBffError } from "@/lib/bond-json";
 import type { ExtendedProductDto, OnlineBookingView, OrganizationCartDto, ScheduleTimeSlotDto } from "@/types/online-booking";
 import type { PackageAddonLine } from "@/lib/product-package-addons";
@@ -451,6 +451,10 @@ export function BookingExperience() {
   );
   const bookingForLabel = bookingForMember?.label ?? tb("you");
   const bookingForBadge = bookingForMember?.badgeLabel;
+  const bookingForActiveMemberships = useMemo(
+    () => bookingForMember?.activeMemberships ?? [],
+    [bookingForMember?.activeMemberships]
+  );
 
   useEffect(() => {
     if (bondUserIdResolved == null) {
@@ -671,59 +675,11 @@ export function BookingExperience() {
     return sanitizeBookingDescriptionHtml(soloProduct.description);
   }, [soloProduct]);
 
-  const categoryRules = useMemo(() => {
+  const baseCategoryRules = useMemo(() => {
     if (!portal || !state) return null;
     const cat = portal.options.categories.find((c) => c.id === state.categoryId) ?? portal.options.defaultCategory;
-    return parseCategoryBookingRules(cat.settings);
+    return parseCategoryBookingRules(cat.settings, []);
   }, [portal, state]);
-
-  /** Category `memberships[]` / VIP advance window: wider than guest — applied when logged in (Bond still enforces server-side). */
-  const useMemberAdvanceBookingWindow = useMemo(() => {
-    if (bondAuth.session.status !== "authenticated" || categoryRules == null) return false;
-    const g = categoryRules.advanceBookingWindowDays;
-    const m = categoryRules.memberAdvanceBookingWindowDays;
-    if (m == null || !Number.isFinite(m) || m < 0) return false;
-    if (g == null || !Number.isFinite(g)) return true;
-    return m > g;
-  }, [bondAuth.session.status, categoryRules]);
-
-  /** Shorter member minimum notice than guest — more same-day / near-term starts when logged in. */
-  const useMemberMinimumBookingNotice = useMemo(() => {
-    if (bondAuth.session.status !== "authenticated" || categoryRules == null) return false;
-    const g = categoryRules.minimumBookingNoticeMinutes;
-    const m = categoryRules.memberMinimumBookingNoticeMinutes;
-    if (m == null || !Number.isFinite(m) || m < 0) return false;
-    if (g == null || !Number.isFinite(g)) return false;
-    return m < g;
-  }, [bondAuth.session.status, categoryRules]);
-
-  const effectiveAdvanceBookingWindowDays = useMemo(
-    () =>
-      resolveEffectiveAdvanceBookingWindowDays(
-        categoryRules?.advanceBookingWindowDays ?? null,
-        categoryRules?.memberAdvanceBookingWindowDays ?? null,
-        useMemberAdvanceBookingWindow
-      ),
-    [categoryRules, useMemberAdvanceBookingWindow]
-  );
-
-  const effectiveMinimumBookingNoticeMinutes = useMemo(
-    () =>
-      resolveEffectiveMinimumBookingNoticeMinutes(
-        categoryRules?.minimumBookingNoticeMinutes ?? null,
-        categoryRules?.memberMinimumBookingNoticeMinutes ?? null,
-        useMemberMinimumBookingNotice
-      ),
-    [categoryRules, useMemberMinimumBookingNotice]
-  );
-
-  const slotRules = useMemo(
-    () => ({
-      maxSequentialHours: categoryRules?.maxSequentialHours ?? null,
-      maxBookingHoursPerDay: categoryRules?.maxBookingHoursPerDay ?? null,
-    }),
-    [categoryRules]
-  );
 
   const selectedProductForHooks = useMemo(
     () => (state?.productId != null ? productsQuery.data?.data.find((p) => p.id === state.productId) : undefined),
@@ -891,26 +847,11 @@ export function BookingExperience() {
     enabled: env.ok && !!scheduleContext,
   });
 
-  const filteredScheduleDates = useMemo(() => {
-    const rows = scheduleSettingsQuery.data?.dates ?? [];
-    return filterDatesByAdvanceWindow(rows, effectiveAdvanceBookingWindowDays);
-  }, [scheduleSettingsQuery.data, effectiveAdvanceBookingWindowDays]);
-
-  const scheduleNavDates = useMemo(() => {
-    const list = filteredScheduleDates.map((d) => d.date);
-    const currentDate = state?.date;
-    const idx = currentDate ? list.indexOf(currentDate) : -1;
-    return {
-      prev: idx > 0 ? list[idx - 1]! : null,
-      next: idx >= 0 && idx < list.length - 1 ? list[idx + 1]! : null,
-    };
-  }, [filteredScheduleDates, state?.date]);
-
   const bookingInfoDateRange = useMemo(() => {
-    const dates = filteredScheduleDates.map((x) => x.date).sort();
+    const dates = (scheduleSettingsQuery.data?.dates ?? []).map((x) => x.date).sort();
     if (dates.length === 0) return null;
     return { startDate: dates[0]!, endDate: dates[dates.length - 1]! };
-  }, [filteredScheduleDates]);
+  }, [scheduleSettingsQuery.data]);
 
   const bookingInfoQuery = useQuery({
     queryKey: [
@@ -942,6 +883,81 @@ export function BookingExperience() {
       bondAuth.session.status === "authenticated",
   });
   void bookingInfoQuery.data;
+
+  const bookingInfoActiveMemberships = useMemo(() => {
+    if (bondAuth.session.status !== "authenticated") return bookingForActiveMemberships;
+    const fromBookingInfo = activeMembershipsFromUnknown(bookingInfoQuery.data?.members);
+    return fromBookingInfo.length > 0 ? fromBookingInfo : bookingForActiveMemberships;
+  }, [bondAuth.session.status, bookingInfoQuery.data, bookingForActiveMemberships]);
+
+  const categoryRules = useMemo(() => {
+    if (!portal || !state) return baseCategoryRules;
+    const cat = portal.options.categories.find((c) => c.id === state.categoryId) ?? portal.options.defaultCategory;
+    return parseCategoryBookingRules(cat.settings, bookingInfoActiveMemberships);
+  }, [portal, state, baseCategoryRules, bookingInfoActiveMemberships]);
+
+  /** Category `memberships[]` / VIP advance window: wider than guest — applied when logged in (Bond still enforces server-side). */
+  const useMemberAdvanceBookingWindow = useMemo(() => {
+    if (bondAuth.session.status !== "authenticated" || categoryRules == null) return false;
+    const g = categoryRules.advanceBookingWindowDays;
+    const m = categoryRules.memberAdvanceBookingWindowDays;
+    if (m == null || !Number.isFinite(m) || m < 0) return false;
+    if (g == null || !Number.isFinite(g)) return true;
+    return m > g;
+  }, [bondAuth.session.status, categoryRules]);
+
+  /** Shorter member minimum notice than guest — more same-day / near-term starts when logged in. */
+  const useMemberMinimumBookingNotice = useMemo(() => {
+    if (bondAuth.session.status !== "authenticated" || categoryRules == null) return false;
+    const g = categoryRules.minimumBookingNoticeMinutes;
+    const m = categoryRules.memberMinimumBookingNoticeMinutes;
+    if (m == null || !Number.isFinite(m) || m < 0) return false;
+    if (g == null || !Number.isFinite(g)) return false;
+    return m < g;
+  }, [bondAuth.session.status, categoryRules]);
+
+  const effectiveAdvanceBookingWindowDays = useMemo(
+    () =>
+      resolveEffectiveAdvanceBookingWindowDays(
+        categoryRules?.advanceBookingWindowDays ?? null,
+        categoryRules?.memberAdvanceBookingWindowDays ?? null,
+        useMemberAdvanceBookingWindow
+      ),
+    [categoryRules, useMemberAdvanceBookingWindow]
+  );
+
+  const effectiveMinimumBookingNoticeMinutes = useMemo(
+    () =>
+      resolveEffectiveMinimumBookingNoticeMinutes(
+        categoryRules?.minimumBookingNoticeMinutes ?? null,
+        categoryRules?.memberMinimumBookingNoticeMinutes ?? null,
+        useMemberMinimumBookingNotice
+      ),
+    [categoryRules, useMemberMinimumBookingNotice]
+  );
+
+  const slotRules = useMemo(
+    () => ({
+      maxSequentialHours: categoryRules?.maxSequentialHours ?? null,
+      maxBookingHoursPerDay: categoryRules?.maxBookingHoursPerDay ?? null,
+    }),
+    [categoryRules]
+  );
+
+  const filteredScheduleDates = useMemo(() => {
+    const rows = scheduleSettingsQuery.data?.dates ?? [];
+    return filterDatesByAdvanceWindow(rows, effectiveAdvanceBookingWindowDays);
+  }, [scheduleSettingsQuery.data, effectiveAdvanceBookingWindowDays]);
+
+  const scheduleNavDates = useMemo(() => {
+    const list = filteredScheduleDates.map((d) => d.date);
+    const currentDate = state?.date;
+    const idx = currentDate ? list.indexOf(currentDate) : -1;
+    return {
+      prev: idx > 0 ? list[idx - 1]! : null,
+      next: idx >= 0 && idx < list.length - 1 ? list[idx + 1]! : null,
+    };
+  }, [filteredScheduleDates, state?.date]);
 
   /** Existing reservations for the selected participant (same window as booking-information fetch). */
   const existingBookedSlices = useMemo(
@@ -1211,9 +1227,8 @@ export function BookingExperience() {
     }
     if (pickedSlotsOrdered.length === 0) return;
     const uid = effectiveBookingUserId ?? null;
-    const sameParticipant = prevCheckoutUserIdRef.current != null && prevCheckoutUserIdRef.current === uid;
     prevCheckoutUserIdRef.current = uid;
-    setNavigateToCheckoutStep(sameParticipant ? "syncCart" : null);
+    setNavigateToCheckoutStep(null);
     setCheckoutDrawerMode("checkout");
     setSyncStepGoToCartEnabled(false);
     setCheckoutDrawerOpen(true);
@@ -1230,10 +1245,9 @@ export function BookingExperience() {
       pendingParticipantUserId === undefined
     ) {
       const uid = effectiveBookingUserId ?? null;
-      const sameParticipant = prevCheckoutUserIdRef.current != null && prevCheckoutUserIdRef.current === uid;
       prevCheckoutUserIdRef.current = uid;
       setResumeCheckoutAfterAuth(false);
-      setNavigateToCheckoutStep(sameParticipant ? "syncCart" : null);
+      setNavigateToCheckoutStep(null);
       setCheckoutDrawerMode("checkout");
       setSyncStepGoToCartEnabled(false);
       setCheckoutDrawerOpen(true);

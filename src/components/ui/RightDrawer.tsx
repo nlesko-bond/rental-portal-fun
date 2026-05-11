@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
+import { useEffect, type KeyboardEventHandler, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { lockBodyScroll, unlockBodyScroll } from "@/lib/body-scroll-lock";
 
@@ -18,6 +18,7 @@ type Props = {
   panelClassName?: string;
   rootClassName?: string;
   hideCloseButton?: boolean;
+  onKeyDown?: KeyboardEventHandler<HTMLElement>;
 };
 
 /**
@@ -34,6 +35,7 @@ export function RightDrawer({
   panelClassName,
   rootClassName,
   hideCloseButton,
+  onKeyDown,
 }: Props) {
   useEffect(() => {
     if (!open) return;
@@ -60,6 +62,7 @@ export function RightDrawer({
         aria-label={hideTitle ? ariaLabel : undefined}
         aria-labelledby={hideTitle ? undefined : "cb-drawer-title"}
         onClick={(e) => e.stopPropagation()}
+        onKeyDown={onKeyDown}
       >
         <div className={`cb-drawer-toolbar${onBack ? " cb-drawer-toolbar--with-back" : ""}`.trim()}>
           {onBack ? (

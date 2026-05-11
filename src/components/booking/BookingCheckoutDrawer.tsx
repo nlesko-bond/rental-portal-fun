@@ -2,7 +2,7 @@
 
 import { useMutation, useQueries, useQuery } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { CbBusyInline } from "@/components/booking/primitives/CbBusyInline";
 import { RightDrawer } from "@/components/ui/RightDrawer";
 import { ModalShell } from "@/components/booking/ModalShell";
@@ -16,7 +16,6 @@ import {
 } from "@/lib/bond-finalize-response";
 import { consumerReservationsUrl } from "@/lib/bond-consumer-web";
 import {
-  computeConsumerPaymentProcessingFee,
   fetchConsumerPaymentOptions,
   flattenConsumerPaymentChoices,
 } from "@/lib/bond-payment-api";
@@ -108,6 +107,16 @@ const CURRENCY_INPUT_DECIMALS = 2;
 const CURRENCY_INPUT_STEP = "0.01";
 
 type PaymentAmountChoice = "minimum" | "full" | "custom";
+
+function shouldLetElementHandleEnter(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.closest("button,a,summary")) return true;
+  const editable = target.closest("textarea,select,[contenteditable='true']");
+  if (editable) return true;
+  const input = target.closest("input");
+  if (!(input instanceof HTMLInputElement)) return false;
+  return input.type === "file";
+}
 
 type PaymentAmountSelectorProps = {
   choice: PaymentAmountChoice;
@@ -680,6 +689,11 @@ export function BookingCheckoutDrawer({
   const paymentChoicesRef = useRef(paymentChoices);
   paymentChoicesRef.current = paymentChoices;
 
+  const pickedSlotContextKey = useMemo(
+    () => pickedSlots.map((slot) => slot.key).join("|"),
+    [pickedSlots]
+  );
+
   useEffect(() => {
     if (!open) return;
     if (paymentChoices.length === 0) return;
@@ -694,7 +708,7 @@ export function BookingCheckoutDrawer({
   useEffect(() => {
     if (!open) return;
     if (mode === "bag") return;
-    const checkoutContextKey = `${mode}:${productId}:${userId}`;
+    const checkoutContextKey = `${mode}:${productId}:${userId}:${pickedSlotContextKey}`;
     if (navigateToCheckoutStep != null) {
       checkoutContextKeyRef.current = checkoutContextKey;
       setStep(navigateToCheckoutStep);
@@ -704,6 +718,9 @@ export function BookingCheckoutDrawer({
     }
     if (skipNextCheckoutResetRef.current) {
       skipNextCheckoutResetRef.current = false;
+      return;
+    }
+    if (step === "addedToCart" && pickedSlotContextKey.length === 0 && !answersStaleAfterFinalizeRef.current) {
       return;
     }
     if (checkoutContextKeyRef.current === checkoutContextKey && !answersStaleAfterFinalizeRef.current) {
@@ -725,7 +742,7 @@ export function BookingCheckoutDrawer({
     setSelectedPaymentMethodId(null);
     setFinalizeSuccess(null);
     setFinalizeCheckoutKind(null);
-  }, [open, productId, userId, mode, navigateToCheckoutStep]);
+  }, [open, productId, userId, mode, navigateToCheckoutStep, pickedSlotContextKey, step]);
 
   /** Switching “booking for” re-fetches required products; clear membership selection for the new person. */
   const bookingForUserIdRef = useRef(userId);
@@ -1513,6 +1530,18 @@ export function BookingCheckoutDrawer({
     step === "addedToCart" ||
     step === "payment";
 
+  const handlePrimaryActionKeyDown = useCallback((event: KeyboardEvent<HTMLElement>) => {
+    if (event.key !== "Enter") return;
+    if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+    if (shouldLetElementHandleEnter(event.target)) return;
+    const primaryAction = event.currentTarget.querySelector<HTMLButtonElement>(
+      "button[data-cb-primary-action='true']:not(:disabled)"
+    );
+    if (!primaryAction) return;
+    event.preventDefault();
+    primaryAction.click();
+  }, []);
+
   const subtotal = useMemo(
     () => pickedSlots.reduce((s, p) => s + p.price, 0),
     [pickedSlots]
@@ -2194,57 +2223,9 @@ export function BookingCheckoutDrawer({
     return { ...bagAggregates, discountTotal: merged };
   }, [bagAggregates, singleLineMemberSavings, promoDiscountFromExpandedPurchaseLines]);
 
-  const selectedPaymentChoice = useMemo(
-    () => paymentChoices.find((c) => c.id === selectedPaymentMethodId) ?? null,
-    [paymentChoices, selectedPaymentMethodId]
-  );
-
-  /** Org processing fee from consumer payment options (Bond `fee` on the selected row), when cart has no fee total yet. */
-  const paymentProcessingFeeEstimate = useMemo(() => {
-    if (bagAggregates.feeTotal != null) return null;
-    if (!selectedPaymentChoice?.fee) return null;
-    const sub = bagAggregatesForEstimate.lineSubtotal;
-    const disc = bagAggregatesForEstimate.discountTotal ?? 0;
-    const tax = bagAggregatesForEstimate.taxTotal ?? 0;
-    if (sub == null) return null;
-    const base = Math.max(0, sub - disc + tax);
-    return computeConsumerPaymentProcessingFee(base, selectedPaymentChoice.fee);
-  }, [
-    bagAggregates.feeTotal,
-    bagAggregatesForEstimate.lineSubtotal,
-    bagAggregatesForEstimate.discountTotal,
-    bagAggregatesForEstimate.taxTotal,
-    selectedPaymentChoice,
-  ]);
-
-  /** Cart (bag): estimated processing fee from consumer payment `options[].fee` when Bond cart has no fee line yet. */
-  const bagProcessingFeeFromOptions = useMemo(() => {
-    if (bagSessionAggregates.feeTotal != null && bagSessionAggregates.feeTotal > BOND_KIND_LINE_MIN) {
-      return null;
-    }
-    if (!selectedPaymentChoice?.fee) return null;
-    const sub = bagSessionAggregates.lineSubtotal;
-    if (sub == null) return null;
-    const disc = bagSessionAggregates.discountTotal ?? 0;
-    const tax = bagSessionAggregates.taxTotal ?? 0;
-    const base = Math.max(0, sub - disc + tax);
-    return computeConsumerPaymentProcessingFee(base, selectedPaymentChoice.fee);
-  }, [bagSessionAggregates, selectedPaymentChoice]);
-
-  const bagAggregatesWithMaybeEstimatedFee = useMemo(() => {
-    if (bagProcessingFeeFromOptions == null) return bagSessionAggregates;
-    if (bagSessionAggregates.feeTotal != null && bagSessionAggregates.feeTotal > BOND_KIND_LINE_MIN) {
-      return bagSessionAggregates;
-    }
-    return {
-      ...bagSessionAggregates,
-      feeTotal: bagProcessingFeeFromOptions,
-    };
-  }, [bagSessionAggregates, bagProcessingFeeFromOptions]);
-
   const bagEstimatedTotal = useMemo(
-    () => estimateAmountDue(bagAggregatesWithMaybeEstimatedFee, { includeProvisionalFees: true }),
-    [bagAggregatesWithMaybeEstimatedFee]
+    () => estimateAmountDue(bagSessionAggregates, { includeProvisionalFees: true }),
+    [bagSessionAggregates]
   );
 
   const bagFooterPrimaryLabel = useMemo(() => {
@@ -2270,29 +2251,18 @@ export function BookingCheckoutDrawer({
     if (bagSessionAggregates.feeTotal != null && bagSessionAggregates.feeTotal > BOND_KIND_LINE_MIN) {
       return bagSessionAggregates.feeTotal;
     }
-    if (bagProcessingFeeFromOptions != null) return bagProcessingFeeFromOptions;
     return null;
-  }, [bagSessionAggregates.feeTotal, bagProcessingFeeFromOptions]);
-
-  const bagAggregatesForPaymentTotal = useMemo(() => {
-    if (paymentProcessingFeeEstimate == null || paymentProcessingFeeEstimate <= 0) {
-      return bagAggregatesForEstimate;
-    }
-    return {
-      ...bagAggregatesForEstimate,
-      feeTotal: (bagAggregatesForEstimate.feeTotal ?? 0) + paymentProcessingFeeEstimate,
-    };
-  }, [bagAggregatesForEstimate, paymentProcessingFeeEstimate]);
+  }, [bagSessionAggregates.feeTotal]);
 
   const feesIncludedInEstimate = useMemo(() => {
     if (bagAggregates.feeTotal != null) return true;
     if (bagPolicyCheckout === "all_submission") return true;
-    return selectedPaymentMethodId != null;
-  }, [bagAggregates.feeTotal, bagPolicyCheckout, selectedPaymentMethodId]);
+    return false;
+  }, [bagAggregates.feeTotal, bagPolicyCheckout]);
 
   const estimatedAmountDue = useMemo(
-    () => estimateAmountDue(bagAggregatesForPaymentTotal, { includeProvisionalFees: feesIncludedInEstimate }),
-    [bagAggregatesForPaymentTotal, feesIncludedInEstimate]
+    () => estimateAmountDue(bagAggregatesForEstimate, { includeProvisionalFees: feesIncludedInEstimate }),
+    [bagAggregatesForEstimate, feesIncludedInEstimate]
   );
   estimatedAmountDueRef.current = estimatedAmountDue;
 
@@ -3129,6 +3099,7 @@ export function BookingCheckoutDrawer({
             <button
               type="button"
               className="cb-btn-primary cb-booking-confirmed-action-btn"
+              data-cb-primary-action="true"
               onClick={dismissBookingConfirmed}
             >
               <svg
@@ -3164,6 +3135,7 @@ export function BookingCheckoutDrawer({
         ariaLabel={tx("bookingConfirmedTitle")}
         hideTitle={true}
         panelClassName={panelCls}
+        onKeyDown={handlePrimaryActionKeyDown}
       >
         {finalizeConfirmationBody}
       </RightDrawer>
@@ -3256,6 +3228,7 @@ export function BookingCheckoutDrawer({
         title={title}
         hideTitle={true}
         panelClassName={panelCls}
+        onKeyDown={handlePrimaryActionKeyDown}
       >
           <div className="cb-checkout-inner cb-checkout-inner--bag cb-co-shell">
           {bagSnapshots.length > 0 ? (
@@ -3294,6 +3267,7 @@ export function BookingCheckoutDrawer({
               <button
                 type="button"
                 className="cb-btn-primary cb-bag-empty-cta"
+                data-cb-primary-action="true"
                 onClick={safeOnClose}
               >
                 {tx("cartEmptyCta")}
@@ -3548,6 +3522,7 @@ export function BookingCheckoutDrawer({
                   <button
                     type="button"
                     className="cb-co-btn cb-co-btn--primary"
+                    data-cb-primary-action="true"
                     disabled={
                       submitBookingRequestMutation.isPending ||
                       paymentOptionsQuery.isPending ||
@@ -3563,6 +3538,7 @@ export function BookingCheckoutDrawer({
                   <button
                     type="button"
                     className="cb-co-btn cb-co-btn--primary"
+                    data-cb-primary-action="true"
                     disabled={
                       submitBookingRequestMutation.isPending ||
                       paymentOptionsQuery.isPending ||
@@ -3584,7 +3560,7 @@ export function BookingCheckoutDrawer({
                       {submitBookingRequestMutation.isPending
                         ? tx("submitting")
                         : paymentAmountChoice === "full"
-                          ? tx("cartBtnPayFull", { amount: formatPrice(cartChargeableDollars, bagCurrency) })
+                          ? tx("cartBtnPayFull", { amount: formatPrice(customDepositMax, bagCurrency) })
                           : tx("cartBtnPayMin", {
                               amount: formatPrice(
                                 paymentAmountChoice === "custom" ? customDepositAmount ?? customDepositMin : customDepositMin,
@@ -3597,6 +3573,7 @@ export function BookingCheckoutDrawer({
                   <button
                     type="button"
                     className="cb-co-btn cb-co-btn--primary"
+                    data-cb-primary-action="true"
                     disabled={
                       submitBookingRequestMutation.isPending ||
                       paymentOptionsQuery.isPending ||
@@ -3630,6 +3607,7 @@ export function BookingCheckoutDrawer({
       ariaLabel={title}
       title={title}
       panelClassName={panelCls}
+      onKeyDown={handlePrimaryActionKeyDown}
     >
       <Fragment>
         <>
@@ -3715,6 +3693,7 @@ export function BookingCheckoutDrawer({
               <button
                 type="button"
                 className="cb-btn-primary cb-checkout-added-to-cart-btn"
+                data-cb-primary-action="true"
                 onClick={() => {
                   if (onGoToCart) onGoToCart();
                   else setStep("payment");
@@ -3852,9 +3831,9 @@ export function BookingCheckoutDrawer({
               const checkoutTotal = checkoutPaymentTotal;
               const checkoutFeeTotal =
                 feesIncludedInEstimate &&
-                bagAggregatesForPaymentTotal.feeTotal != null &&
-                bagAggregatesForPaymentTotal.feeTotal > BOND_KIND_LINE_MIN
-                  ? bagAggregatesForPaymentTotal.feeTotal
+                bagAggregatesForEstimate.feeTotal != null &&
+                bagAggregatesForEstimate.feeTotal > BOND_KIND_LINE_MIN
+                  ? bagAggregatesForEstimate.feeTotal
                   : null;
               const checkoutSubtotal =
                 bagAggregates.lineSubtotal ??
@@ -4045,6 +4024,7 @@ export function BookingCheckoutDrawer({
                 <button
                   type="button"
                   className="cb-co-btn cb-co-btn--primary"
+                  data-cb-primary-action="true"
                   disabled={
                     submitBookingRequestMutation.isPending ||
                     paymentOptionsQuery.isPending ||
@@ -4063,6 +4043,7 @@ export function BookingCheckoutDrawer({
                   <button
                     type="button"
                     className="cb-co-btn cb-co-btn--primary"
+                    data-cb-primary-action="true"
                     disabled={
                       submitBookingRequestMutation.isPending ||
                       paymentOptionsQuery.isPending ||
@@ -4101,6 +4082,7 @@ export function BookingCheckoutDrawer({
                   <button
                     type="button"
                     className="cb-co-btn cb-co-btn--primary"
+                    data-cb-primary-action="true"
                     disabled={
                       submitBookingRequestMutation.isPending ||
                       paymentOptionsQuery.isPending ||
@@ -4123,6 +4105,7 @@ export function BookingCheckoutDrawer({
                 <button
                   type="button"
                   className="cb-co-btn cb-co-btn--primary"
+                  data-cb-primary-action="true"
                   disabled={
                     submitBookingRequestMutation.isPending ||
                     paymentOptionsQuery.isPending ||
@@ -4161,6 +4144,7 @@ export function BookingCheckoutDrawer({
                 <button
                   type="button"
                   className="cb-co-btn cb-co-btn--primary"
+                  data-cb-primary-action="true"
                   disabled={
                     submitBookingRequestMutation.isPending ||
                     paymentOptionsQuery.isPending ||
@@ -4297,6 +4281,7 @@ export function BookingCheckoutDrawer({
               <button
                 type="button"
                 className="cb-btn-primary"
+                data-cb-primary-action="true"
                 disabled={
                   !canProceedAddons ||
                   requiredQuery.isPending ||
@@ -4364,6 +4349,7 @@ export function BookingCheckoutDrawer({
               <button
                 type="button"
                 className="cb-btn-primary"
+                data-cb-primary-action="true"
                 disabled={
                   requiredQuery.isPending ||
                   (membershipOptionsForStep.length > 0 && selectedMembershipRootId == null) ||
@@ -4434,6 +4420,7 @@ export function BookingCheckoutDrawer({
               <button
                 type="button"
                 className="cb-btn-primary"
+                data-cb-primary-action="true"
                 disabled={!formsValid || !canBondPersistCart || cannotMergeSessionCart}
                 onClick={goNextFromForms}
               >
@@ -4516,6 +4503,7 @@ export function BookingCheckoutDrawer({
                   <button
                     type="button"
                     className="cb-btn-add-to-cart"
+                    data-cb-primary-action="true"
                     disabled={
                       !canBondPersistCart || pickedSlots.length === 0 || persistCartMutation.isPending
                     }

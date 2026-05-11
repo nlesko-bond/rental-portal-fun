@@ -9,6 +9,7 @@ import {
   addonLevelLabel,
   addonPriceSuffixForLevel,
   bookingOptionalAddons,
+  plainAddonDescription,
   resolveAddonDisplayPrice,
   type PackageAddonLine,
 } from "@/lib/product-package-addons";
@@ -233,16 +234,15 @@ function AddonsGrouped({ addons }: { addons: PackageAddonLine[] }) {
   }
   const renderItem = (a: PackageAddonLine) => {
     const resolved = resolveAddonDisplayPrice(a);
-    const extra = resolved ? formatPrice(resolved.price, resolved.currency) : "";
+    const price = resolved ? `${formatPrice(resolved.price, resolved.currency)}${addonPriceSuffixForLevel(a.level)}` : "";
+    const description = plainAddonDescription(a.description);
     return (
-      <li key={a.id} className="cb-detail-addon-chip">
-        <span className="cb-detail-addon-chip-name">{a.name}</span>
-        {extra ? (
-          <span className="cb-detail-addon-chip-price">
-            {extra}
-            {addonPriceSuffixForLevel(a.level)}
-          </span>
-        ) : null}
+      <li key={a.id} className="cb-detail-addon-row">
+        <span className="cb-detail-addon-row-copy">
+          <span className="cb-detail-addon-row-name">{a.name}</span>
+          {description ? <span className="cb-detail-addon-row-desc">{description}</span> : null}
+        </span>
+        {price ? <span className="cb-detail-addon-row-price">{price}</span> : null}
       </li>
     );
   };
@@ -256,7 +256,7 @@ function AddonsGrouped({ addons }: { addons: PackageAddonLine[] }) {
         return (
           <div key={g.key} className="cb-detail-addon-group">
             <div className="cb-detail-addon-group-label">{addonLevelLabel(g.key)}</div>
-            <ul className="cb-detail-addon-chips">{shown.map(renderItem)}</ul>
+            <ul className="cb-detail-addon-list">{shown.map(renderItem)}</ul>
             {hiddenCount > 0 ? (
               <button
                 type="button"

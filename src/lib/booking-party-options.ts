@@ -5,6 +5,7 @@ export type BookingPartyMember = {
   id: number;
   label: string;
   isSelf?: boolean;
+  activeMemberships?: BookingPartyActiveMembership[];
   /** e.g. Parent (You), Child — from Bond `family` payload when present */
   relationship?: string;
   /** "Age 12, Female" when DOB/gender exist on the Bond user (Consumer DS participant row). */
@@ -22,6 +23,39 @@ export type BookingPartyMember = {
   /** Bond user/family profile photo when the API returns a URL. */
   photoUrl?: string;
 };
+
+export type BookingPartyActiveMembership = {
+  membershipId: number;
+};
+
+export function activeMembershipsFromUnknown(raw: unknown): BookingPartyActiveMembership[] {
+  if (!Array.isArray(raw)) return [];
+  const out: BookingPartyActiveMembership[] = [];
+  const seen = new Set<number>();
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const record = item as Record<string, unknown>;
+    const direct = record.membershipId;
+    const nested = record.membership;
+    const nestedId =
+      nested && typeof nested === "object" && !Array.isArray(nested)
+        ? (nested as Record<string, unknown>).id
+        : undefined;
+    const membershipId = typeof direct === "number" && Number.isFinite(direct)
+      ? direct
+      : typeof nestedId === "number" && Number.isFinite(nestedId)
+        ? nestedId
+        : null;
+    if (membershipId == null || seen.has(membershipId)) continue;
+    seen.add(membershipId);
+    out.push({ membershipId });
+  }
+  return out;
+}
+
+function activeMembershipsFromUser(u: Record<string, unknown>): BookingPartyActiveMembership[] {
+  return activeMembershipsFromUnknown(u.activeMemberships);
+}
 
 function personLabel(u: Record<string, unknown>): string {
   const a = typeof u.firstName === "string" ? u.firstName : "";
@@ -65,6 +99,7 @@ export function bookingPartyMembersFromProfile(profile: BondUserDto | undefined)
       id: selfId,
       label: personLabel(self),
       isSelf: true,
+      activeMemberships: activeMembershipsFromUser(self),
       relationship: relationshipLabel(self, true),
       demographicsLine: participantDemographicsLine(self),
       photoUrl: profilePhotoUrlFromUser(self),
@@ -83,6 +118,7 @@ export function bookingPartyMembersFromProfile(profile: BondUserDto | undefined)
       out.push({
         id,
         label: personLabel(u),
+        activeMemberships: activeMembershipsFromUser(u),
         relationship: relationshipLabel(u, false),
         demographicsLine: participantDemographicsLine(u),
         photoUrl: profilePhotoUrlFromUser(u),

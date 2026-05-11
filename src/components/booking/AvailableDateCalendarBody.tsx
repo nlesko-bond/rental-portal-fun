@@ -17,7 +17,7 @@ type Props = {
   /** When embedded in the schedule band, do not close a parent dialog on day select. */
   closeOnSelect?: boolean;
   className?: string;
-  /** Hide footer “Sign in to see VIP early access” when already authenticated. */
+  /** Kept for caller compatibility; VIP legend now shows whenever VIP dates are present. */
   signedIn?: boolean;
 };
 
@@ -141,13 +141,7 @@ export function AvailableDateCalendarBody({
           const isSel = selectedDate === c.key;
           const isToday = c.key === todayUtcYmd;
           const showVipFrame = !isPast && !isAvail && vipEarly.has(c.key);
-          const title = isPast
-            ? undefined
-            : isAvail
-              ? undefined
-              : showVipFrame
-                ? tb("vipEarlyAccessHint")
-                : undefined;
+          const title = showVipFrame ? tb("vipEarlyAccessMemberships") : undefined;
           return (
             <button
               key={c.key}
@@ -167,9 +161,9 @@ export function AvailableDateCalendarBody({
           );
         })}
       </div>
-      {!signedIn ? (
+      {vipEarlyAccessDates.length > 0 ? (
         <p className="cb-dp-early-access-hint" role="note">
-          {tb("vipEarlyAccessFooter")}
+          {tb("vipEarlyAccessMemberships")}
         </p>
       ) : null}
     </div>

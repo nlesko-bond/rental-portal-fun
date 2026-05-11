@@ -1,4 +1,10 @@
+import {
+  resolveBookingSettings,
+  type IBookingSettings,
+  type TProductCategoryOnlineBookingSettings,
+} from "@bondsports/online-booking";
 import type { CategorySettings } from "@/types/online-booking";
+import type { BookingPartyActiveMembership } from "./booking-party-options";
 import { bookingDurationsLegacyArray } from "./category-settings";
 
 function num(v: unknown): number | null {
@@ -38,6 +44,42 @@ export type CategoryBookingRules = {
 function readSettingsRecord(settings: CategorySettings | undefined): Record<string, unknown> {
   if (!settings || typeof settings !== "object") return {};
   return settings as Record<string, unknown>;
+}
+
+function isDurationRecord(v: unknown): boolean {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return false;
+  const record = v as Record<string, unknown>;
+  return typeof record.amount === "number" && Number.isFinite(record.amount) && typeof record.unit === "string";
+}
+
+function isOnlineBookingSettingsRecord(settings: Record<string, unknown>): settings is TProductCategoryOnlineBookingSettings {
+  const defaultSettings = settings.default;
+  if (!defaultSettings || typeof defaultSettings !== "object" || Array.isArray(defaultSettings)) return false;
+  const defaultRecord = defaultSettings as Record<string, unknown>;
+  if (!isDurationRecord(defaultRecord.minimumBookingNotice) || !isDurationRecord(defaultRecord.advanceBookingWindow)) {
+    return false;
+  }
+  const memberships = settings.memberships;
+  if (memberships == null) return true;
+  if (!Array.isArray(memberships)) return false;
+  return memberships.every((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return false;
+    const record = item as Record<string, unknown>;
+    return (
+      Array.isArray(record.membershipsIds) &&
+      record.membershipsIds.every((id) => typeof id === "number" && Number.isFinite(id)) &&
+      isDurationRecord(record.minimumBookingNotice) &&
+      isDurationRecord(record.advanceBookingWindow)
+    );
+  });
+}
+
+function resolveApiBookingSettings(
+  settings: Record<string, unknown>,
+  activeMemberships: BookingPartyActiveMembership[]
+): IBookingSettings | null {
+  if (activeMemberships.length === 0 || !isOnlineBookingSettingsRecord(settings)) return null;
+  return resolveBookingSettings(settings, activeMemberships);
 }
 
 /**
@@ -91,14 +133,13 @@ function parseNestedBookingDurations(s: Record<string, unknown>): {
   return { min, max, step, def };
 }
 
-function parseDefaultSettingsBlock(s: Record<string, unknown>): {
+function parseBookingSettingsBlock(s: Record<string, unknown>): {
   advanceBookingWindowDays: number | null;
   minimumBookingNoticeMinutes: number | null;
   maxSequentialHours: number | null;
   maxBookingHoursPerDay: number | null;
 } {
-  const d = s.default;
-  if (!d || typeof d !== "object") {
+  if (!s || typeof s !== "object") {
     return {
       advanceBookingWindowDays: null,
       minimumBookingNoticeMinutes: null,
@@ -106,7 +147,7 @@ function parseDefaultSettingsBlock(s: Record<string, unknown>): {
       maxBookingHoursPerDay: null,
     };
   }
-  const o = d as Record<string, unknown>;
+  const o = s;
 
   let advanceBookingWindowDays: number | null = null;
   const aw = o.advanceBookingWindow;
@@ -146,6 +187,24 @@ function parseDefaultSettingsBlock(s: Record<string, unknown>): {
         ? maxBookingHoursPerDay
         : null,
   };
+}
+
+function parseDefaultSettingsBlock(s: Record<string, unknown>): {
+  advanceBookingWindowDays: number | null;
+  minimumBookingNoticeMinutes: number | null;
+  maxSequentialHours: number | null;
+  maxBookingHoursPerDay: number | null;
+} {
+  const d = s.default;
+  if (!d || typeof d !== "object" || Array.isArray(d)) {
+    return {
+      advanceBookingWindowDays: null,
+      minimumBookingNoticeMinutes: null,
+      maxSequentialHours: null,
+      maxBookingHoursPerDay: null,
+    };
+  }
+  return parseBookingSettingsBlock(d as Record<string, unknown>);
 }
 
 /**
@@ -237,9 +296,17 @@ function parseMemberMinimumBookingNoticeMinutes(s: Record<string, unknown>): num
  * Reads Bond category `settings` (OpenAPI is a loose object). Prefers nested `bookingDurations`
  * `{ minDuration, maxDuration, durationStep, defaultDuration }`, then flat keys, then legacy array.
  */
-export function parseCategoryBookingRules(settings: CategorySettings | undefined): CategoryBookingRules {
+export function parseCategoryBookingRules(
+  settings: CategorySettings | undefined,
+  activeMemberships?: BookingPartyActiveMembership[]
+): CategoryBookingRules {
   const s = readSettingsRecord(settings);
   const defaults = parseDefaultSettingsBlock(s);
+  const hasExplicitMembershipContext = activeMemberships !== undefined;
+  const resolvedApiSettings = resolveApiBookingSettings(s, activeMemberships ?? []);
+  const resolvedSettings = resolvedApiSettings
+    ? parseBookingSettingsBlock(resolvedApiSettings as unknown as Record<string, unknown>)
+    : null;
 
   let min: number | null = null;
   let max: number | null = null;
@@ -328,8 +395,12 @@ export function parseCategoryBookingRules(settings: CategorySettings | undefined
     defaults.maxBookingHoursPerDay ??
     (flatDayHours != null && Number.isFinite(flatDayHours) && flatDayHours > 0 ? flatDayHours : null);
 
-  const memberAdvanceBookingWindowDays = parseMemberAdvanceBookingWindowDays(s);
-  const memberMinimumBookingNoticeMinutes = parseMemberMinimumBookingNoticeMinutes(s);
+  const memberAdvanceBookingWindowDays =
+    resolvedSettings?.advanceBookingWindowDays ??
+    (!hasExplicitMembershipContext ? parseMemberAdvanceBookingWindowDays(s) : null);
+  const memberMinimumBookingNoticeMinutes =
+    resolvedSettings?.minimumBookingNoticeMinutes ??
+    (!hasExplicitMembershipContext ? parseMemberMinimumBookingNoticeMinutes(s) : null);
 
   return {
     durationOptionsMinutes,
@@ -338,8 +409,8 @@ export function parseCategoryBookingRules(settings: CategorySettings | undefined
     memberAdvanceBookingWindowDays,
     memberMinimumBookingNoticeMinutes,
     minimumBookingNoticeMinutes,
-    maxSequentialHours,
-    maxBookingHoursPerDay,
+    maxSequentialHours: resolvedSettings?.maxSequentialHours ?? maxSequentialHours,
+    maxBookingHoursPerDay: resolvedSettings?.maxBookingHoursPerDay ?? maxBookingHoursPerDay,
   };
 }
 
