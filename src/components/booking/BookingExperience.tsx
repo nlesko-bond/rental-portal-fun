@@ -1038,6 +1038,28 @@ export function BookingExperience() {
     enabled: env.ok && !!scheduleContext && !!scheduleDateParamForSlots,
   });
 
+  const scheduleResourceIsInstructor = useMemo(() => {
+    const settingsResources = scheduleSettingsQuery.data?.resources;
+    if (settingsResources?.some((resource) => isInstructorScheduleResourceType(resource.type))) return true;
+    return scheduleQuery.data?.resources.some((row) => isInstructorScheduleResourceType(row.resource.type)) ?? false;
+  }, [scheduleSettingsQuery.data?.resources, scheduleQuery.data?.resources]);
+
+  const scheduleAvailableTimesLabel = scheduleResourceIsInstructor
+    ? tb("availableTimesInstructor")
+    : tb("availableTimes");
+  const scheduleResourceSearchPlaceholder = scheduleResourceIsInstructor
+    ? tb("findInstructorPlaceholder")
+    : tb("findResourcePlaceholder");
+  const scheduleResourceHeaderLabel = scheduleResourceIsInstructor
+    ? tb("resourceHeaderInstructor")
+    : tb("resourceHeaderSpace");
+  const scheduleResourceSelectorTitle = scheduleResourceIsInstructor
+    ? tb("resourceSelectorTitleInstructors", { count: scheduleQuery.data?.resources.length ?? 0 })
+    : tb("resourceSelectorTitleSpaces", { count: scheduleQuery.data?.resources.length ?? 0 });
+  const scheduleResourceSelectorSearchPlaceholder = scheduleResourceIsInstructor
+    ? tb("resourceSelectorSearchInstructors", { count: scheduleQuery.data?.resources.length ?? 0 })
+    : tb("resourceSelectorSearchSpaces", { count: scheduleQuery.data?.resources.length ?? 0 });
+
   const toggleSlot = useCallback(
     (resourceId: number, resourceName: string, s: ScheduleTimeSlotDto) => {
       const key = slotControlKey(resourceId, s);
@@ -1857,7 +1879,9 @@ export function BookingExperience() {
                   const names = resources.map((r) => r.name);
                   const shown = names.slice(0, SOLO_RESOURCE_PREVIEW_COUNT);
                   const more = names.length > SOLO_RESOURCE_PREVIEW_COUNT ? names.length - SOLO_RESOURCE_PREVIEW_COUNT : 0;
-                  const resourceLabel = names.length === 1 ? "Room" : "Rooms";
+                  const resourceLabel = resources.some((r) => isInstructorScheduleResourceType(r.type))
+                    ? tb("productDetailInstructors")
+                    : tb("productDetailSpaces");
                   return (
                     <div className="cb-product-solo-info-pill-section">
                         <span className="cb-product-solo-info-row-label">{resourceLabel}</span>
@@ -2127,7 +2151,7 @@ export function BookingExperience() {
                 scheduleTimezoneLabel && state.productId != null ? "schedule-timezone-note" : undefined
               }
             >
-              {tb("availableTimes")}
+              {scheduleAvailableTimesLabel}
             </h2>
             {state.productId != null && portalViews.length > 1 ? (
               <div className="cb-segment shrink-0" role="group" aria-label={tb("listOrTimeline")}>
@@ -2238,6 +2262,7 @@ export function BookingExperience() {
                 selectedKeys={selectedKeysSet}
                 reservedSlotKeys={reservedSlotKeysInCart}
                 requestedSlotKeys={requestedOrBookedSlotKeys}
+                resourceHeaderLabel={scheduleResourceHeaderLabel}
                 onToggleSlot={toggleSlot}
                 adjustSlotUnitPrice={entitlementAdjust}
                 autoScrollKey={state.date ?? ""}
@@ -2257,6 +2282,9 @@ export function BookingExperience() {
                 selectedKeys={selectedKeysSet}
                 reservedSlotKeys={reservedSlotKeysInCart}
                 requestedSlotKeys={requestedOrBookedSlotKeys}
+                resourceSearchPlaceholder={scheduleResourceSearchPlaceholder}
+                resourceSelectorTitle={scheduleResourceSelectorTitle}
+                resourceSelectorSearchPlaceholder={scheduleResourceSelectorSearchPlaceholder}
                 onToggleSlot={toggleSlot}
                 adjustSlotUnitPrice={entitlementAdjust}
               />

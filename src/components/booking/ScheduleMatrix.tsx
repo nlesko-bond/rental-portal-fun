@@ -110,6 +110,7 @@ type Props = {
   /** Slots already in the session cart — not selectable again. */
   reservedSlotKeys?: ReadonlySet<string>;
   requestedSlotKeys?: ReadonlySet<string>;
+  resourceHeaderLabel: string;
   onToggleSlot: (resourceId: number, resourceName: string, slot: ScheduleTimeSlotDto) => void;
   adjustSlotUnitPrice?: (unitPrice: number) => number;
   /** Changes when the user picks a new schedule day — scroll position is recomputed. */
@@ -127,6 +128,7 @@ export function ScheduleMatrix({
   selectedKeys,
   reservedSlotKeys,
   requestedSlotKeys,
+  resourceHeaderLabel,
   onToggleSlot,
   adjustSlotUnitPrice,
   autoScrollKey,
@@ -198,7 +200,7 @@ export function ScheduleMatrix({
         <thead>
           <tr className="border-b border-[var(--cb-border)] bg-[var(--cb-bg-table-head)]">
             <th className="cb-matrix-th-resource cb-matrix-cell--sticky-row p-3 font-semibold text-[var(--cb-text)]">
-              Resource
+              {resourceHeaderLabel}
             </th>
             {timeKeys.map((k, i) => (
               <th

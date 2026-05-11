@@ -1,7 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import type { BookingScheduleDto, ExtendedProductDto, ScheduleTimeSlotDto } from "@/types/online-booking";
 import { productMembershipGated, slotDisplayTotalPrice, slotPriceTierRelativeToPeers, type SlotPriceTier } from "@/lib/booking-pricing";
 import { membershipGateProductNames } from "@/lib/session-booking-display-lines";
@@ -31,105 +31,17 @@ function tierClass(t: SlotPriceTier): string {
   return "";
 }
 
-/** Show search combobox when jumping between many resources is tedious. */
-const RESOURCE_SEARCH_THRESHOLD = 11;
-
-function ResourceSearchJump({
-  rows,
-  activeResourceId,
-  onPick,
-}: {
-  rows: BookingScheduleDto["resources"];
-  activeResourceId: number;
-  onPick: (resourceId: number) => void;
-}) {
-  const tb = useTranslations("booking");
-  const listId = useId();
-  const rootRef = useRef<HTMLDivElement>(null);
-  const [q, setQ] = useState("");
-  const [open, setOpen] = useState(false);
-
-  const sorted = useMemo(
-    () => [...rows].sort((a, b) => a.resource.name.localeCompare(b.resource.name, undefined, { sensitivity: "base" })),
-    [rows]
-  );
-
-  const filtered = useMemo(() => {
-    const s = q.trim().toLowerCase();
-    if (!s) return sorted;
-    return sorted.filter(
-      (row) =>
-        row.resource.name.toLowerCase().includes(s) || (row.resource.type ?? "").toLowerCase().includes(s)
-    );
-  }, [q, sorted]);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDoc = (e: MouseEvent) => {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
-  }, [open]);
-
-  return (
-    <div ref={rootRef} className="cb-resource-jump">
-      <input
-        type="search"
-        enterKeyHint="search"
-        autoComplete="off"
-        role="combobox"
-        aria-expanded={open}
-        aria-controls={listId}
-        aria-autocomplete="list"
-        className="cb-resource-jump-input cb-input"
-        value={q}
-        placeholder={tb("findResourcePlaceholder")}
-        onChange={(e) => {
-          setQ(e.target.value);
-          setOpen(true);
-        }}
-        onFocus={() => setOpen(true)}
-        onKeyDown={(e) => {
-          if (e.key === "Escape") setOpen(false);
-        }}
-      />
-      {open ? (
-        <ul id={listId} className="cb-resource-jump-list" role="listbox">
-          {filtered.length === 0 ? (
-            <li className="cb-resource-jump-empty" role="presentation">
-              {tb("resourceJumpNoMatches")}
-            </li>
-          ) : (
-            filtered.slice(0, 24).map((row) => (
-              <li key={row.resource.id} role="presentation">
-                <button
-                  type="button"
-                  role="option"
-                  aria-selected={row.resource.id === activeResourceId}
-                  className="cb-resource-jump-option"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => {
-                    onPick(row.resource.id);
-                    setQ("");
-                    setOpen(false);
-                  }}
-                >
-                  <span className="cb-resource-jump-option-label">{row.resource.name}</span>
-                  {row.resource.type?.trim() ? (
-                    <span className="cb-resource-jump-option-meta">{row.resource.type.trim()}</span>
-                  ) : null}
-                </button>
-              </li>
-            ))
-          )}
-        </ul>
-      ) : null}
-    </div>
-  );
-}
-
 const EMPTY_SLOT_KEY_SET = new Set<string>();
+const COLLAPSED_RESOURCE_COUNT = 5;
+
+function initialsForResource(name: string): string {
+  const parts = name
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  const chars = parts.length > 1 ? [parts[0]?.[0], parts[1]?.[0]] : [name[0], name[1]];
+  return chars.filter(Boolean).join("").toUpperCase();
+}
 
 type Props = {
   schedule: BookingScheduleDto;
@@ -144,6 +56,9 @@ type Props = {
   selectedKeys: ReadonlySet<string>;
   reservedSlotKeys?: ReadonlySet<string>;
   requestedSlotKeys?: ReadonlySet<string>;
+  resourceSearchPlaceholder: string;
+  resourceSelectorTitle: string;
+  resourceSelectorSearchPlaceholder: string;
   onToggleSlot: (resourceId: number, resourceName: string, slot: ScheduleTimeSlotDto) => void;
   /** Apply member entitlement discount to schedule unit price before pro-rating (display). */
   adjustSlotUnitPrice?: (unitPrice: number) => number;
@@ -158,13 +73,19 @@ export function ScheduleCalendarView({
   selectedKeys,
   reservedSlotKeys,
   requestedSlotKeys,
+  resourceSearchPlaceholder,
+  resourceSelectorTitle,
+  resourceSelectorSearchPlaceholder,
   onToggleSlot,
   adjustSlotUnitPrice,
 }: Props) {
+  const tb = useTranslations("booking");
   const ts = useTranslations("schedule");
   const reserved = reservedSlotKeys ?? EMPTY_SLOT_KEY_SET;
   const requested = requestedSlotKeys ?? EMPTY_SLOT_KEY_SET;
   const [userResourceTabId, setUserResourceTabId] = useState<number | null>(null);
+  const [resourceQuery, setResourceQuery] = useState("");
+  const [resourcesExpanded, setResourcesExpanded] = useState(false);
 
   const sortedResources = useMemo(
     () =>
@@ -175,6 +96,19 @@ export function ScheduleCalendarView({
   );
 
   const resourceIds = useMemo(() => sortedResources.map((r) => r.resource.id), [sortedResources]);
+  const filteredResources = useMemo(() => {
+    const q = resourceQuery.trim().toLowerCase();
+    if (!q) return sortedResources;
+    return sortedResources.filter(
+      (row) =>
+        row.resource.name.toLowerCase().includes(q) ||
+        (row.resource.type ?? "").toLowerCase().includes(q)
+    );
+  }, [resourceQuery, sortedResources]);
+  const visibleResources = resourcesExpanded || resourceQuery.trim().length > 0
+    ? filteredResources
+    : filteredResources.slice(0, COLLAPSED_RESOURCE_COUNT);
+  const hiddenResourceCount = Math.max(0, filteredResources.length - visibleResources.length);
 
   const activeResourceId = useMemo(() => {
     if (resourceIds.length === 0) return null;
@@ -186,19 +120,6 @@ export function ScheduleCalendarView({
     membershipGatedProp !== undefined ? membershipGatedProp : productMembershipGated(product);
 
   const membershipGateNames = useMemo(() => membershipGateProductNames(product), [product]);
-
-  const grouped = useMemo(() => {
-    const map = new Map<string, typeof sortedResources>();
-    for (const row of sortedResources) {
-      const t = row.resource.type?.trim() || "Other";
-      const list = map.get(t) ?? [];
-      list.push(row);
-      map.set(t, list);
-    }
-    return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
-  }, [sortedResources]);
-
-  const showTypeHeadings = grouped.length > 1;
 
   function renderSlotGrid(
     resourceId: number,
@@ -291,30 +212,41 @@ export function ScheduleCalendarView({
   return (
     <div className="cb-schedule-resource-tabs">
       {multiResource ? (
-        <>
-          <h3 id="cb-resource-picker-title" className="cb-resource-picker-title">
-            Available spaces ({sortedResources.length})
-          </h3>
-          <div
-            className={
-              sortedResources.length >= RESOURCE_SEARCH_THRESHOLD
-                ? "cb-resource-toolbar"
-                : "cb-resource-toolbar cb-resource-toolbar--tabs-only"
-            }
-          >
-            {sortedResources.length >= RESOURCE_SEARCH_THRESHOLD ? (
-              <ResourceSearchJump
-                rows={sortedResources}
-                activeResourceId={activeResourceId ?? sortedResources[0]!.resource.id}
-                onPick={(id) => setUserResourceTabId(id)}
-              />
+        <section className="cb-resource-selector-card" aria-labelledby="cb-resource-picker-title">
+          <div className="cb-resource-selector-head">
+            <h3 id="cb-resource-picker-title" className="cb-resource-picker-title">
+              {resourceSelectorTitle}
+            </h3>
+            {hiddenResourceCount > 0 || resourcesExpanded ? (
+              <button
+                type="button"
+                className="cb-resource-selector-toggle"
+                onClick={() => setResourcesExpanded((value) => !value)}
+              >
+                {resourcesExpanded ? tb("resourceSelectorShowLess") : tb("resourceSelectorShowAll")}
+              </button>
             ) : null}
-            <div className="cb-resource-tabs-scroll cb-hide-scrollbar">
-              <div className="cb-resource-tabs" role="tablist" aria-labelledby="cb-resource-picker-title">
-                {sortedResources.map((r) => {
+          </div>
+          <label className="sr-only" htmlFor="cb-resource-selector-search">
+            {resourceSearchPlaceholder}
+          </label>
+          <div className="cb-resource-selector-search">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+              <circle cx="10.5" cy="10.5" r="5.75" stroke="currentColor" strokeWidth="1.8" />
+              <path d="M15 15l4 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+            </svg>
+            <input
+              id="cb-resource-selector-search"
+              type="search"
+              value={resourceQuery}
+              placeholder={resourceSelectorSearchPlaceholder}
+              onChange={(event) => setResourceQuery(event.target.value)}
+            />
+          </div>
+          <div className="cb-resource-tabs" role="tablist" aria-labelledby="cb-resource-picker-title">
+                {visibleResources.map((r) => {
                   const sel = r.resource.id === activeResourceId;
                   const n = slotCountForResource(r.resource.id);
-                  const typeLine = showTypeHeadings ? r.resource.type?.trim() : "";
                   return (
                     <button
                       key={r.resource.id}
@@ -324,9 +256,9 @@ export function ScheduleCalendarView({
                       className={`cb-resource-tab ${sel ? "cb-resource-tab--active" : ""}`}
                       onClick={() => setUserResourceTabId(r.resource.id)}
                     >
+                      <span className="cb-resource-tab-avatar" aria-hidden>{initialsForResource(r.resource.name)}</span>
                       <span className="cb-resource-tab-text">
                         <span className="cb-resource-tab-label">{r.resource.name}</span>
-                        {typeLine ? <span className="cb-resource-tab-meta">{typeLine}</span> : null}
                       </span>
                       {n > 0 ? (
                         <span className="cb-resource-tab-badge" aria-label={`${n} slots selected`}>
@@ -336,10 +268,20 @@ export function ScheduleCalendarView({
                     </button>
                   );
                 })}
-              </div>
-            </div>
+                {hiddenResourceCount > 0 ? (
+                  <button
+                    type="button"
+                    className="cb-resource-tab cb-resource-tab--more"
+                    onClick={() => setResourcesExpanded(true)}
+                  >
+                    {tb("resourceSelectorMore", { count: hiddenResourceCount })}
+                  </button>
+                ) : null}
+                {filteredResources.length === 0 ? (
+                  <p className="cb-resource-empty" role="status">{tb("resourceJumpNoMatches")}</p>
+                ) : null}
           </div>
-        </>
+        </section>
       ) : null}
       {activeRow ? (
         <div
