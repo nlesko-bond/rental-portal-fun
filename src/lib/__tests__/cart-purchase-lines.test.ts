@@ -125,4 +125,67 @@ describe("checkoutCardsFromSnapshot", () => {
     expect(card?.badges).toContainEqual({ kind: "promo", text: "golden group (30%)" });
     expect(card?.baseStrikeAmount).toBe(95.01);
   });
+
+  it("keeps original product names when a merged cart contains multiple booking products", () => {
+    const row: SessionCartSnapshot = {
+      cart: {
+        id: 1,
+        cartItems: [
+          {
+            id: 10,
+            productId: 111,
+            product: { id: 111, name: "Back-office reservation" },
+            metadata: { description: "reservation_type_rental" },
+            subtotal: 50,
+          },
+          {
+            id: 11,
+            productId: 222,
+            product: { id: 222, name: "Back-office reservation" },
+            metadata: { description: "reservation_type_rental" },
+            subtotal: 60,
+          },
+        ],
+      } as unknown as OrganizationCartDto,
+      productName: "Most recent booking",
+      productNameByProductId: {
+        111: "Batting Cage",
+        222: "Party Room",
+      },
+    };
+
+    const cards = checkoutCardsFromSnapshot(row, 0);
+
+    expect(cards.map((card) => card.title)).toEqual(["Batting Cage", "Party Room"]);
+  });
+
+  it("only exposes slot unit math when the booking has multiple slots", () => {
+    const singleSlotRow: SessionCartSnapshot = {
+      cart: {
+        id: 1,
+        currency: "USD",
+        cartItems: [
+          {
+            id: 10,
+            productId: 111,
+            product: { id: 111, name: "Batting Cage" },
+            metadata: { description: "reservation_type_rental" },
+            subtotal: 50,
+          },
+        ],
+      } as unknown as OrganizationCartDto,
+      productName: "Batting Cage",
+      reservedSlotKeys: ["1-2026-12-25-08:00:00-09:00:00"],
+    };
+    const multiSlotRow: SessionCartSnapshot = {
+      ...singleSlotRow,
+      reservedSlotKeys: [
+        "1-2026-12-25-08:00:00-09:00:00",
+        "1-2026-12-25-09:00:00-10:00:00",
+      ],
+    };
+
+    expect(checkoutCardsFromSnapshot(singleSlotRow, 0)[0]?.unitSubtitle).toBeNull();
+    expect(checkoutCardsFromSnapshot(multiSlotRow, 0)[0]?.unitSubtitle).toContain("x 2");
+  });
 });

@@ -57,7 +57,7 @@ export function splitAddonPayloadForCreate(opts: {
   }
 
   return {
-    topLevel: [...new Set(topLevel)],
+    topLevel,
     perSegment,
   };
 }

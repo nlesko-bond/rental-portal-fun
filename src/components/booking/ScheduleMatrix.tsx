@@ -109,6 +109,7 @@ type Props = {
   selectedKeys: ReadonlySet<string>;
   /** Slots already in the session cart — not selectable again. */
   reservedSlotKeys?: ReadonlySet<string>;
+  requestedSlotKeys?: ReadonlySet<string>;
   onToggleSlot: (resourceId: number, resourceName: string, slot: ScheduleTimeSlotDto) => void;
   adjustSlotUnitPrice?: (unitPrice: number) => number;
   /** Changes when the user picks a new schedule day — scroll position is recomputed. */
@@ -125,6 +126,7 @@ export function ScheduleMatrix({
   membershipGated,
   selectedKeys,
   reservedSlotKeys,
+  requestedSlotKeys,
   onToggleSlot,
   adjustSlotUnitPrice,
   autoScrollKey,
@@ -226,6 +228,8 @@ export function ScheduleMatrix({
                 const slot = row.timeSlots.find((s) => `${s.startDate} ${s.startTime}` === k);
                 const sk = slot ? slotControlKey(row.resource.id, slot) : "";
                 const inCart = Boolean(sk && reservedSlotKeys?.has(sk));
+                const isRequested = Boolean(sk && requestedSlotKeys?.has(sk));
+                const blocked = inCart || isRequested;
                 const picked = sk && selectedKeys.has(sk);
                 const unit =
                   slot && slot.isAvailable
@@ -245,15 +249,15 @@ export function ScheduleMatrix({
                     {slot ? (
                       <button
                         type="button"
-                        disabled={!slot.isAvailable || inCart}
+                        disabled={!slot.isAvailable || blocked}
                         onClick={() =>
-                          slot.isAvailable && !inCart && onToggleSlot(row.resource.id, row.resource.name, slot)
+                          slot.isAvailable && !blocked && onToggleSlot(row.resource.id, row.resource.name, slot)
                         }
-                        title={inCart ? ts("alreadyInCart") : slotTitle(slot)}
+                        title={isRequested ? ts("alreadyRequested") : inCart ? ts("alreadyInCart") : slotTitle(slot)}
                         className={`cb-matrix-slot flex min-h-[4.5rem] w-full min-w-[5rem] flex-col items-center justify-center gap-0.5 rounded-lg border px-1.5 py-2 text-center transition-colors sm:min-w-[6rem] sm:px-2 sm:py-2.5 ${
                           !slot.isAvailable
                             ? "cb-matrix-slot--unavailable cursor-not-allowed opacity-50"
-                            : inCart
+                            : blocked
                               ? "cb-matrix-slot--incart cursor-not-allowed opacity-60"
                               : `cb-matrix-slot--available ${matrixTierClassName(tier)}${picked ? " cb-matrix-slot--picked" : ""}`
                         }`}
@@ -261,12 +265,12 @@ export function ScheduleMatrix({
                         <span className="cb-matrix-slot-time text-[0.7rem] font-bold leading-tight text-[var(--cb-text)] sm:text-xs">
                           {formatTime12hFromKey(k)}
                         </span>
-                        {inCart ? (
+                        {blocked ? (
                           <span className="cb-matrix-slot-incart mt-0.5 text-[0.55rem] font-bold uppercase tracking-wide text-[var(--cb-text-muted)]">
-                            In cart
+                            {isRequested ? ts("requested") : "In cart"}
                           </span>
                         ) : null}
-                        {slot.isAvailable && priceCurrency && !inCart ? (
+                        {slot.isAvailable && priceCurrency && !blocked ? (
                           <span className="cb-matrix-slot-price text-sm font-bold leading-none text-[var(--cb-primary)] sm:text-base">
                             <SlotMemberPriceLabel
                               amount={slotTotal}
@@ -275,18 +279,18 @@ export function ScheduleMatrix({
                               membershipGateNames={membershipGateNames}
                             />
                           </span>
-                        ) : slot.isAvailable && !inCart ? (
+                        ) : slot.isAvailable && !blocked ? (
                           <span className="text-sm font-semibold">{String(slot.price)}</span>
                         ) : (
                           <span className="text-[0.7rem] text-[var(--cb-text-faint)]">—</span>
                         )}
-                        {slot.isAvailable && showPeerTiers && tier === "peak" ? (
+                        {slot.isAvailable && !blocked && showPeerTiers && tier === "peak" ? (
                           <span className="cb-matrix-slot-tier cb-matrix-slot-tier--peak">
                             <IconPeakTrend className="cb-matrix-slot-tier-ic" aria-hidden />
                             Peak
                           </span>
                         ) : null}
-                        {slot.isAvailable && showPeerTiers && tier === "off_peak" ? (
+                        {slot.isAvailable && !blocked && showPeerTiers && tier === "off_peak" ? (
                           <span className="cb-matrix-slot-tier cb-matrix-slot-tier--off">Off-peak</span>
                         ) : null}
                       </button>

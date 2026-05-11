@@ -2947,6 +2947,8 @@ export function BookingCheckoutDrawer({
    * (Pay in full / Pay minimum / Submit request CTAs added in e896dee) or
    * checkout-mode, so the early return below routes both modes to this one view.
    */
+  const finalizeTitle =
+    finalizeCheckoutKind === "submit" ? tx("bookingSubmittedTitle") : tx("bookingConfirmedTitle");
   const finalizeConfirmationBody =
     finalizeSuccess != null ? (
       <div
@@ -2969,7 +2971,7 @@ export function BookingCheckoutDrawer({
               </svg>
             </div>
             <h2 id="cb-finalize-title" className="cb-booking-confirmed-title">
-              {tx("bookingConfirmedTitle")}
+              {finalizeTitle}
             </h2>
             <p className="cb-booking-confirmed-sub cb-muted">
               {finalizeCheckoutKind === "submit"
@@ -3144,7 +3146,7 @@ export function BookingCheckoutDrawer({
       <RightDrawer
         open={open}
         onClose={safeOnClose}
-        ariaLabel={tx("bookingConfirmedTitle")}
+        ariaLabel={finalizeTitle}
         hideTitle={true}
         panelClassName={panelCls}
         onKeyDown={handlePrimaryActionKeyDown}

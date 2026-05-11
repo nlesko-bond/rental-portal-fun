@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildOnlineBookingCreateBody } from "@/lib/online-booking-create-body";
+import { buildOnlineBookingCreateBody, splitAddonPayloadForCreate } from "@/lib/online-booking-create-body";
+import type { PackageAddonLine } from "@/lib/product-package-addons";
 import type { PickedSlot } from "@/lib/slot-selection";
 
 const slot: PickedSlot = {
@@ -39,5 +40,42 @@ describe("buildOnlineBookingCreateBody", () => {
         { productId: 413333, userId: 214932, quantity: 1, unitPrice: 25 },
       ],
     });
+  });
+
+  it("sends reservation add-on quantity to Bond", () => {
+    expect(
+      buildOnlineBookingCreateBody({
+        userId: 214932,
+        portalId: 268,
+        categoryId: 7993,
+        activity: "tennis",
+        facilityId: 860,
+        productId: 702816,
+        slots: [slot],
+        addonProductIds: [413332, 413332, 413332],
+      })
+    ).toMatchObject({
+      addons: [{ productId: 413332, quantity: 3 }],
+    });
+  });
+
+  it("preserves duplicate reservation add-on ids before payload quantity collapse", () => {
+    const addons = [
+      {
+        id: 413332,
+        name: "Goodie bag",
+        level: "reservation",
+      },
+    ] as PackageAddonLine[];
+
+    expect(
+      splitAddonPayloadForCreate({
+        pickedSlots: [slot],
+        selectedAddonIds: [413332, 413332, 413332],
+        requiredSelected: [],
+        packageAddons: addons,
+        addonSlotTargeting: {},
+      }).topLevel
+    ).toEqual([413332, 413332, 413332]);
   });
 });

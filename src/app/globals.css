@@ -4453,11 +4453,23 @@ body {
   background: #fff;
 }
 
+.consumer-booking .cb-co-card--compact-price {
+  gap: 0.55rem;
+  padding: 0.7rem 0.75rem;
+}
+
 .consumer-booking .cb-co-card-head {
   display: flex;
   align-items: flex-start;
   gap: 0.5rem;
   justify-content: space-between;
+}
+
+.consumer-booking .cb-co-card-head-actions {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.45rem;
 }
 
 .consumer-booking .cb-co-card-title {
@@ -4615,6 +4627,11 @@ body {
 .consumer-booking .cb-co-card-base-price-current {
   font-weight: 600;
   color: #333333;
+}
+
+.consumer-booking .cb-co-card-base-price--compact {
+  font-size: 0.95rem;
+  line-height: 1;
 }
 
 .consumer-booking .cb-co-card-divider {

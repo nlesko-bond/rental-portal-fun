@@ -143,6 +143,7 @@ type Props = {
   membershipGated?: boolean;
   selectedKeys: ReadonlySet<string>;
   reservedSlotKeys?: ReadonlySet<string>;
+  requestedSlotKeys?: ReadonlySet<string>;
   onToggleSlot: (resourceId: number, resourceName: string, slot: ScheduleTimeSlotDto) => void;
   /** Apply member entitlement discount to schedule unit price before pro-rating (display). */
   adjustSlotUnitPrice?: (unitPrice: number) => number;
@@ -156,11 +157,13 @@ export function ScheduleCalendarView({
   membershipGated: membershipGatedProp,
   selectedKeys,
   reservedSlotKeys,
+  requestedSlotKeys,
   onToggleSlot,
   adjustSlotUnitPrice,
 }: Props) {
   const ts = useTranslations("schedule");
   const reserved = reservedSlotKeys ?? EMPTY_SLOT_KEY_SET;
+  const requested = requestedSlotKeys ?? EMPTY_SLOT_KEY_SET;
   const [userResourceTabId, setUserResourceTabId] = useState<number | null>(null);
 
   const sortedResources = useMemo(
@@ -204,7 +207,7 @@ export function ScheduleCalendarView({
   ) {
     const list = slots.filter((s) => {
       const sk = slotControlKey(resourceId, s);
-      return s.isAvailable || reserved.has(sk);
+      return s.isAvailable || reserved.has(sk) || requested.has(sk);
     });
     /** Tier labels vs peers use raw schedule units so member $0 display does not hide peak/off-peak. */
     const peerUnitsRaw = list.map((s) => s.price);
@@ -222,6 +225,8 @@ export function ScheduleCalendarView({
         {list.map((s, i) => {
           const sk = slotControlKey(resourceId, s);
           const inCart = reserved.has(sk);
+          const isRequested = requested.has(sk);
+          const blocked = inCart || isRequested;
           const picked = selectedKeys.has(sk);
           const unit = adjustSlotUnitPrice ? adjustSlotUnitPrice(s.price) : s.price;
           const total = slotDisplayTotalPrice(unit, product, durationMinutes);
@@ -230,21 +235,21 @@ export function ScheduleCalendarView({
             <li key={`${s.startDate}-${s.startTime}-${i}`} className="cb-slot-grid-cell">
               <button
                 type="button"
-                disabled={!s.isAvailable || inCart}
+                disabled={!s.isAvailable || blocked}
                 onClick={() => {
-                  if (!s.isAvailable || inCart) return;
+                  if (!s.isAvailable || blocked) return;
                   onToggleSlot(resourceId, resourceName, s);
                 }}
-                title={inCart ? ts("alreadyInCart") : undefined}
-                className={`cb-slot-btn ${picked ? "cb-slot-btn--picked" : ""} ${!s.isAvailable ? "cb-slot-btn--full" : ""} ${inCart ? "cb-slot-btn--incart" : ""} ${tierClass(tier)}`}
+                title={isRequested ? ts("alreadyRequested") : inCart ? ts("alreadyInCart") : undefined}
+                className={`cb-slot-btn ${picked ? "cb-slot-btn--picked" : ""} ${!s.isAvailable ? "cb-slot-btn--full" : ""} ${blocked ? "cb-slot-btn--incart" : ""} ${tierClass(tier)}`}
               >
                 <span className="cb-slot-btn-time">{formatSlotRange12h(s.startTime, s.endTime)}</span>
-                {inCart ? (
+                {blocked ? (
                   <span className="cb-slot-btn-incart mt-0.5 text-[0.65rem] font-bold uppercase tracking-wide text-[var(--cb-text-muted)]">
-                    In cart
+                    {isRequested ? ts("requested") : "In cart"}
                   </span>
                 ) : null}
-                {s.isAvailable && priceCurrency && !inCart ? (
+                {s.isAvailable && priceCurrency && !blocked ? (
                   <span className="cb-slot-btn-price">
                     <SlotMemberPriceLabel
                       amount={total}
@@ -254,13 +259,13 @@ export function ScheduleCalendarView({
                     />
                   </span>
                 ) : null}
-                {s.isAvailable && showPeerTiers && tier === "peak" ? (
+                {s.isAvailable && !blocked && showPeerTiers && tier === "peak" ? (
                   <span className="cb-slot-btn-tier">
                     <IconPeakTrend className="cb-slot-tier-icon" />
                     Peak
                   </span>
                 ) : null}
-                {s.isAvailable && showPeerTiers && tier === "off_peak" ? (
+                {s.isAvailable && !blocked && showPeerTiers && tier === "off_peak" ? (
                   <span className="cb-slot-btn-tier cb-slot-btn-tier--off">Off-peak</span>
                 ) : null}
               </button>

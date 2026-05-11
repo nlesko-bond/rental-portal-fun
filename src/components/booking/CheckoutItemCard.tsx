@@ -27,30 +27,45 @@ export function CheckoutItemCard({ card, formatPrice, currency, hideParticipantM
   const tx = useTranslations("checkout");
   const showRemove = card.removable && onRemove != null;
   const metaLines = hideParticipantMeta ? card.metaLines.filter((line) => line.icon !== "person") : card.metaLines;
-  const showPriceRow = card.kind !== "membership" || card.baseStrikeAmount != null;
+  const hasUnitBreakdown = card.unitSubtitle != null && card.unitSubtitle.trim().length > 0;
+  const showPriceRow = hasUnitBreakdown || card.kind !== "membership" || card.baseStrikeAmount != null;
+  const showCompactPrice =
+    !hasUnitBreakdown && card.extras == null && card.baseStrikeAmount == null && card.basePrice === card.itemTotal;
+  const showItemTotal = !showCompactPrice;
 
   return (
-    <li className="cb-co-card" data-card-kind={card.kind} data-card-id={card.cartItemId ?? ""}>
+    <li
+      className={`cb-co-card${showCompactPrice ? " cb-co-card--compact-price" : ""}`}
+      data-card-kind={card.kind}
+      data-card-id={card.cartItemId ?? ""}
+    >
       <div className="cb-co-card-head">
         <p className="cb-co-card-title" title={card.title}>{card.title}</p>
-        {showRemove ? (
-          <button
-            type="button"
-            className="cb-co-card-remove"
-            onClick={() => onRemove?.(card)}
-            aria-label={tx("remove")}
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
-              <circle cx="12" cy="12" r="8.5" stroke="currentColor" strokeWidth="1.6" />
-              <path
-                d="M9 9l6 6M15 9l-6 6"
-                stroke="currentColor"
-                strokeWidth="1.6"
-                strokeLinecap="round"
-              />
-            </svg>
-          </button>
-        ) : null}
+        <span className="cb-co-card-head-actions">
+          {showCompactPrice ? (
+            <span className="cb-co-card-base-price cb-co-card-base-price--compact">
+              {formatPrice(card.itemTotal, currency)}
+            </span>
+          ) : null}
+          {showRemove ? (
+            <button
+              type="button"
+              className="cb-co-card-remove"
+              onClick={() => onRemove?.(card)}
+              aria-label={tx("remove")}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
+                <circle cx="12" cy="12" r="8.5" stroke="currentColor" strokeWidth="1.6" />
+                <path
+                  d="M9 9l6 6M15 9l-6 6"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </button>
+          ) : null}
+        </span>
       </div>
 
       {metaLines.length > 0 ? (
@@ -66,7 +81,7 @@ export function CheckoutItemCard({ card, formatPrice, currency, hideParticipantM
         </ul>
       ) : null}
 
-      {showPriceRow ? (
+      {showPriceRow && !showCompactPrice ? (
         <div className="cb-co-card-price-row">
           <span className="cb-co-card-unit-subtitle">
             {card.unitSubtitle ?? ""}
@@ -109,11 +124,15 @@ export function CheckoutItemCard({ card, formatPrice, currency, hideParticipantM
         </>
       ) : null}
 
-      <div className="cb-co-card-divider" aria-hidden />
-      <div className="cb-co-card-total">
-        <span className="cb-co-card-total-label">{tx("itemTotal")}</span>
-        <span className="cb-co-card-total-value">{formatPrice(card.itemTotal, currency)}</span>
-      </div>
+      {showItemTotal ? (
+        <>
+          <div className="cb-co-card-divider" aria-hidden />
+          <div className="cb-co-card-total">
+            <span className="cb-co-card-total-label">{tx("itemTotal")}</span>
+            <span className="cb-co-card-total-value">{formatPrice(card.itemTotal, currency)}</span>
+          </div>
+        </>
+      ) : null}
     </li>
   );
 }

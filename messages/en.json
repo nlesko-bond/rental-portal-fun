@@ -257,6 +257,7 @@
     "selectedTimesTitle": "Your selected times",
     "transactionFee": "Transaction fee",
     "bookingConfirmedTitle": "Booking confirmed",
+    "bookingSubmittedTitle": "Booking submitted!",
     "bookingConfirmedSubtitle": "Your booking has been successfully completed",
     "bookingConfirmedSubtitleSubmit": "Your request was sent to the facility. Watch your email for updates.",
     "goToReservations": "Go to reservations",
@@ -424,6 +425,8 @@
   },
   "schedule": {
     "alreadyInCart": "Already in your cart",
+    "alreadyRequested": "Already requested",
+    "requested": "Requested",
     "productUnavailableOnResource": "This product isn't available on {resource} at this time. Try a different date.",
     "matrixSlotBooked": "Booked",
     "matrixSlotMissingAria": "No opening at {time} — booked or unavailable for this resource"

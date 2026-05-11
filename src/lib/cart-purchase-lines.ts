@@ -100,7 +100,7 @@ function slotUnitSubtitle(
   slotKeys: readonly string[],
   currency: string
 ): string | undefined {
-  if (amount == null || !Number.isFinite(amount) || amount < 0 || slotKeys.length === 0) return undefined;
+  if (amount == null || !Number.isFinite(amount) || amount < 0 || slotKeys.length <= 1) return undefined;
   const duration = slotKeyDurationMinutes(slotKeys[0]!);
   if (duration == null) return undefined;
   const unit = amount / slotKeys.length;
@@ -541,6 +541,18 @@ function productIdFromBondItem(it: Record<string, unknown>): number | null {
   return pid != null && Number.isFinite(pid) && pid > 0 ? pid : null;
 }
 
+function bookingTitleForBondItem(
+  row: SessionCartSnapshot,
+  it: Record<string, unknown>,
+  fallback: string
+): string {
+  const pid = productIdFromBondItem(it);
+  const mapped = pid != null ? row.productNameByProductId?.[pid] : undefined;
+  if (typeof mapped === "string" && mapped.trim().length > 0) return mapped.trim();
+  return productNameFromCartItem(it) ??
+    (typeof row.productName === "string" && row.productName.trim().length > 0 ? row.productName.trim() : fallback);
+}
+
 /** True when this Bond cart item's product carries a non-zero `downPayment`. */
 function bondItemHasDownpayment(row: SessionCartSnapshot, it: Record<string, unknown>): boolean {
   const prod = it.product as Record<string, unknown> | undefined;
@@ -766,9 +778,11 @@ export function expandSnapshotForPurchaseList(
         kindMeta === "membership" && bondRec != null
           ? membershipSummaryFromRequiredProducts(row, bondRec)
           : undefined;
+      const title =
+        kindMeta === "booking" && bondRec != null ? bookingTitleForBondItem(row, bondRec, line.title) : line.title;
       return {
         key: `snap-${rowIndex}-saved-${j}-${cartId}`,
-        title: line.title,
+        title,
         meta,
         checkoutNote: checkoutNoteForMixedLine(policy, coKind, rowApproval, hideVenueNotes),
         amount,
@@ -810,10 +824,7 @@ export function expandSnapshotForPurchaseList(
       const productName = productNameFromCartItem(it);
       const title =
         kind === "booking"
-          ? productName ??
-            (typeof row.productName === "string" && row.productName.trim().length > 0
-              ? row.productName.trim()
-              : bondTitle)
+          ? bookingTitleForBondItem(row, it, bondTitle)
           : bondTitle !== "Item"
             ? bondTitle
             : (productName ?? bondTitle);

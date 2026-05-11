@@ -537,23 +537,20 @@ export function BookingExperience() {
 
   /**
    * Slots from completed checkouts in this tab (cart cleared before schedule refetch reflects the booking).
-   * Merged with `sessionCartRows` so the grid stays non-selectable immediately after “Done”.
+   * Kept separate from `sessionCartRows` so submitted requests are blocked without being labeled as cart items.
    */
   const [vendedSlotKeys, setVendedSlotKeys] = useState<string[]>([]);
 
   /** Slot keys already added to the tab cart — block re-selection and show “in cart” on the grid. */
   const reservedSlotKeysInCart = useMemo(() => {
     const s = new Set<string>();
-    for (const k of vendedSlotKeys) {
-      if (typeof k === "string" && k.length > 0) s.add(k);
-    }
     for (const row of sessionCartRows) {
       for (const k of row.reservedSlotKeys ?? []) {
         if (typeof k === "string" && k.length > 0) s.add(k);
       }
     }
     return s;
-  }, [sessionCartRows, vendedSlotKeys]);
+  }, [sessionCartRows]);
 
   const welcomeTickPrev = useRef(0);
   const [pendingWelcome, setPendingWelcome] = useState(false);
@@ -969,16 +966,19 @@ export function BookingExperience() {
     [bondAuth.session.status, bookingInfoQuery.data]
   );
 
-  /** Cart / vended keys plus existing reservations — non-selectable on the schedule grid. */
-  const scheduleGridBlockedSlotKeys = useMemo(() => {
-    const s = new Set<string>(reservedSlotKeysInCart);
+  /** Submitted / confirmed bookings — non-selectable on the schedule grid, but not cart-held. */
+  const requestedOrBookedSlotKeys = useMemo(() => {
+    const s = new Set<string>();
+    for (const k of vendedSlotKeys) {
+      if (typeof k === "string" && k.length > 0) s.add(k);
+    }
     for (const slice of existingBookedSlices) {
       if (slice.resourceId > 0) {
         s.add(`${slice.resourceId}-${slice.startDate}-${slice.startTime}-${slice.endTime}`);
       }
     }
     return s;
-  }, [reservedSlotKeysInCart, existingBookedSlices]);
+  }, [existingBookedSlices, vendedSlotKeys]);
 
   const vipEarlyAccessDates = useMemo(() => {
     const rows = scheduleSettingsQuery.data?.dates ?? [];
@@ -1041,7 +1041,7 @@ export function BookingExperience() {
   const toggleSlot = useCallback(
     (resourceId: number, resourceName: string, s: ScheduleTimeSlotDto) => {
       const key = slotControlKey(resourceId, s);
-      if (scheduleGridBlockedSlotKeys.has(key)) return;
+      if (reservedSlotKeysInCart.has(key) || requestedOrBookedSlotKeys.has(key)) return;
       setSelectedSlots((prev) => {
         if (prev.has(key)) {
           setSlotBarError(null);
@@ -1102,7 +1102,8 @@ export function BookingExperience() {
     [
       slotRules,
       entitlementAdjust,
-      scheduleGridBlockedSlotKeys,
+      reservedSlotKeysInCart,
+      requestedOrBookedSlotKeys,
       scheduleSettingsQuery.data,
       productsQuery.data,
       state?.productId,
@@ -2235,7 +2236,8 @@ export function BookingExperience() {
                 priceCurrency={slotPriceCurrency}
                 membershipGated={effectiveMembershipGated}
                 selectedKeys={selectedKeysSet}
-                reservedSlotKeys={scheduleGridBlockedSlotKeys}
+                reservedSlotKeys={reservedSlotKeysInCart}
+                requestedSlotKeys={requestedOrBookedSlotKeys}
                 onToggleSlot={toggleSlot}
                 adjustSlotUnitPrice={entitlementAdjust}
                 autoScrollKey={state.date ?? ""}
@@ -2253,7 +2255,8 @@ export function BookingExperience() {
                 priceCurrency={slotPriceCurrency}
                 membershipGated={effectiveMembershipGated}
                 selectedKeys={selectedKeysSet}
-                reservedSlotKeys={scheduleGridBlockedSlotKeys}
+                reservedSlotKeys={reservedSlotKeysInCart}
+                requestedSlotKeys={requestedOrBookedSlotKeys}
                 onToggleSlot={toggleSlot}
                 adjustSlotUnitPrice={entitlementAdjust}
               />
@@ -2579,6 +2582,18 @@ export function BookingExperience() {
               }
               return undefined;
             })();
+            const productNameByProductId =
+              typeof state.productId === "number" && state.productId > 0 && name.trim().length > 0
+                ? { [state.productId]: name.trim() }
+                : undefined;
+            const mergeProductNames = (siblings: SessionCartSnapshot[]) => {
+              const out: Record<number, string> = {};
+              for (const row of siblings) {
+                if (row.productNameByProductId) Object.assign(out, row.productNameByProductId);
+              }
+              if (productNameByProductId) Object.assign(out, productNameByProductId);
+              return Object.keys(out).length > 0 ? out : undefined;
+            };
             const mergeRequiredProductDetails = (siblings: SessionCartSnapshot[]) => {
               const out: Record<number, Record<string, unknown>> = {};
               for (const row of siblings) {
@@ -2666,6 +2681,7 @@ export function BookingExperience() {
                     return true;
                   });
                   const reservationGroups = mergeReservationGroups(siblings, bookingForLabel, newSlotKeys);
+                  const mergedProductNameByProductId = mergeProductNames(siblings);
                   const mergedRequiredProductDetailsById = mergeRequiredProductDetails(siblings);
                   const mergedProductDownpaymentByProductId = mergeProductDownpayments(siblings);
                   const mergedProductDiscountLabelByProductId = mergeProductDiscountLabels(siblings);
@@ -2702,6 +2718,7 @@ export function BookingExperience() {
                         : {}),
                       reservedSlotKeys: [...mergedKeys],
                       participantHasQualifyingMembership,
+                      ...(mergedProductNameByProductId != null ? { productNameByProductId: mergedProductNameByProductId } : {}),
                       ...(mergedRequiredProductDetailsById != null ? { requiredProductDetailsById: mergedRequiredProductDetailsById } : {}),
                       ...(mergedProductDownpaymentByProductId != null ? { productDownpaymentByProductId: mergedProductDownpaymentByProductId } : {}),
                       ...(mergedProductDiscountLabelByProductId != null ? { productDiscountLabelByProductId: mergedProductDiscountLabelByProductId } : {}),
@@ -2726,6 +2743,7 @@ export function BookingExperience() {
                       : {}),
                     reservedSlotKeys: newSlotKeys,
                     participantHasQualifyingMembership,
+                    ...(productNameByProductId != null ? { productNameByProductId } : {}),
                     ...(requiredProductDetailsById != null ? { requiredProductDetailsById } : {}),
                     ...(productDownpaymentByProductId != null ? { productDownpaymentByProductId } : {}),
                     ...(productDiscountLabelByProductId != null ? { productDiscountLabelByProductId } : {}),
