@@ -64,6 +64,7 @@ type Props = {
 };
 
 const RESOURCE_PREVIEW = 5;
+const ADDON_PREVIEW = 4;
 
 function ResourceStackIcon({ className }: { className?: string }) {
   return (
@@ -251,8 +252,8 @@ function AddonsGrouped({ addons }: { addons: PackageAddonLine[] }) {
       {groups.map((g) => {
         if (g.items.length === 0) return null;
         const isExpanded = expanded[g.key] ?? false;
-        const hiddenCount = Math.max(0, g.items.length - 1);
-        const shown = isExpanded ? g.items : g.items.slice(0, 1);
+        const hiddenCount = Math.max(0, g.items.length - ADDON_PREVIEW);
+        const shown = isExpanded ? g.items : g.items.slice(0, ADDON_PREVIEW);
         return (
           <div key={g.key} className="cb-detail-addon-group">
             <div className="cb-detail-addon-group-label">{addonLevelLabel(g.key)}</div>
@@ -430,6 +431,7 @@ export function ProductDetailModal({
       ariaLabel={tb("moreAboutProduct", { name: product.name })}
       rootClassName={`${appearanceClass} cb-product-detail-drawer-root`.trim()}
       panelClassName="cb-product-detail-drawer"
+      hideCloseButton
       onClose={onClose}
     >
       <div className="cb-product-detail">

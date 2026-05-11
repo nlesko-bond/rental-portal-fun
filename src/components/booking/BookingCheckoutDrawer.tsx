@@ -659,6 +659,7 @@ export function BookingCheckoutDrawer({
   /** Synced after `firstCheckoutStep` is computed — open-reset effect reads this so step matches forms/syncCart when needed. */
   const firstCheckoutStepRef = useRef<CheckoutStep>("addons");
   const checkoutContextKeyRef = useRef<string | null>(null);
+  const addonStepCompletedRef = useRef(false);
   /** Track which product the current `answers` belong to — only clear when product changes or after finalize. */
   const answersProductIdRef = useRef<number>(productId);
   /** Set after finalize succeeds so next re-open clears answers even for the same product. */
@@ -708,9 +709,10 @@ export function BookingCheckoutDrawer({
   useEffect(() => {
     if (!open) return;
     if (mode === "bag") return;
-    const checkoutContextKey = `${mode}:${productId}:${userId}:${pickedSlotContextKey}`;
+    const checkoutContextKey = `${mode}:${productId}:${userId}:${pickedSlotContextKey}:addons=${packageAddons.length}`;
     if (navigateToCheckoutStep != null) {
       checkoutContextKeyRef.current = checkoutContextKey;
+      addonStepCompletedRef.current = navigateToCheckoutStep !== "addons";
       setStep(navigateToCheckoutStep);
       skipNextCheckoutResetRef.current = true;
       onClearNavigateRef.current?.();
@@ -727,6 +729,7 @@ export function BookingCheckoutDrawer({
       return;
     }
     checkoutContextKeyRef.current = checkoutContextKey;
+    addonStepCompletedRef.current = false;
     setStep(firstCheckoutStepRef.current);
     // Only wipe answers when the product changed or after a completed booking — preserve them across close/edit-slots
     if (answersProductIdRef.current !== productId || answersStaleAfterFinalizeRef.current) {
@@ -742,7 +745,15 @@ export function BookingCheckoutDrawer({
     setSelectedPaymentMethodId(null);
     setFinalizeSuccess(null);
     setFinalizeCheckoutKind(null);
-  }, [open, productId, userId, mode, navigateToCheckoutStep, pickedSlotContextKey, step]);
+  }, [open, productId, userId, mode, navigateToCheckoutStep, pickedSlotContextKey, packageAddons.length, step]);
+
+  useEffect(() => {
+    if (!open || mode !== "checkout") return;
+    if (packageAddons.length === 0) return;
+    if (addonStepCompletedRef.current) return;
+    if (step === "addons") return;
+    setStep("addons");
+  }, [open, mode, packageAddons.length, step]);
 
   /** Switching “booking for” re-fetches required products; clear membership selection for the new person. */
   const bookingForUserIdRef = useRef(userId);
@@ -1447,6 +1458,7 @@ export function BookingCheckoutDrawer({
   const goNextFromAddons = useCallback(() => {
     if (!canProceedAddons) return;
     if (requiredQuery.isPending) return;
+    addonStepCompletedRef.current = true;
     if (membershipOptionsForStep.length > 0 && !membershipSelectionResolved) {
       setStep("membership");
       return;
@@ -4180,9 +4192,9 @@ export function BookingCheckoutDrawer({
                 <p className="cb-checkout-extras-hero-sub cb-muted text-sm">{tAddons("panelHeading")}</p>
               </div>
             ) : null}
-            {packageAddons.length > 0 ? (
+            {packageAddons.length > 0 && selectedAddonIds.size > 0 ? (
               <p className="cb-checkout-hint">
-                {selectedAddonIds.size > 0 ? tx("addonsHintWithSelection") : tx("addonsHintOptional")}
+                {tx("addonsHintWithSelection")}
               </p>
             ) : otherRequired.length > 0 ? (
               <p className="cb-checkout-hint">{tx("requiredConfirmHint")}</p>
@@ -4244,6 +4256,7 @@ export function BookingCheckoutDrawer({
                   pickedSlots={pickedSlots}
                   formatPrice={formatPrice}
                   omitPanelHeading
+                  reservationPriceUnit="booking"
                 />
               </div>
             ) : packageAddons.length > 0 && pickedSlots.length === 0 ? (

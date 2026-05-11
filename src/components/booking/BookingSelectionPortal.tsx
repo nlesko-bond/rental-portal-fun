@@ -81,6 +81,7 @@ export function BookingSelectionPortal({
   /** Show draft slot CTA whenever slots are selected; cart FAB still opens bag when there are saved bookings. */
   const showSlotBar = slotCount > 0;
   const primaryActionLabel = t("booking.slotsSelectedCompleteBooking", { count: slotCount });
+  const primaryActionMobileLabel = t("booking.slotsSelectedCheckout", { count: slotCount });
   const fabOpensBag = cartSessionCount > 0 && onOpenCart != null;
   const fabOpensCheckout = slotCount > 0 && onBook != null;
   const fabClickable = fabOpensBag || fabOpensCheckout;
@@ -151,7 +152,10 @@ export function BookingSelectionPortal({
                   aria-busy={bookBusy ? true : undefined}
                   onClick={onBook}
                 >
-                  <CbBusyInline busy={Boolean(bookBusy)}>{primaryActionLabel}</CbBusyInline>
+                  <CbBusyInline busy={Boolean(bookBusy)}>
+                    <span className="cb-selection-cta-label cb-selection-cta-label--desktop">{primaryActionLabel}</span>
+                    <span className="cb-selection-cta-label cb-selection-cta-label--mobile">{primaryActionMobileLabel}</span>
+                  </CbBusyInline>
                 </button>
               </div>
             </div>

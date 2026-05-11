@@ -132,7 +132,8 @@ import { BookingCheckoutDrawer, type CheckoutStep } from "./BookingCheckoutDrawe
 import { WelcomeToast } from "@/components/ui/WelcomeToast";
 
 const PRODUCTS_PAGE_SIZE = 30;
-const SOLO_ADDON_PREVIEW_COUNT = 3;
+const SOLO_ADDON_PREVIEW_COUNT = 2;
+const SOLO_RESOURCE_PREVIEW_COUNT = 3;
 const MINUTES_PER_HOUR = 60;
 const RESUME_CHECKOUT_AFTER_AUTH_KEY = "cb:resume-checkout-after-auth";
 
@@ -1477,10 +1478,8 @@ export function BookingExperience() {
   const slotPriceCurrency = selectedProduct?.prices[0]?.currency ?? null;
   const ADDONS_PAGE = 10;
   const packageAddonsVisible = addonsExpanded ? packageAddons : packageAddons.slice(0, ADDONS_PAGE);
-  const portalPackageAddons = packageAddons.filter((addon) => addon.level !== "reservation");
-  const portalPackageAddonsVisible = addonsExpanded ? portalPackageAddons : portalPackageAddons.slice(0, ADDONS_PAGE);
   const showAddonPanel =
-    state.productId != null && portalPackageAddons.length > 0 && selectedSlots.size > 0;
+    state.productId != null && packageAddons.length > 0 && selectedSlots.size > 0;
   const setFacility = (facilityId: number) => {
     setPreferredStartTime(null);
     clearSlotSelection();
@@ -1670,8 +1669,8 @@ export function BookingExperience() {
         <div className="flex flex-col gap-3">
         <section aria-labelledby="products-heading" className="text-left">
           <h2 id="products-heading" className="cb-section-title">
-            {tb("selectService")}
-            {productListTotal != null && productListTotal > 0 ? (
+            {soloProduct ? "\u00A0" : tb("selectService")}
+            {!soloProduct && productListTotal != null && productListTotal > 0 ? (
               <span className="cb-section-title-count"> ({productListTotal})</span>
             ) : null}
           </h2>
@@ -1811,6 +1810,7 @@ export function BookingExperience() {
           {soloProduct ? (
             <aside className="cb-product-solo-info" aria-label={tb("productDetailAbout")}>
               <div className="cb-product-solo-info-head">
+                <span className="cb-product-solo-info-kicker">You&apos;re booking</span>
                 <h3 className="cb-product-solo-info-title">{soloProduct.name}</h3>
               </div>
               {soloProductDescriptionHtml ? (
@@ -1832,37 +1832,40 @@ export function BookingExperience() {
                     : productPriceRangeForDuration(soloProduct, selectedDuration);
                   const hasPeakPricing = productHasVariableSchedulePricing(soloProduct);
                   return (
-                    <div className="cb-product-solo-info-row">
-                      <span className="cb-product-solo-info-row-icon" aria-hidden>
-                        <IconDollarDetail className="size-4" />
-                      </span>
-                      <span className="cb-product-solo-info-row-copy">
-                        <span className="cb-product-solo-info-row-label">{tb("productDetailPrice")}</span>
-                        <span
-                          className="cb-product-solo-info-row-value cb-product-solo-info-price"
-                          title={hasPeakPricing ? tx("peakPricingHint") : undefined}
-                        >
+                    <div className="cb-product-solo-info-meta-row">
+                      <span className="cb-product-solo-info-meta-pill">
+                        <span className="cb-product-solo-info-meta-value">
+                          <span className="cb-product-solo-info-meta-label">From</span>
                           {priceLabel}
                           {hasPeakPricing ? <IconPeakTrend className="cb-product-solo-info-peak" aria-hidden /> : null}
                         </span>
-                        {hasPeakPricing ? <span className="sr-only">{tx("peakPricingHint")}</span> : null}
                       </span>
+                      {categoryApprovalRequired ? (
+                        <span className="cb-product-solo-info-pill cb-product-solo-info-pill--approval" aria-label={tx("approvalRequiredPill")}>
+                          <span className="cb-product-solo-info-pill-dot" aria-hidden />
+                          {tx("approvalRequiredPill")}
+                        </span>
+                      ) : null}
+                        {hasPeakPricing ? <span className="sr-only">{tx("peakPricingHint")}</span> : null}
                     </div>
                   );
                 })()}
                 {(() => {
                   const resources = scheduleSettingsQuery.data?.resources ?? [];
                   if (resources.length === 0) return null;
-                  const names = resources.map((r) => r.name).join(", ");
+                  const names = resources.map((r) => r.name);
+                  const shown = names.slice(0, SOLO_RESOURCE_PREVIEW_COUNT);
+                  const more = names.length > SOLO_RESOURCE_PREVIEW_COUNT ? names.length - SOLO_RESOURCE_PREVIEW_COUNT : 0;
+                  const resourceLabel = names.length === 1 ? "Room" : "Rooms";
                   return (
-                    <div className="cb-product-solo-info-row">
-                      <span className="cb-product-solo-info-row-icon" aria-hidden>
-                        <IconClockDetail className="size-4" />
-                      </span>
-                      <span className="cb-product-solo-info-row-copy">
-                        <span className="cb-product-solo-info-row-label">{tb("productDetailResources")}</span>
-                        <span className="cb-product-solo-info-row-value" title={names}>{names}</span>
-                      </span>
+                    <div className="cb-product-solo-info-pill-section">
+                        <span className="cb-product-solo-info-row-label">{resourceLabel}</span>
+                        <span className="cb-product-solo-info-pill-list" title={names.join(", ")}>
+                          {shown.map((name, index) => (
+                            <span key={`${name}-${index}`} className="cb-product-solo-info-mini-pill">{name}</span>
+                          ))}
+                          {more > 0 ? <span className="cb-product-solo-info-mini-pill">+{more} more</span> : null}
+                        </span>
                     </div>
                   );
                 })()}
@@ -1880,22 +1883,27 @@ export function BookingExperience() {
                 {(() => {
                   const addons = bookingOptionalAddons(soloProduct);
                   if (addons.length === 0) return null;
-                  const names = addons
-                    .slice(0, SOLO_ADDON_PREVIEW_COUNT)
-                    .map((a) => a.name)
-                    .join(", ");
-                  const more = addons.length > SOLO_ADDON_PREVIEW_COUNT ? ` +${addons.length - SOLO_ADDON_PREVIEW_COUNT}` : "";
+                  const names = addons.map((a) => a.name);
+                  const shown = names.slice(0, SOLO_ADDON_PREVIEW_COUNT);
+                  const more = names.length > SOLO_ADDON_PREVIEW_COUNT ? names.length - SOLO_ADDON_PREVIEW_COUNT : 0;
                   return (
-                    <div className="cb-product-solo-info-row">
-                      <span className="cb-product-solo-info-row-icon" aria-hidden>
-                        <IconPassTicket className="size-4" />
-                      </span>
-                      <span className="cb-product-solo-info-row-copy">
+                    <div className="cb-product-solo-info-pill-section cb-product-solo-info-pill-section--addons">
                         <span className="cb-product-solo-info-row-label">{tb("productDetailAvailableAddons")}</span>
-                        <span className="cb-product-solo-info-row-value" title={addons.map((a) => a.name).join(", ")}>
-                          {names}{more}
+                        <span className="cb-product-solo-info-pill-list" title={names.join(", ")}>
+                          {shown.map((name, index) => (
+                            <span key={`${name}-${index}`} className="cb-product-solo-info-mini-pill">{name}</span>
+                          ))}
+                          {more > 0 ? (
+                            <button
+                              type="button"
+                              className="cb-product-solo-info-mini-pill cb-product-solo-info-mini-pill--button"
+                              aria-label={`Open add-on details for ${soloProduct.name}`}
+                              onClick={() => setProductInfoId(soloProduct.id)}
+                            >
+                              +{more} more
+                            </button>
+                          ) : null}
                         </span>
-                      </span>
                     </div>
                   );
                 })()}
@@ -1903,7 +1911,7 @@ export function BookingExperience() {
             </aside>
           ) : null}
           </div>
-          {categoryApprovalRequired ? (
+          {categoryApprovalRequired && !soloProduct ? (
             <p className="cb-services-approval-note" role="note">
               <svg className="cb-services-approval-note-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
                 <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.8" />
@@ -2256,11 +2264,11 @@ export function BookingExperience() {
         </div>
           {showAddonPanel ? (
             <BookingAddonPanel
-              visibleAddons={portalPackageAddonsVisible}
-              hasMoreAddons={portalPackageAddons.length > ADDONS_PAGE}
+              visibleAddons={packageAddonsVisible}
+              hasMoreAddons={packageAddons.length > ADDONS_PAGE}
               addonsExpanded={addonsExpanded}
               onToggleExpand={() => setAddonsExpanded((x) => !x)}
-              moreCount={portalPackageAddons.length - ADDONS_PAGE}
+              moreCount={packageAddons.length - ADDONS_PAGE}
               selectedAddonIds={selectedAddonIds}
               addonQuantities={addonQuantities}
               addonSlotQuantities={addonSlotQuantities}
@@ -2272,6 +2280,7 @@ export function BookingExperience() {
               onToggleAddonSlot={onToggleAddonSlot}
               pickedSlots={pickedSlotsOrdered}
               formatPrice={formatPrice}
+              showDescriptions
             />
           ) : null}
           </div>

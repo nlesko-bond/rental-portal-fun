@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { getEffectiveAddonSlotKeys } from "@/lib/addon-slot-targeting";
 import type { PackageAddonLine } from "@/lib/product-package-addons";
-import { addonPriceSuffixForLevel, resolveAddonDisplayPrice } from "@/lib/product-package-addons";
+import { addonPriceSuffixForLevel, plainAddonDescription, resolveAddonDisplayPrice } from "@/lib/product-package-addons";
 import type { PickedSlot } from "@/lib/slot-selection";
 import { formatPickedSlotTimeRange } from "./booking-slot-labels";
 
@@ -31,6 +31,8 @@ type Props = {
   formatPrice: (amount: number, currency: string) => string;
   /** Hide the panel-level heading; subsection headings still render. Used by the checkout step. */
   omitPanelHeading?: boolean;
+  showDescriptions?: boolean;
+  reservationPriceUnit?: "reservation" | "booking";
 };
 
 const ADDON_MAX_QTY = 50;
@@ -91,6 +93,8 @@ type ReservationCardProps = {
   onSetQty?: (id: number, qty: number) => void;
   formatPrice: (amount: number, currency: string) => string;
   qtyAria: string;
+  showDescription: boolean;
+  reservationPriceUnit: "reservation" | "booking";
 };
 
 function ReservationAddonCard({
@@ -101,11 +105,14 @@ function ReservationAddonCard({
   onSetQty,
   formatPrice,
   qtyAria,
+  showDescription,
+  reservationPriceUnit,
 }: ReservationCardProps) {
   const resolved = resolveAddonDisplayPrice(addon);
   const priceLabel = resolved
-    ? `${formatPrice(resolved.price, resolved.currency)}${addonPriceSuffixForLevel(addon.level)}`
+    ? `${formatPrice(resolved.price, resolved.currency)} / ${reservationPriceUnit}`
     : null;
+  const description = showDescription ? plainAddonDescription(addon.description) : undefined;
 
   return (
     <div
@@ -120,10 +127,13 @@ function ReservationAddonCard({
       }}
       aria-pressed={selected}
       title={addon.name}
-      className={`cb-addon-card-v2 ${selected ? "cb-addon-card-v2--selected" : ""}`}
+      className={`cb-addon-card-v2 ${showDescription ? "cb-addon-card-v2--with-desc" : ""} ${selected ? "cb-addon-card-v2--selected" : ""}`}
     >
       <div className="cb-addon-card-v2-body">
-        <p className="cb-addon-card-v2-title" title={addon.name}>{addon.name}</p>
+        <span className="cb-addon-card-v2-copy">
+          <span className="cb-addon-card-v2-title" title={addon.name}>{addon.name}</span>
+          {description ? <span className="cb-addon-card-v2-desc">{description}</span> : null}
+        </span>
         {priceLabel ? <p className="cb-addon-card-v2-price">${priceLabel.replace(/^\$/, "")}</p> : null}
       </div>
       {selected && onSetQty ? (
@@ -345,6 +355,8 @@ export function BookingAddonPanel({
   pickedSlots,
   formatPrice,
   omitPanelHeading = false,
+  showDescriptions = false,
+  reservationPriceUnit = "reservation",
 }: Props) {
   const ta = useTranslations("addons");
   const allSlotKeys = pickedSlots.map((s) => s.key);
@@ -401,6 +413,8 @@ export function BookingAddonPanel({
                 onSetQty={onSetAddonQty}
                 formatPrice={formatPrice}
                 qtyAria={ta("qtyForAria", { name: a.name })}
+                showDescription={showDescriptions}
+                reservationPriceUnit={reservationPriceUnit}
               />
             );
           })}
@@ -471,9 +485,15 @@ export function BookingAddonPanel({
     );
   };
 
+  const panelClasses = [
+    "cb-addon-panel-v2",
+    showDescriptions ? "cb-addon-panel-v2--with-desc" : "",
+    "text-left",
+  ].filter(Boolean).join(" ");
+
   return (
     <section
-      className="cb-addon-panel-v2 text-left"
+      className={panelClasses}
       aria-label={omitPanelHeading ? ta("panelHeading") : undefined}
       {...(omitPanelHeading ? {} : { "aria-labelledby": "addons-heading" })}
     >

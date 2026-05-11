@@ -54,6 +54,7 @@
     "breadcrumbLabel": "Booking context",
     "selectService": "Select a service",
     "slotsSelectedCompleteBooking": "{count, plural, one {# slot selected — Complete booking} other {# slots selected — Complete booking}}",
+    "slotsSelectedCheckout": "{count, plural, one {# slot - Checkout} other {# slots - Checkout}}",
     "loadingPortal": "Cooking up some rentals for you…",
     "loadingSlots": "Cooking up some fresh slots…",
     "loadingScheduleSettings": "Syncing open dates…",
