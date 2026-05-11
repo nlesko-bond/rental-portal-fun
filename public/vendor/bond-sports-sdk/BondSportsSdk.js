@@ -15827,6 +15827,25 @@ var BondSportsSdk = (() => {
       }
     }
     /**
+     * Returns the Bond user ID from the stored ID token (`custom:userId` claim).
+     *
+     * @returns The user ID string from the ID token payload.
+     * @throws {Error} If no ID token is available.
+     * @throws {Error} If the ID token payload has no `custom:userId` claim.
+     */
+    async getUserId() {
+      await this.tokensLoadPromise;
+      if (!this.idToken) {
+        throw new Error(BondSportsApiErrors.missingIdToken);
+      }
+      const claims = this.decodeJwt(this.idToken);
+      const userId = claims["custom:userId"];
+      if (!userId) {
+        throw new Error(BondSportsApiErrors.missingUserIdClaim);
+      }
+      return userId;
+    }
+    /**
      * Returns `true` when the current access token is absent or its expiry
      * timestamp has already passed.
      */
@@ -15834,19 +15853,17 @@ var BondSportsSdk = (() => {
       return !this.expirationTime || this.expirationTime < Date.now();
     }
     /**
-     * Updates the authenticated user's profile with the provided birth date and
-     * gender, then refreshes the session tokens so that updated JWT claims are
-     * reflected immediately.
+     * Updates the authenticated user's profile, then refreshes the session
+     * tokens so that updated JWT claims are reflected immediately.
      *
-     * @param birthDate - The user's date of birth in `YYYY-MM-DD` format.
-     * @param gender - The user's gender ({@link UserGenderEnum}).
+     * @param payload - Optional profile fields to update.
      * @returns The parsed JSON body of the API response.
      * @throws {Error} If `birthDate` is not in `YYYY-MM-DD` format.
      * @throws {Error} If either the access token or the ID token is unavailable.
      */
-    async updateProfileDetails(birthDate, gender) {
+    async updateProfileDetails(payload = {}) {
       await this.tokensLoadPromise;
-      if (!this.isValidBirthDate(birthDate)) {
+      if (payload.birthDate !== void 0 && !this.isValidBirthDate(payload.birthDate)) {
         throw new Error(BondSportsApiErrors.invalidBirthDateFormat);
       }
       if (this.isAccessTokenExpired() && this.refreshToken) {
@@ -15860,10 +15877,12 @@ var BondSportsSdk = (() => {
       if (!userId) {
         throw new Error(BondSportsApiErrors.missingUserIdClaim);
       }
-      const payload = {
+      const requestPayload = {
         profile: {
-          birthDate,
-          gender
+          firstName: payload.firstName,
+          lastName: payload.lastName,
+          birthDate: payload.birthDate,
+          gender: payload.gender
         },
         skipUpdateNotification: true
       };
@@ -15876,7 +15895,7 @@ var BondSportsSdk = (() => {
           "X-BondUserAccessToken": this.accessToken,
           "X-BondUserIdToken": this.idToken
         },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(requestPayload)
       });
       if (response.ok) {
         await this.refreshTokens();

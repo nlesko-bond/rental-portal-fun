@@ -3,4 +3,10 @@ export declare enum UserGenderEnum {
     MALE = 2,
     FEMALE = 3
 }
+export type UpdateProfileDetailsPayload = {
+    firstName?: string;
+    lastName?: string;
+    birthDate?: string;
+    gender?: UserGenderEnum;
+};
 export { UserGenderEnum as UserGender };

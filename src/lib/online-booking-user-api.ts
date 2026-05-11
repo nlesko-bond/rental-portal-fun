@@ -26,6 +26,32 @@ export async function fetchCurrentBondUser(
   return bondBffGetJson<BondUserDto>(path, q);
 }
 
+export type CreateFamilyMemberGender = "other" | "male" | "female";
+
+export type CreateFamilyMemberPayload = {
+  firstName: string;
+  lastName: string;
+  birthDate?: string;
+  gender?: CreateFamilyMemberGender;
+  email?: string;
+  phoneNumber?: string;
+};
+
+export type CreateFamilyMembersResponse = {
+  data: BondUserDto[];
+};
+
+export async function createFamilyMembers(
+  orgId: number,
+  members: CreateFamilyMemberPayload[]
+): Promise<BondUserDto[]> {
+  const path = [...orgBase(orgId), "user", "family", "members"];
+  const q = new URLSearchParams();
+  q.append("expand", "address");
+  const response = await bondBffPostJson<CreateFamilyMembersResponse>(path, { members }, q);
+  return Array.isArray(response.data) ? response.data : [];
+}
+
 /**
  * `GET .../online-booking/user/{userId}/booking-information`
  */

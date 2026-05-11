@@ -18,7 +18,7 @@ function formatSlotRange12h(startTime: string, endTime: string): string {
     const ap = h >= 12 ? "PM" : "AM";
     h = h % 12;
     if (h === 0) h = 12;
-    return `${h}:${min}${ap}`;
+    return min === "00" ? `${h}${ap}` : `${h}:${min}${ap}`;
   };
   /* Non-breaking spaces so the range stays on one line inside the slot */
   return `${fmt(startTime)}\u00A0–\u00A0${fmt(endTime)}`;
@@ -193,7 +193,7 @@ export function ScheduleCalendarView({
       map.set(t, list);
     }
     return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
-  }, [schedule]);
+  }, [sortedResources]);
 
   const showTypeHeadings = grouped.length > 1;
 
@@ -288,7 +288,7 @@ export function ScheduleCalendarView({
       {multiResource ? (
         <>
           <h3 id="cb-resource-picker-title" className="cb-resource-picker-title">
-            Select a resource ({sortedResources.length} available)
+            Available spaces ({sortedResources.length})
           </h3>
           <div
             className={

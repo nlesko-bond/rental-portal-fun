@@ -108,7 +108,7 @@ export function LoginModal({ orgName, orgLogoUrl }: LoginModalProps = {}) {
     }
     setBusy(true);
     const birthDate = formatBirthDate(birthYear, birthMonth, birthDay);
-    const result = await completeProfile(birthDate, PROFILE_GENDER_VALUES[gender]);
+    const result = await completeProfile({ birthDate, gender: PROFILE_GENDER_VALUES[gender] });
     if (!result.ok) {
       setError(result.message);
       setBusy(false);

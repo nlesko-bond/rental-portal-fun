@@ -1,7 +1,7 @@
 import { OAuthConfig } from "./types/oauth";
 import { Configuration } from './source-sdk';
 import type { BondJwtClaims } from "./types/jwt";
-import { UserGenderEnum } from "./types/profile";
+import type { UpdateProfileDetailsPayload } from "./types/profile";
 export declare class BondSportsApi {
     private oauthConfig;
     private apiKey;
@@ -56,22 +56,28 @@ export declare class BondSportsApi {
      */
     decodeJwt(token: string): BondJwtClaims;
     /**
+     * Returns the Bond user ID from the stored ID token (`custom:userId` claim).
+     *
+     * @returns The user ID string from the ID token payload.
+     * @throws {Error} If no ID token is available.
+     * @throws {Error} If the ID token payload has no `custom:userId` claim.
+     */
+    getUserId(): Promise<string>;
+    /**
      * Returns `true` when the current access token is absent or its expiry
      * timestamp has already passed.
      */
     isAccessTokenExpired(): boolean;
     /**
-     * Updates the authenticated user's profile with the provided birth date and
-     * gender, then refreshes the session tokens so that updated JWT claims are
-     * reflected immediately.
+     * Updates the authenticated user's profile, then refreshes the session
+     * tokens so that updated JWT claims are reflected immediately.
      *
-     * @param birthDate - The user's date of birth in `YYYY-MM-DD` format.
-     * @param gender - The user's gender ({@link UserGenderEnum}).
+     * @param payload - Optional profile fields to update.
      * @returns The parsed JSON body of the API response.
      * @throws {Error} If `birthDate` is not in `YYYY-MM-DD` format.
      * @throws {Error} If either the access token or the ID token is unavailable.
      */
-    updateProfileDetails(birthDate: string, gender: UserGenderEnum): Promise<any>;
+    updateProfileDetails(payload?: UpdateProfileDetailsPayload): Promise<any>;
     private tokensStore;
     private tokensStoreAfterRefresh;
     private tokensStoreInternal;

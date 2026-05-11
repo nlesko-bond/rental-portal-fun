@@ -51,6 +51,7 @@ import {
   isMembershipRequiredProduct,
   membershipDisplaySummary,
   parseExtendedRequiredProductsList,
+  parseProductRequiredProducts,
   partitionMembershipVsOtherRequired,
   primaryListPrice,
   unitPriceForRequiredProductInTree,
@@ -648,6 +649,7 @@ export function BookingCheckoutDrawer({
   const skipNextCheckoutResetRef = useRef(false);
   /** Synced after `firstCheckoutStep` is computed — open-reset effect reads this so step matches forms/syncCart when needed. */
   const firstCheckoutStepRef = useRef<CheckoutStep>("addons");
+  const checkoutContextKeyRef = useRef<string | null>(null);
   /** Track which product the current `answers` belong to — only clear when product changes or after finalize. */
   const answersProductIdRef = useRef<number>(productId);
   /** Set after finalize succeeds so next re-open clears answers even for the same product. */
@@ -692,7 +694,9 @@ export function BookingCheckoutDrawer({
   useEffect(() => {
     if (!open) return;
     if (mode === "bag") return;
+    const checkoutContextKey = `${mode}:${productId}:${userId}`;
     if (navigateToCheckoutStep != null) {
+      checkoutContextKeyRef.current = checkoutContextKey;
       setStep(navigateToCheckoutStep);
       skipNextCheckoutResetRef.current = true;
       onClearNavigateRef.current?.();
@@ -702,6 +706,10 @@ export function BookingCheckoutDrawer({
       skipNextCheckoutResetRef.current = false;
       return;
     }
+    if (checkoutContextKeyRef.current === checkoutContextKey && !answersStaleAfterFinalizeRef.current) {
+      return;
+    }
+    checkoutContextKeyRef.current = checkoutContextKey;
     setStep(firstCheckoutStepRef.current);
     // Only wipe answers when the product changed or after a completed booking — preserve them across close/edit-slots
     if (answersProductIdRef.current !== productId || answersStaleAfterFinalizeRef.current) {
@@ -717,7 +725,7 @@ export function BookingCheckoutDrawer({
     setSelectedPaymentMethodId(null);
     setFinalizeSuccess(null);
     setFinalizeCheckoutKind(null);
-  }, [open, productId, mode, navigateToCheckoutStep]);
+  }, [open, productId, userId, mode, navigateToCheckoutStep]);
 
   /** Switching “booking for” re-fetches required products; clear membership selection for the new person. */
   const bookingForUserIdRef = useRef(userId);
@@ -752,9 +760,11 @@ export function BookingCheckoutDrawer({
       (step === "addons" || step === "membership" || step === "forms"),
   });
 
+  const productRequiredList = useMemo(() => parseProductRequiredProducts(product), [product]);
+  const userRequiredList = useMemo(() => parseExtendedRequiredProductsList(requiredQuery.data), [requiredQuery.data]);
   const extendedRequiredList = useMemo(
-    () => parseExtendedRequiredProductsList(requiredQuery.data),
-    [requiredQuery.data]
+    () => (productRequiredList.length > 0 ? productRequiredList : userRequiredList),
+    [productRequiredList, userRequiredList]
   );
 
   const { membershipOptions, otherRequired } = useMemo(() => {
@@ -978,12 +988,6 @@ export function BookingCheckoutDrawer({
     pruneSatisfiedAddonsRef.current = onPruneSatisfiedAddonProductIds;
     firstCheckoutStepRef.current = firstCheckoutStep;
   }, [onClearNavigateToCheckoutStep, onPruneSatisfiedAddonProductIds, firstCheckoutStep]);
-
-  /** When the drawer closes, drop back to the first checkout step so the next open isn’t stuck on sync/payment after the bag. */
-  useEffect(() => {
-    if (open) return;
-    setStep(firstCheckoutStep);
-  }, [open, firstCheckoutStep]);
 
   const preCheckoutSteps = useMemo(() => {
     const s: CheckoutStep[] = [];

@@ -9,8 +9,7 @@ import { slotControlKey } from "@/lib/slot-selection";
 import { IconPeakTrend } from "./booking-icons";
 import { SlotMemberPriceLabel } from "./SlotMemberPriceLabel";
 
-function formatTime12hFromKey(timeKey: string): string {
-  const hhmm = timeKey.slice(11, 16);
+function formatTime12h(hhmm: string): string {
   const m = hhmm.match(/^(\d{2}):(\d{2})$/);
   if (!m) return hhmm;
   let h = Number(m[1]);
@@ -18,11 +17,15 @@ function formatTime12hFromKey(timeKey: string): string {
   const ap = h >= 12 ? "PM" : "AM";
   h = h % 12;
   if (h === 0) h = 12;
-  return `${h}:${min}${ap}`;
+  return min === "00" ? `${h}${ap}` : `${h}:${min}${ap}`;
+}
+
+function formatTime12hFromKey(timeKey: string): string {
+  return formatTime12h(timeKey.slice(11, 16));
 }
 
 function slotTitle(slot: { startTime: string; endTime: string }): string {
-  return `${slot.startTime.slice(0, 5)}–${slot.endTime.slice(0, 5)}`;
+  return `${formatTime12h(slot.startTime.slice(0, 5))}–${formatTime12h(slot.endTime.slice(0, 5))}`;
 }
 
 function matrixTierClassName(t: SlotPriceTier): string {

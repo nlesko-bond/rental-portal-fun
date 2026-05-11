@@ -92,6 +92,15 @@ export type RequiredProductRefDto = {
   prices?: SimplePriceDto[];
   /** e.g. `membership` when gated by membership */
   productType?: string;
+  productSubType?: string;
+  required?: boolean;
+  isGated?: boolean;
+  membershipType?: string;
+  durationMonths?: number;
+  customerTypes?: string[];
+  resource?: Record<string, unknown>;
+  membership?: Record<string, unknown>;
+  requiredProducts?: RequiredProductRefDto[];
 };
 
 export type ExtendedProductDto = {

@@ -28,5 +28,5 @@ export function parseProductFormIds(product: ExtendedProductDto | undefined): nu
   pushParsedIds(product.forms, into);
   pushParsedIds(product.questionnaireIds, into);
   pushParsedIds(product.questionnairesIds, into);
-  return [...into].sort((a, b) => a - b);
+  return [...into];
 }

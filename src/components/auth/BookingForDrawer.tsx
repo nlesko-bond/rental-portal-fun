@@ -5,13 +5,34 @@ import { useTranslations } from "next-intl";
 import { useBookingAppearanceClass } from "@/hooks/useBookingAppearanceClass";
 import { RightDrawer } from "@/components/ui/RightDrawer";
 import type { BookingPartyMember } from "@/lib/booking-party-options";
+import type { CreateFamilyMemberGender, CreateFamilyMemberPayload } from "@/lib/online-booking-user-api";
+import type { BondUserDto } from "@/lib/bond-user-types";
+
+type FamilyFormState = {
+  firstName: string;
+  lastName: string;
+  gender: CreateFamilyMemberGender | "";
+  birthDate: string;
+  email: string;
+  phoneNumber: string;
+};
+
+const EMPTY_FAMILY_FORM: FamilyFormState = {
+  firstName: "",
+  lastName: "",
+  gender: "",
+  birthDate: "",
+  email: "",
+  phoneNumber: "",
+};
 
 type Props = {
   open: boolean;
   onClose: () => void;
   members: BookingPartyMember[];
   value: number | null;
-  onConfirm: (userId: number) => void;
+  onConfirm: (userId: number, options?: { keepSlots?: boolean }) => void;
+  onCreateFamilyMember?: (payload: CreateFamilyMemberPayload) => Promise<BondUserDto>;
   /** True while `GET .../user?expand=family` is in flight after login */
   profileLoading?: boolean;
 };
@@ -22,20 +43,68 @@ export function BookingForDrawer({
   members,
   value,
   onConfirm,
+  onCreateFamilyMember,
   profileLoading = false,
 }: Props) {
   const tb = useTranslations("booking");
   const appearanceClass = useBookingAppearanceClass();
   const [sel, setSel] = useState<number | null>(value);
   const [showAddFamily, setShowAddFamily] = useState(false);
+  const [familyForm, setFamilyForm] = useState<FamilyFormState>(EMPTY_FAMILY_FORM);
+  const [familyError, setFamilyError] = useState<string | null>(null);
+  const [familySubmitting, setFamilySubmitting] = useState(false);
   useEffect(() => {
     if (open) {
       setSel(value);
       setShowAddFamily(false);
+      setFamilyForm(EMPTY_FAMILY_FORM);
+      setFamilyError(null);
+      setFamilySubmitting(false);
     }
   }, [open, value]);
 
   const canSubmit = !profileLoading && sel != null && members.some((m) => m.id === sel);
+  const canCreateFamilyMember =
+    onCreateFamilyMember != null &&
+    familyForm.firstName.trim().length > 0 &&
+    familyForm.lastName.trim().length > 0 &&
+    familyForm.gender !== "" &&
+    familyForm.birthDate.trim().length > 0 &&
+    !familySubmitting;
+
+  const updateFamilyForm = (key: keyof FamilyFormState, value: string) => {
+    setFamilyForm((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const submitFamilyMember = async () => {
+    if (!canCreateFamilyMember || onCreateFamilyMember == null) return;
+    if (familyForm.gender === "") return;
+    const payload: CreateFamilyMemberPayload = {
+      firstName: familyForm.firstName.trim(),
+      lastName: familyForm.lastName.trim(),
+      birthDate: familyForm.birthDate,
+      gender: familyForm.gender,
+      ...(familyForm.email.trim() ? { email: familyForm.email.trim() } : {}),
+      ...(familyForm.phoneNumber.trim() ? { phoneNumber: familyForm.phoneNumber.trim() } : {}),
+    };
+    setFamilySubmitting(true);
+    setFamilyError(null);
+    try {
+      const created = await onCreateFamilyMember(payload);
+      const id = typeof created.id === "number" && Number.isFinite(created.id) ? created.id : null;
+      if (id != null) {
+        setSel(id);
+        onConfirm(id, { keepSlots: true });
+        onClose();
+      }
+      setFamilyForm(EMPTY_FAMILY_FORM);
+      setShowAddFamily(false);
+    } catch (err) {
+      setFamilyError(err instanceof Error ? err.message : "Could not add family member.");
+    } finally {
+      setFamilySubmitting(false);
+    }
+  };
 
   return (
     <RightDrawer
@@ -46,7 +115,13 @@ export function BookingForDrawer({
       panelClassName={`consumer-booking ${appearanceClass} cb-booking-for-drawer`.trim()}
     >
       {showAddFamily ? (
-        <div className="cb-family-placeholder">
+        <form
+          className="cb-family-placeholder"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void submitFamilyMember();
+          }}
+        >
           <div className="cb-family-placeholder-head">
             <div className="cb-family-placeholder-icon" aria-hidden>
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
@@ -59,22 +134,68 @@ export function BookingForDrawer({
             <p className="cb-family-placeholder-sub">{tb("addFamilyMemberSubtitle")}</p>
           </div>
           <div className="cb-family-placeholder-fields">
-            <PlaceholderField label={tb("firstName")} placeholder={tb("enterName")} required />
-            <PlaceholderField label={tb("lastName")} placeholder={tb("enterName")} required />
-            <PlaceholderField label={tb("gender")} placeholder={tb("selectGender")} required dropdown />
-            <PlaceholderField label={tb("dateOfBirth")} placeholder={tb("datePlaceholder")} required />
-            <PlaceholderField label={tb("email")} placeholder={tb("enterEmail")} />
-            <PlaceholderField label={tb("phoneNumber")} placeholder={tb("enterPhoneNumber")} />
+            <FamilyInput
+              label={tb("firstName")}
+              value={familyForm.firstName}
+              onChange={(value) => updateFamilyForm("firstName", value)}
+              placeholder={tb("enterName")}
+              required
+            />
+            <FamilyInput
+              label={tb("lastName")}
+              value={familyForm.lastName}
+              onChange={(value) => updateFamilyForm("lastName", value)}
+              placeholder={tb("enterName")}
+              required
+            />
+            <FamilySelect
+              label={tb("gender")}
+              value={familyForm.gender}
+              onChange={(value) => updateFamilyForm("gender", value)}
+              placeholder={tb("selectGender")}
+              required
+            />
+            <FamilyInput
+              label={tb("dateOfBirth")}
+              value={familyForm.birthDate}
+              onChange={(value) => updateFamilyForm("birthDate", value)}
+              placeholder={tb("datePlaceholder")}
+              type="date"
+              required
+            />
+            <FamilyInput
+              label={tb("email")}
+              value={familyForm.email}
+              onChange={(value) => updateFamilyForm("email", value)}
+              placeholder={tb("enterEmail")}
+              type="email"
+            />
+            <FamilyInput
+              label={tb("phoneNumber")}
+              value={familyForm.phoneNumber}
+              onChange={(value) => updateFamilyForm("phoneNumber", value)}
+              placeholder={tb("enterPhoneNumber")}
+              type="tel"
+            />
           </div>
+          {familyError ? <p className="cb-alert cb-alert--error text-sm">{familyError}</p> : null}
           <div className="cb-family-placeholder-actions">
-            <button type="button" className="cb-family-placeholder-btn cb-family-placeholder-btn--outline" onClick={() => setShowAddFamily(false)}>
+            <button
+              type="button"
+              className="cb-family-placeholder-btn cb-family-placeholder-btn--outline"
+              onClick={() => {
+                setShowAddFamily(false);
+                setFamilyForm(EMPTY_FAMILY_FORM);
+                setFamilyError(null);
+              }}
+            >
               {tb("cancel")}
             </button>
-            <button type="button" className="cb-family-placeholder-btn cb-family-placeholder-btn--primary" onClick={() => setShowAddFamily(false)}>
-              {tb("save")}
+            <button type="submit" className="cb-family-placeholder-btn cb-family-placeholder-btn--primary" disabled={!canCreateFamilyMember}>
+              {familySubmitting ? "Adding..." : "Add"}
             </button>
           </div>
-        </div>
+        </form>
       ) : (
       <>
       <div className="cb-booking-for-head">
@@ -213,16 +334,20 @@ export function BookingForDrawer({
   );
 }
 
-function PlaceholderField({
+function FamilyInput({
   label,
   placeholder,
+  value,
+  onChange,
   required,
-  dropdown,
+  type = "text",
 }: {
   label: string;
   placeholder: string;
+  value: string;
+  onChange: (value: string) => void;
   required?: boolean;
-  dropdown?: boolean;
+  type?: "text" | "date" | "email" | "tel";
 }) {
   return (
     <label className="cb-family-placeholder-field">
@@ -230,10 +355,48 @@ function PlaceholderField({
         {label}
         {required ? <span className="cb-family-placeholder-required"> *</span> : null}
       </span>
-      <span className="cb-family-placeholder-input">
-        <span>{placeholder}</span>
-        {dropdown ? <span aria-hidden>v</span> : null}
+      <input
+        className="cb-family-placeholder-input"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        required={required}
+        type={type}
+      />
+    </label>
+  );
+}
+
+function FamilySelect({
+  label,
+  placeholder,
+  value,
+  onChange,
+  required,
+}: {
+  label: string;
+  placeholder: string;
+  value: string;
+  onChange: (value: CreateFamilyMemberGender | "") => void;
+  required?: boolean;
+}) {
+  return (
+    <label className="cb-family-placeholder-field">
+      <span className="cb-family-placeholder-label">
+        {label}
+        {required ? <span className="cb-family-placeholder-required"> *</span> : null}
       </span>
+      <select
+        className="cb-family-placeholder-input"
+        value={value}
+        onChange={(e) => onChange(e.target.value as CreateFamilyMemberGender | "")}
+        required={required}
+      >
+        <option value="">{placeholder}</option>
+        <option value="female">Female</option>
+        <option value="male">Male</option>
+        <option value="other">Other</option>
+      </select>
     </label>
   );
 }

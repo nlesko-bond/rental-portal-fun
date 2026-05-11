@@ -20,6 +20,12 @@ import {
   productHasVariableSchedulePricing,
   productMembershipGated,
 } from "@/lib/booking-pricing";
+import {
+  isMembershipRequiredProduct,
+  parseProductRequiredProducts,
+  primaryListPrice,
+  type ExtendedRequiredProductNode,
+} from "@/lib/required-products-extended";
 import { isInstructorScheduleResourceType } from "@/lib/schedule-resource-type";
 import {
   IconDollarDetail,
@@ -82,6 +88,110 @@ function priceRangeLabel(p: ExtendedProductDto): string {
   const max = Math.max(...nums);
   if (min === max) return formatPrice(min, cur);
   return `${formatPrice(min, cur)} – ${formatPrice(max, cur)}`;
+}
+
+function membershipAccessItems(product: ExtendedProductDto): ExtendedRequiredProductNode[] {
+  const seen = new Set<number>();
+  const out: ExtendedRequiredProductNode[] = [];
+  const walk = (nodes: ExtendedRequiredProductNode[]) => {
+    for (const node of nodes) {
+      if (isMembershipRequiredProduct(node) && !seen.has(node.id)) {
+        seen.add(node.id);
+        out.push(node);
+      }
+      if (node.requiredProducts?.length) walk(node.requiredProducts);
+    }
+  };
+  walk(parseProductRequiredProducts(product));
+  return out;
+}
+
+function priceFromRecord(record: Record<string, unknown>): { amount: number; currency: string; label?: string } | null {
+  const rawAmount = record.price ?? record.amount ?? record.unitPrice;
+  const amount = typeof rawAmount === "number" ? rawAmount : Number(rawAmount);
+  if (!Number.isFinite(amount)) return null;
+  const currency = typeof record.currency === "string" ? record.currency : "USD";
+  const label = typeof record.name === "string" ? record.name : typeof record.label === "string" ? record.label : undefined;
+  return { amount, currency, ...(label ? { label } : {}) };
+}
+
+function membershipAccessPrice(node: ExtendedRequiredProductNode): { amount: number; currency: string; label?: string } | null {
+  const direct = primaryListPrice(node);
+  if (direct) return direct;
+  const packages = Array.isArray(node.packages) ? (node.packages as Record<string, unknown>[]) : [];
+  for (const pkg of packages) {
+    const directPackagePrice = priceFromRecord(pkg);
+    if (directPackagePrice) return directPackagePrice;
+    const prices = Array.isArray(pkg.prices) ? (pkg.prices as Record<string, unknown>[]) : [];
+    for (const price of prices) {
+      const packagePrice = priceFromRecord(price);
+      if (packagePrice) return packagePrice;
+    }
+  }
+  return null;
+}
+
+function cadenceFromDurationMonths(raw: unknown): string | null {
+  const months = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isFinite(months) || months <= 0) return null;
+  if (months === 1) return "month";
+  if (months === 3) return "quarter";
+  if (months === 12) return "year";
+  if (months % 12 === 0) return `${months / 12} years`;
+  return `${months} months`;
+}
+
+function membershipAccessPriceLine(node: ExtendedRequiredProductNode): string | null {
+  const price = membershipAccessPrice(node);
+  if (!price) return null;
+  const cadence = cadenceFromDurationMonths(node.durationMonths);
+  return cadence ? `${formatPrice(price.amount, price.currency)} / ${cadence}` : formatPrice(price.amount, price.currency);
+}
+
+function memberBenefitItems(entitlements: unknown[]): Array<{ key: string; name: string; tag?: string }> {
+  const out: Array<{ key: string; name: string; tag?: string }> = [];
+  const seen = new Set<string>();
+  entitlements.forEach((raw, index) => {
+    if (!raw || typeof raw !== "object") return;
+    const record = raw as Record<string, unknown>;
+    const group = record.group && typeof record.group === "object" ? (record.group as Record<string, unknown>) : null;
+    const name = typeof group?.name === "string" && group.name.trim().length > 0 ? group.name.trim() : "Member discount";
+    const discountValue =
+      typeof record.discountValue === "number" ? record.discountValue : Number(record.discountValue);
+    const discountMethod = typeof record.discountMethod === "string" ? record.discountMethod : "";
+    const tag =
+      Number.isFinite(discountValue) && discountValue > 0
+        ? discountMethod === "percent"
+          ? `${discountValue}% off`
+          : `${discountValue} off`
+        : undefined;
+    const key = `${name}:${tag ?? ""}`.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ key: `${key}:${index}`, name, ...(tag ? { tag } : {}) });
+  });
+  return out;
+}
+
+function MembershipAccessList({ product }: { product: ExtendedProductDto }) {
+  const tb = useTranslations("booking");
+  const items = membershipAccessItems(product);
+  if (items.length === 0) return <>{tb("productDetailMembersOnly")}</>;
+  return (
+    <div className="cb-detail-membership-access">
+      <ul className="cb-detail-membership-access-list">
+        {items.map((item) => {
+          const priceLine = membershipAccessPriceLine(item);
+          return (
+            <li key={item.id} className="cb-detail-membership-access-item">
+              <span className="cb-detail-membership-access-name">{item.name ?? `Membership ${item.id}`}</span>
+              {priceLine ? <span className="cb-detail-membership-access-price">{priceLine}</span> : null}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
 }
 
 function DetailRow({
@@ -307,6 +417,7 @@ export function ProductDetailModal({
   const entitlements = product.entitlementDiscounts;
   const entitlementLabel = describeEntitlementsForDisplay(Array.isArray(entitlements) ? entitlements : []);
   const hasMemberBenefit = Array.isArray(entitlements) && entitlements.length > 0;
+  const memberBenefits = Array.isArray(entitlements) ? memberBenefitItems(entitlements) : [];
   const showMembersOnly = Boolean(membershipGated || product.memberOnly);
   const hasScheduleResources =
     Array.isArray(scheduleResources) && scheduleResources.length > 0;
@@ -391,13 +502,24 @@ export function ProductDetailModal({
                   />
                 ) : null}
                 {showMembersOnly ? (
-                  <DetailRow icon={<IconLockDetail className="text-[var(--cb-primary)]" />} label={tb("productDetailAccess")}>
-                    {tb("productDetailMembersOnly")}
+                  <DetailRow icon={<IconLockDetail className="text-[var(--cb-primary)]" />} label="Member access">
+                    <MembershipAccessList product={product} />
                   </DetailRow>
                 ) : null}
                 {hasMemberBenefit ? (
                   <DetailRow icon={<span className="text-[var(--cb-primary)] font-bold text-sm">%</span>} label={tb("productDetailMemberBenefits")}>
-                    {entitlementLabel ?? tb("productDetailMemberBenefitsBlurb")}
+                    {memberBenefits.length > 0 ? (
+                      <ul className="cb-detail-membership-access-list">
+                        {memberBenefits.map((item) => (
+                          <li key={item.key} className="cb-detail-membership-access-item">
+                            <span className="cb-detail-membership-access-name">{item.name}</span>
+                            {item.tag ? <span className="cb-detail-membership-access-price">{item.tag}</span> : null}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      entitlementLabel ?? tb("productDetailMemberBenefitsBlurb")
+                    )}
                   </DetailRow>
                 ) : null}
               </ul>

@@ -41,16 +41,18 @@ import {
   fetchPublicPortal,
 } from "@/lib/online-booking-api";
 import {
+  createFamilyMembers,
   fetchCurrentBondUser,
   fetchUserBookingInformation,
   fetchUserRequiredProducts,
+  type CreateFamilyMemberPayload,
 } from "@/lib/online-booking-user-api";
 import { bookedSlicesFromUserBookingInformation } from "@/lib/booking-information-slices";
 import {
   membershipRequiredForProductFromResponse,
   userNeedsMembershipFromRequiredResponse,
 } from "@/lib/required-products-eligibility";
-import { parseExtendedRequiredProductsList } from "@/lib/required-products-extended";
+import { parseExtendedRequiredProductsList, parseProductRequiredProducts } from "@/lib/required-products-extended";
 import { bookingPartyMembersFromProfile } from "@/lib/booking-party-options";
 import { BondBffError } from "@/lib/bond-json";
 import type { ExtendedProductDto, OnlineBookingView, OrganizationCartDto, ScheduleTimeSlotDto } from "@/types/online-booking";
@@ -132,6 +134,7 @@ import { WelcomeToast } from "@/components/ui/WelcomeToast";
 const PRODUCTS_PAGE_SIZE = 30;
 const SOLO_ADDON_PREVIEW_COUNT = 3;
 const MINUTES_PER_HOUR = 60;
+const RESUME_CHECKOUT_AFTER_AUTH_KEY = "cb:resume-checkout-after-auth";
 
 function IconUserCircle() {
   return (
@@ -148,6 +151,28 @@ function IconUserCircle() {
 }
 
 const START_TIME_AUTO = "__auto__";
+
+function readResumeCheckoutAfterAuth(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.sessionStorage.getItem(RESUME_CHECKOUT_AFTER_AUTH_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function writeResumeCheckoutAfterAuth(value: boolean): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (value) {
+      window.sessionStorage.setItem(RESUME_CHECKOUT_AFTER_AUTH_KEY, "true");
+    } else {
+      window.sessionStorage.removeItem(RESUME_CHECKOUT_AFTER_AUTH_KEY);
+    }
+  } catch {
+    return;
+  }
+}
 
 type PickerKind = "facility" | "category" | "activity" | "date" | "start" | "duration" | null;
 
@@ -277,9 +302,13 @@ export function BookingExperience() {
     bondAuth.session.status === "authenticated" && bondAuth.session.bondUserId != null
       ? bondAuth.session.bondUserId
       : undefined;
+  const userProfileQueryKey = useMemo(
+    () => ["bond", "userProfile", env.ok ? env.orgId : 0, "expand:family+address"] as const,
+    [env]
+  );
 
   const bondProfileQuery = useQuery({
-    queryKey: ["bond", "userProfile", env.ok ? env.orgId : 0, "expand:family+address"],
+    queryKey: userProfileQueryKey,
     queryFn: () => {
       if (!env.ok) throw new Error("Bond env not configured");
       return fetchCurrentBondUser(env.orgId, ["family", "address"]);
@@ -296,6 +325,27 @@ export function BookingExperience() {
 
   /** Session JWT may omit `custom:userId`; `GET …/user` always returns numeric `id`. */
   const bondUserIdResolved = bondUserId ?? profileRootUserId;
+  const createFamilyMemberForBooking = useCallback(
+    async (payload: CreateFamilyMemberPayload) => {
+      if (!env.ok) throw new Error("Bond env not configured");
+      const created = await createFamilyMembers(env.orgId, [payload]);
+      const member = created[0];
+      if (!member) throw new Error("No family member was returned.");
+      queryClient.setQueryData(userProfileQueryKey, (current: unknown) => {
+        if (!current || typeof current !== "object") return current;
+        const profile = current as Record<string, unknown>;
+        const existing = Array.isArray(profile.family) ? profile.family : [];
+        const memberId = typeof member.id === "number" && Number.isFinite(member.id) ? member.id : null;
+        const nextFamily =
+          memberId == null
+            ? [...existing, member]
+            : [...existing.filter((item) => !(item && typeof item === "object" && (item as Record<string, unknown>).id === memberId)), member];
+        return { ...profile, family: nextFamily };
+      });
+      return member;
+    },
+    [env, queryClient, userProfileQueryKey]
+  );
   const [preferredStartTime, setPreferredStartTime] = useState<string | null>(null);
   const [selectedSlots, setSelectedSlots] = useState<Map<string, PickedSlot>>(new Map());
   const [selectedAddonIds, setSelectedAddonIds] = useState<Set<number>>(new Set());
@@ -1076,7 +1126,11 @@ export function BookingExperience() {
   }, [pickedSlotsOrdered, scheduleQuery.data]);
 
   /** After "Book now" while logged out, open checkout drawer once login succeeds. */
-  const [resumeCheckoutAfterAuth, setResumeCheckoutAfterAuth] = useState(false);
+  const [resumeCheckoutAfterAuth, setResumeCheckoutAfterAuthState] = useState(readResumeCheckoutAfterAuth);
+  const setResumeCheckoutAfterAuth = useCallback((value: boolean) => {
+    writeResumeCheckoutAfterAuth(value);
+    setResumeCheckoutAfterAuthState(value);
+  }, []);
 
   const productQuestionnaireIds = useMemo(() => {
     const p = productsQuery.data?.data.find((x) => x.id === state?.productId);
@@ -1163,16 +1217,19 @@ export function BookingExperience() {
     setCheckoutDrawerMode("checkout");
     setSyncStepGoToCartEnabled(false);
     setCheckoutDrawerOpen(true);
-  }, [bondAuth, bondUserIdResolved, pickedSlotsOrdered.length, effectiveBookingUserId]);
+  }, [bondAuth, bondUserIdResolved, pickedSlotsOrdered.length, effectiveBookingUserId, setResumeCheckoutAfterAuth]);
 
   useEffect(() => {
     if (
       resumeCheckoutAfterAuth &&
       bondAuth.session.status === "authenticated" &&
-      bondUserIdResolved != null &&
-      pickedSlotsOrdered.length > 0
+      effectiveBookingUserId != null &&
+      pickedSlotsOrdered.length > 0 &&
+      !pendingWelcome &&
+      !bookingForModalOpen &&
+      pendingParticipantUserId === undefined
     ) {
-      const uid = bondUserIdResolved ?? null;
+      const uid = effectiveBookingUserId ?? null;
       const sameParticipant = prevCheckoutUserIdRef.current != null && prevCheckoutUserIdRef.current === uid;
       prevCheckoutUserIdRef.current = uid;
       setResumeCheckoutAfterAuth(false);
@@ -1181,7 +1238,16 @@ export function BookingExperience() {
       setSyncStepGoToCartEnabled(false);
       setCheckoutDrawerOpen(true);
     }
-  }, [resumeCheckoutAfterAuth, bondAuth.session.status, bondUserIdResolved, pickedSlotsOrdered.length]);
+  }, [
+    resumeCheckoutAfterAuth,
+    bondAuth.session.status,
+    effectiveBookingUserId,
+    pickedSlotsOrdered.length,
+    pendingWelcome,
+    bookingForModalOpen,
+    pendingParticipantUserId,
+    setResumeCheckoutAfterAuth,
+  ]);
 
   useEffect(() => {
     if (bondAuth.loginOpen) return;
@@ -1189,7 +1255,7 @@ export function BookingExperience() {
     if (bondAuth.session.status === "anonymous") {
       setResumeCheckoutAfterAuth(false);
     }
-  }, [bondAuth.loginOpen, bondAuth.session.status]);
+  }, [bondAuth.loginOpen, bondAuth.session.status, setResumeCheckoutAfterAuth]);
 
   const onOpenCartBag = useCallback(() => {
     if (sessionCartRows.length === 0) return;
@@ -1546,7 +1612,7 @@ export function BookingExperience() {
 
       <div className="cb-booking-nav-band -mx-4 px-4 sm:mx-0 sm:px-0">
         <div className="cb-breadcrumb-bar cb-breadcrumb-bar--fit" aria-label={tb("breadcrumbLabel")}>
-          <button type="button" className="cb-breadcrumb-trigger" onClick={() => setPicker("facility")}>
+          <button type="button" className="cb-breadcrumb-trigger" aria-label={facilityName} onClick={() => setPicker("facility")}>
             <IconPin className="size-3.5 shrink-0 text-[var(--cb-primary)]" />
             <span className="truncate">{facilityName}</span>
             <span className="cb-faint text-[0.65rem]" aria-hidden>
@@ -1556,7 +1622,7 @@ export function BookingExperience() {
           <span className="cb-breadcrumb-sep cb-breadcrumb-sep--chev" aria-hidden>
             <BreadcrumbChevronRight className="cb-breadcrumb-chev-icon" />
           </span>
-          <button type="button" className="cb-breadcrumb-trigger" onClick={() => setPicker("category")}>
+          <button type="button" className="cb-breadcrumb-trigger" aria-label={categoryName} onClick={() => setPicker("category")}>
             <IconCalendar className="size-3.5 shrink-0 text-[var(--cb-text-muted)]" />
             <span className="truncate">{categoryName}</span>
             <span className="cb-faint text-[0.65rem]" aria-hidden>
@@ -1569,6 +1635,7 @@ export function BookingExperience() {
           <button
             type="button"
             className="cb-breadcrumb-trigger cb-breadcrumb-trigger--current"
+            aria-label={formatActivityLabel(state.activity)}
             onClick={() => setPicker("activity")}
           >
             <span className="shrink-0 leading-none" aria-hidden>
@@ -1822,6 +1889,16 @@ export function BookingExperience() {
             </aside>
           ) : null}
           </div>
+          {categoryApprovalRequired ? (
+            <p className="cb-services-approval-note" role="note">
+              <svg className="cb-services-approval-note-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
+                <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.8" />
+                <path d="M12 7.5v5.25" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                <circle cx="12" cy="16.25" r="1.1" fill="currentColor" />
+              </svg>
+              <span>These services require facility approval.</span>
+            </p>
+          ) : null}
           {meta && totalPages > 1 && (
             <div className="cb-muted mt-4 flex items-center justify-between gap-4 text-sm">
               <button
@@ -2442,7 +2519,8 @@ export function BookingExperience() {
               membershipRequiredForProductFromResponse(raw) &&
               !userNeedsMembershipFromRequiredResponse(raw);
             const requiredProductDetailsById = (() => {
-              const nodes = parseExtendedRequiredProductsList(raw);
+              const productNodes = parseProductRequiredProducts(selectedProduct);
+              const nodes = productNodes.length > 0 ? productNodes : parseExtendedRequiredProductsList(raw);
               const out: Record<number, Record<string, unknown>> = {};
               const walk = (items: typeof nodes) => {
                 for (const item of items) {
@@ -2721,8 +2799,13 @@ export function BookingExperience() {
         onClose={() => setBookingForModalOpen(false)}
         members={partyMembersForBookingFor}
         value={bookingTargetUserId ?? bondUserIdResolved ?? null}
-        onConfirm={(userId) => {
+        onCreateFamilyMember={createFamilyMemberForBooking}
+        onConfirm={(userId, options) => {
           const currentId = bookingTargetUserId ?? bondUserIdResolved ?? null;
+          if (options?.keepSlots === true) {
+            setBookingTargetUserId(userId);
+            return;
+          }
           if (userId !== currentId && selectedSlots.size > 0) {
             setPendingParticipantUserId(userId);
           } else {

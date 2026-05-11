@@ -44,6 +44,8 @@ export async function fetchCategoryProducts(
   }
   if (opts.userId != null) q.set("userId", String(opts.userId));
   q.append("expand", "media");
+  q.append("expand", "requiredProducts");
+  q.append("expand", "entitlementDiscounts");
   return bondBffGetJson<PaginatedProductsResponse>(path, q);
 }
 

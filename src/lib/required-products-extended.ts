@@ -35,6 +35,10 @@ export function parseExtendedRequiredProductsList(raw: unknown): ExtendedRequire
   return out;
 }
 
+export function parseProductRequiredProducts(product: { requiredProducts?: unknown } | null | undefined): ExtendedRequiredProductNode[] {
+  return parseExtendedRequiredProductsList(product?.requiredProducts);
+}
+
 function normalizeNode(item: unknown): ExtendedRequiredProductNode | null {
   if (!item || typeof item !== "object") return null;
   const o = item as Record<string, unknown>;
@@ -219,6 +223,23 @@ function pickFirstStringFromRecords(records: readonly Record<string, unknown>[],
   return null;
 }
 
+function pickFirstStringOrStringArrayValueFromRecords(
+  records: readonly Record<string, unknown>[],
+  keys: readonly string[]
+): string | null {
+  for (const record of records) {
+    for (const key of keys) {
+      const value = record[key];
+      if (typeof value === "string" && value.trim().length > 0) return value.trim();
+      if (Array.isArray(value)) {
+        const first = value.find((item): item is string => typeof item === "string" && item.trim().length > 0);
+        if (first) return first.trim();
+      }
+    }
+  }
+  return null;
+}
+
 function pickFirstBooleanFromRecords(records: readonly Record<string, unknown>[], keys: readonly string[]): boolean | null {
   for (const record of records) {
     for (const key of keys) {
@@ -312,7 +333,7 @@ export function membershipDisplaySummary(node: Record<string, unknown>): Members
   const records = candidateMembershipRecords(node);
   const productSubType = typeof node.productSubType === "string" ? node.productSubType : null;
   const audienceLabel = prettyEnumLabel(
-    pickFirstStringFromRecords(records, ["customerType", "audience", "audienceType", "memberType", "membershipType", "memberCategory", "membershipCategory", "productSubType", "type"]) ??
+    pickFirstStringOrStringArrayValueFromRecords(records, ["customerTypes", "customerType", "audience", "audienceType", "memberType", "memberCategory", "membershipCategory", "productSubType", "type"]) ??
       productSubType
   );
   const expirationLabel = realExpirationLabel(records);

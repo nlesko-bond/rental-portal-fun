@@ -66,11 +66,3 @@ export function bondNumericUserIdFromIdToken(idToken: string): number | null {
   }
   return null;
 }
-
-export function jwtDiagnosticClaimKeys(token: string): string[] {
-  const p = decodeJwtPayload(token);
-  if (!p) return [];
-  return Object.keys(p)
-    .filter((key) => /user|id|consumer|sub|email/i.test(key))
-    .sort();
-}
