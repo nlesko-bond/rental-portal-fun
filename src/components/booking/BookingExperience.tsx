@@ -26,6 +26,7 @@ import {
   productCatalogShowsMemberFree,
   productHasVariableSchedulePricing,
   productMembershipGated,
+  slotDisplayTotalPrice,
 } from "@/lib/booking-pricing";
 import { applyEntitlementDiscountsToUnitPrice, describeEntitlementsForDisplay } from "@/lib/entitlement-discount";
 import {
@@ -232,12 +233,13 @@ function formatPrice(amount: number, currency: string): string {
 
 function productPriceRangeForDuration(product: ExtendedProductDto | undefined, durationMinutes: number): string {
   const prices = product?.prices ?? [];
-  const nums = prices.map((x) => x.price).filter((n) => Number.isFinite(n));
+  const nums = prices
+    .map((x) => slotDisplayTotalPrice(x.price, product, durationMinutes))
+    .filter((n) => Number.isFinite(n));
   if (nums.length === 0) return "—";
   const currency = prices[0]?.currency ?? "USD";
-  const multiplier = durationMinutes / MINUTES_PER_HOUR;
-  const min = Math.min(...nums) * multiplier;
-  const max = Math.max(...nums) * multiplier;
+  const min = Math.min(...nums);
+  const max = Math.max(...nums);
   const duration = formatDurationPriceBadge(durationMinutes);
   const range = min === max
     ? formatSlotCurrency(min, currency)
@@ -1738,7 +1740,7 @@ export function BookingExperience() {
               const memberFreeChip = productCatalogShowsMemberFree(p);
               const catalogMin = productCatalogMinUnitPrice(p);
               const catalogMinScaled = catalogMin
-                ? { min: catalogMin.min * (selectedDuration / 60), currency: catalogMin.currency }
+                ? { min: slotDisplayTotalPrice(catalogMin.min, p, selectedDuration), currency: catalogMin.currency }
                 : null;
               return (
                 <div
@@ -1925,7 +1927,7 @@ export function BookingExperience() {
                               aria-label={`Open add-on details for ${soloProduct.name}`}
                               onClick={() => setProductInfoId(soloProduct.id)}
                             >
-                              +{more} more
+                              {tb("productDetailViewAllAddons")}
                             </button>
                           ) : null}
                         </span>

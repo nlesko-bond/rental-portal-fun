@@ -638,19 +638,21 @@ body {
 
 .consumer-booking .cb-nav-select {
   max-width: min(100%, 220px);
-  border: none;
-  background: transparent;
-  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--cb-border) 70%, var(--cb-text-muted));
+  border-radius: 9999px;
+  background: #fff;
+  padding: 0.38rem 0.72rem;
   font-weight: 600;
   color: var(--cb-text);
   cursor: pointer;
-  text-decoration: underline;
-  text-underline-offset: 3px;
-  transition: color 0.15s ease;
+  text-decoration: none;
+  transition: border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .consumer-booking .cb-nav-select:hover {
+  border-color: color-mix(in srgb, var(--cb-primary) 45%, var(--cb-border));
   color: var(--cb-primary);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--cb-primary) 8%, transparent);
 }
 
 .consumer-booking .cb-nav-select:focus {
@@ -660,8 +662,9 @@ body {
 }
 
 .consumer-booking .cb-nav-select--active {
+  border-color: color-mix(in srgb, var(--cb-primary) 58%, var(--cb-border));
   color: var(--cb-primary);
-  text-decoration: none;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--cb-primary) 12%, transparent);
 }
 
 .consumer-booking .cb-btn-ghost {
@@ -1704,11 +1707,18 @@ body {
   justify-content: center;
   gap: 0.35rem;
   max-width: 100%;
+  overflow-x: auto;
+  padding-bottom: 0.1rem;
+  scrollbar-width: none;
 }
 
-/* Facility / category / sport on one line — equal flex, truncate; no horizontal scroll. */
+.consumer-booking .cb-breadcrumb-bar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Facility / category / sport on one line. */
 .consumer-booking .cb-breadcrumb-bar--fit {
-  overflow: hidden;
+  overflow-x: auto;
 }
 
 .consumer-booking .cb-breadcrumb-bar--fit .cb-breadcrumb-sep {
@@ -1720,20 +1730,21 @@ body {
 }
 
 .consumer-booking .cb-breadcrumb-bar--fit .cb-breadcrumb-trigger {
-  flex: 1 1 0;
+  flex: 0 0 auto;
   min-width: 0;
-  max-width: none;
-  justify-content: center;
-  padding: 0.36rem 0.45rem;
-  font-size: 0.72rem;
+  max-width: min(13rem, 42vw);
+  justify-content: flex-start;
+  padding: 0.42rem 0.72rem;
+  font-size: 0.78rem;
   font-weight: 600;
-  gap: 0.2rem;
+  gap: 0.28rem;
 }
 
 @media (min-width: 400px) {
   .consumer-booking .cb-breadcrumb-bar--fit .cb-breadcrumb-trigger {
-    padding: 0.38rem 0.55rem;
-    font-size: 0.78rem;
+    max-width: min(14.5rem, 40vw);
+    padding: 0.44rem 0.82rem;
+    font-size: 0.82rem;
   }
 }
 
@@ -1759,8 +1770,8 @@ body {
   align-items: center;
   gap: 0.35rem;
   border-radius: 9999px;
-  border: 1px solid #dae6f0;
-  background: var(--cb-bg-surface);
+  border: 1px solid color-mix(in srgb, var(--cb-border) 68%, var(--cb-text-muted));
+  background: #fff;
   padding: 0.45rem 0.95rem;
   font-size: 0.8125rem;
   font-weight: 500;
@@ -1784,9 +1795,10 @@ body {
 }
 
 .consumer-booking .cb-breadcrumb-trigger--current {
-  border-width: 2px;
-  border-color: #0571e0;
+  border-width: 1px;
+  border-color: color-mix(in srgb, var(--cb-primary) 65%, var(--cb-border));
   color: var(--cb-primary);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--cb-primary) 12%, transparent);
 }
 
 .consumer-booking .cb-breadcrumb-sep {
@@ -2232,7 +2244,7 @@ body {
     grid-template-columns: 9.5rem minmax(0, 1fr);
     gap: 0;
     align-items: stretch;
-    min-height: 0;
+    min-height: 8.75rem;
     overflow: hidden;
     border: 1px solid var(--cb-border);
     border-radius: 1rem;
@@ -2248,10 +2260,10 @@ body {
   }
   .consumer-booking .cb-product-solo-info {
     justify-content: center;
-    gap: 0.32rem;
+    gap: 0.6rem;
     min-height: 0;
     overflow: hidden;
-    padding: 0.55rem 1rem;
+    padding: 0.95rem 1.15rem;
   }
 
   .consumer-booking .cb-product-solo-group .cb-product-card--solo {
@@ -2319,7 +2331,7 @@ body {
   }
 
   .consumer-booking .cb-product-solo-info-mini-pill {
-    padding: 0.14rem 0.36rem;
+    padding: 0.16rem 0.38rem;
     font-size: 0.62rem;
   }
 
@@ -2333,7 +2345,7 @@ body {
   }
 
   .consumer-booking .cb-product-solo-info-rows {
-    gap: 0.32rem;
+    gap: 0.58rem;
   }
 }
 .consumer-booking .cb-product-card--solo .cb-product-card-footer,
@@ -2429,6 +2441,10 @@ body {
   align-items: center;
   gap: 0.5rem;
 }
+
+.consumer-booking .cb-product-solo-info-meta-row + .cb-product-solo-info-pill-section {
+  margin-top: 0.18rem;
+}
 .consumer-booking .cb-product-solo-info-meta-pill {
   display: inline-flex;
   max-width: 100%;
@@ -2470,7 +2486,7 @@ body {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
-  gap: 0.55rem;
+  gap: 0.68rem;
   min-width: 0;
 }
 .consumer-booking .cb-product-solo-info-pill,
@@ -2485,9 +2501,9 @@ body {
 .consumer-booking .cb-product-solo-info-pill {
   gap: 0.4rem;
   background: color-mix(in srgb, var(--cb-accent) 20%, #fff);
-  padding: 0.38rem 0.7rem;
+  padding: 0.28rem 0.6rem;
   color: #9a4a17;
-  font-size: 0.82rem;
+  font-size: 0.72rem;
   font-weight: 800;
 }
 .consumer-booking .cb-product-solo-info-pill-dot {
@@ -2531,8 +2547,26 @@ body {
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--cb-primary) 12%, transparent);
 }
 .consumer-booking .cb-product-solo-info-mini-pill--button {
+  border-color: transparent;
+  background: transparent;
+  color: var(--cb-primary);
   cursor: pointer;
   font: inherit;
+  font-weight: 800;
+  text-decoration: underline;
+  text-underline-offset: 0.12em;
+}
+
+.consumer-booking .cb-product-solo-info-mini-pill--button:hover {
+  background: transparent;
+  box-shadow: none;
+}
+
+@media (min-width: 768px) {
+  .consumer-booking .cb-product-solo-info-mini-pill {
+    padding: 0.16rem 0.38rem;
+    font-size: 0.64rem;
+  }
 }
 .consumer-booking .cb-product-solo-info-price {
   display: inline-flex;
