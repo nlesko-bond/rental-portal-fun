@@ -91,12 +91,16 @@ function IconFootball(props: SvgProps) {
 
 function IconTennis(props: SvgProps) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden {...props}>
-      <circle cx="12" cy="12" r="7.5" stroke="currentColor" strokeWidth={ACTIVITY_ICON_STROKE_WIDTH} />
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden {...props}>
       <path
-        d="M6.5 6.5c3.2 3.2 5.4 7.6 6.1 12.4"
-        {...sharedPathProps}
-        strokeWidth={ACTIVITY_ICON_DETAIL_STROKE_WIDTH}
+        fillRule="evenodd"
+        clipRule="evenodd"
+        d="M11.7608 2.00291L15.836 6.07631C18.522 8.66673 18.5251 13.1449 15.836 15.834C13.1469 18.5231 8.08704 17.9422 6.07739 15.834L2.0028 11.7609C1.94057 14.3985 2.91586 17.0584 4.92874 19.0713C8.83364 22.9762 15.167 22.9762 19.0713 19.0713C22.9762 15.1651 22.9762 8.8338 19.0713 4.92883C17.0579 2.91538 14.3993 1.93943 11.7608 2.00291Z"
+      />
+      <path
+        fillRule="evenodd"
+        clipRule="evenodd"
+        d="M6.92761 15.0436C7.94082 16.0519 9.55503 16.494 10.9856 16.4929C12.415 16.4904 14.0329 16.0555 15.0437 15.0436C16.0556 14.0329 16.7804 12.4156 16.7828 10.9856C16.7852 9.55558 16.0519 7.94072 15.0437 6.92758L14.9863 6.8702L10.6958 2.28986C8.90017 2.68658 6.51709 3.66728 5.12066 5.06495C3.72541 6.46137 2.68654 8.60965 2.28986 10.4059L6.8739 14.9911L6.92761 15.0436Z"
       />
     </svg>
   );
