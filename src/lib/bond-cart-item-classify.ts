@@ -17,7 +17,7 @@ export function classifyCartItemLineKind(it: Record<string, unknown>): CartLineK
   const desc = getCartItemMetadataDescription(it);
 
   if (desc) {
-    if (desc === "membership" || desc === "membership_package_child_item") return "membership";
+    if (desc === "membership" || desc === "membership_package" || desc === "membership_package_child_item") return "membership";
     if (
       desc === "reservation_addon" ||
       desc === "slot_addon" ||

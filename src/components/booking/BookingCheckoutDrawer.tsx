@@ -502,6 +502,7 @@ type Props = {
   onRemoveSlot?: (slotKey: string) => void;
   /** Booking-review (syncCart) — remove a reservation-level add-on by its product id. */
   onRemoveReservationAddon?: (addonId: number) => void;
+  onClearDraftSelection?: () => void;
 };
 
 /** Outlined info-circle for the totals-box callouts (deposit + approval notes). */
@@ -610,6 +611,7 @@ export function BookingCheckoutDrawer({
   onPruneSatisfiedAddonProductIds,
   onRemoveSlot,
   onRemoveReservationAddon,
+  onClearDraftSelection,
 }: Props) {
   const tx = useTranslations("checkout");
   const tAddons = useTranslations("addons");
@@ -1706,10 +1708,16 @@ export function BookingCheckoutDrawer({
     };
 
     /** In-progress booking before POST create (the old branch required approvalDeferred, which is only set after create — so the summary was empty). */
-    if (pickedSlots.length > 0 && !lastCart) {
-      const scheduleSummary = formatScheduleSummaryForBooking(pickedSlots, bookingForLabel, (n) =>
-        formatPrice(n, currency)
-      );
+    const hasRequiredProductSelections =
+      allRequiredFlat.some((r) => requiredSelected.has(r.id)) ||
+      (selectedMembershipNestedIds != null && selectedMembershipNestedIds.size > 0);
+    if (!lastCart && (pickedSlots.length > 0 || hasRequiredProductSelections)) {
+      const scheduleSummary =
+        pickedSlots.length > 0
+          ? formatScheduleSummaryForBooking(pickedSlots, bookingForLabel, (n) =>
+              formatPrice(n, currency)
+            )
+          : undefined;
       const entNote = describeEntitlementsForDisplay(entitlements);
       const displayLineExtras =
         showMemberPricing && estimatedOriginalSubtotal != null
@@ -1718,11 +1726,13 @@ export function BookingCheckoutDrawer({
               ...(entNote ? { discountNote: entNote } : {}),
             }
           : undefined;
-      pushSynthetic(productName, subtotal, currency, {
-        approvalRequired: approvalRequired === true,
-        scheduleSummary,
-        displayLineExtras,
-      });
+      if (pickedSlots.length > 0) {
+        pushSynthetic(productName, subtotal, currency, {
+          approvalRequired: approvalRequired === true,
+          scheduleSummary,
+          displayLineExtras,
+        });
+      }
       for (const r of allRequiredFlat) {
         if (!r.displayPrice) continue;
         if (!requiredSelected.has(r.id) && !selectedMembershipNestedIds?.has(r.id)) continue;
@@ -1863,7 +1873,6 @@ export function BookingCheckoutDrawer({
 
   /** Pre-create booking summary: **one card per slot**, with that slot's addons inline (per-slot/per-hour qty editable). */
   const syntheticBookingReviewModel = useMemo(() => {
-    if (pickedSlots.length === 0) return null;
     const sorted = [...pickedSlots].sort((a, b) => {
       const d = a.startDate.localeCompare(b.startDate);
       if (d !== 0) return d;
@@ -1992,7 +2001,7 @@ export function BookingCheckoutDrawer({
       });
     }
 
-    const membershipItems: { key: string; name: string; amount: number; unitSubtitle?: string; summaryLine?: string; detailLine?: string }[] = [];
+    const membershipItems: { key: string; requiredId: number; name: string; amount: number; unitSubtitle?: string; summaryLine?: string; detailLine?: string }[] = [];
     const otherRequiredItems: { key: string; name: string; amount: number; unitSubtitle?: string }[] = [];
     const seenReqIds = new Set<number>();
     for (const r of allRequiredFlat) {
@@ -2026,6 +2035,7 @@ export function BookingCheckoutDrawer({
             : summary?.detailLabel ?? undefined;
         membershipItems.push({
           ...row,
+          requiredId: r.id,
           summaryLine,
           detailLine,
         });
@@ -2034,6 +2044,14 @@ export function BookingCheckoutDrawer({
       }
     }
 
+    if (
+      slotItems.length === 0 &&
+      reservationAddonItems.length === 0 &&
+      membershipItems.length === 0 &&
+      otherRequiredItems.length === 0
+    ) {
+      return null;
+    }
     return { slotItems, reservationAddonItems, membershipItems, otherRequiredItems };
   }, [
     pickedSlots,
@@ -2620,6 +2638,20 @@ export function BookingCheckoutDrawer({
         </div>
       );
 
+      const removeRequiredProductFromReview = (requiredId: number) => {
+        setRequiredSelected((prev) => {
+          const next = new Set(prev);
+          next.delete(requiredId);
+          return next;
+        });
+        if (selectedMembershipRootId === requiredId || selectedMembershipNestedIds?.has(requiredId) === true) {
+          setSelectedMembershipRootId(null);
+          setMembershipSelectionResolved(false);
+        }
+        onClearDraftSelection?.();
+        onClose();
+      };
+
       const simpleExtraCard = (
         k: string,
         title: string,
@@ -2910,6 +2942,7 @@ export function BookingCheckoutDrawer({
                 unitSubtitle: x.unitSubtitle,
                 summaryLine: x.summaryLine,
                 detailLine: x.detailLine,
+                ...(m.slotItems.length === 0 ? { onRemove: () => removeRequiredProductFromReview(x.requiredId) } : {}),
               })
             )}
           </ul>

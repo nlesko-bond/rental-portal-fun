@@ -2859,6 +2859,7 @@ export function BookingExperience() {
             })
           }
           onRemoveReservationAddon={(addonId) => setAddonQty(addonId, 0)}
+          onClearDraftSelection={clearSlotSelection}
           onBookingForClick={
             lockBookingForParticipant ? undefined : () => setBookingForModalOpen(true)
           }

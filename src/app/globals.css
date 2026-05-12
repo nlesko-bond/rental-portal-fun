@@ -1700,6 +1700,18 @@ body {
   padding-bottom: 0.25rem;
 }
 
+@media (max-width: 767px) {
+  .consumer-booking .cb-booking-nav-band {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    background: color-mix(in srgb, var(--cb-bg-page, #fff) 94%, transparent);
+    padding-top: 0.65rem;
+    padding-bottom: 0.5rem;
+    backdrop-filter: blur(12px);
+  }
+}
+
 .consumer-booking .cb-breadcrumb-bar {
   display: flex;
   flex-wrap: nowrap;
@@ -3062,9 +3074,13 @@ body {
 }
 
 .consumer-booking .cb-product-detail-drawer .cb-drawer-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   overflow-x: hidden;
   padding-inline: 1rem;
-  padding-bottom: 5rem;
+  padding-bottom: 6rem;
 }
 
 .consumer-booking .cb-product-detail-drawer .cb-product-detail-body {
@@ -3617,14 +3633,15 @@ body {
   width: min(100vw, 24rem);
   margin: 0;
   border-top: 1px solid var(--cb-border);
-  background: color-mix(in srgb, var(--cb-bg-surface) 94%, #fff);
+  background: color-mix(in srgb, var(--cb-bg-surface) 96%, #fff);
   padding: 0.75rem 1rem;
   box-shadow: 0 -10px 20px color-mix(in srgb, #000 6%, transparent);
 }
 
-.consumer-booking .cb-product-detail-footer .cb-btn-outline {
+.consumer-booking .cb-product-detail-footer .cb-btn-primary {
   width: 100%;
-  max-width: 20rem;
+  max-width: none;
+  justify-content: center;
 }
 
 .consumer-booking .cb-btn-outline {

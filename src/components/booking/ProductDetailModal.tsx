@@ -537,7 +537,7 @@ export function ProductDetailModal({
         </div>
 
         <div className="cb-product-detail-footer">
-          <button type="button" className="cb-btn-outline" onClick={onClose}>
+          <button type="button" className="cb-btn-primary" onClick={onClose}>
             {tcommon("close")}
           </button>
         </div>

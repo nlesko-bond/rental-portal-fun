@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { classifyCartItemLineKind } from "@/lib/bond-cart-item-classify";
 import { bagRemovePolicyForBondItem, bondRootCartItemIdForRemoval } from "@/lib/bond-cart-removal";
 import type { OrganizationCartDto } from "@/types/online-booking";
 
@@ -78,6 +79,16 @@ describe("bondRootCartItemIdForRemoval", () => {
 });
 
 describe("bagRemovePolicyForBondItem", () => {
+  it("classifies membership_package metadata as membership", () => {
+    expect(
+      classifyCartItemLineKind({
+        organizationCartItemId: 401,
+        required: true,
+        metadata: { description: "membership_package" },
+      })
+    ).toBe("membership");
+  });
+
   it("keeps required membership locked while a booking depends on it", () => {
     expect(
       bagRemovePolicyForBondItem(
