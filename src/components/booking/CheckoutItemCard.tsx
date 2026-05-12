@@ -32,6 +32,8 @@ export function CheckoutItemCard({ card, formatPrice, currency, hideParticipantM
   const showCompactPrice =
     !hasUnitBreakdown && card.extras == null && card.baseStrikeAmount == null && card.basePrice === card.itemTotal;
   const showItemTotal = !showCompactPrice;
+  const itemTotalLabel = formatPrice(card.itemTotal, currency);
+  const itemTotalIsText = /[A-Za-z]/.test(itemTotalLabel);
 
   return (
     <li
@@ -129,7 +131,9 @@ export function CheckoutItemCard({ card, formatPrice, currency, hideParticipantM
           <div className="cb-co-card-divider" aria-hidden />
           <div className="cb-co-card-total">
             <span className="cb-co-card-total-label">{tx("itemTotal")}</span>
-            <span className="cb-co-card-total-value">{formatPrice(card.itemTotal, currency)}</span>
+            <span className={`cb-co-card-total-value${itemTotalIsText ? " cb-co-card-total-value--text" : ""}`}>
+              {itemTotalLabel}
+            </span>
           </div>
         </>
       ) : null}

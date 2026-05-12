@@ -5001,6 +5001,10 @@ body {
   font-size: 1.125rem;
 }
 
+.consumer-booking .cb-co-card-total-value--text {
+  font-size: 0.875rem;
+}
+
 /* Totals summary box (Figma `cart-summary`). */
 .consumer-booking .cb-co-totals-box {
   display: flex;
