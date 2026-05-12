@@ -1687,11 +1687,17 @@ body {
   align-items: center;
   justify-content: center;
   border-radius: 0.5rem;
-  background: var(--cb-bg-surface-muted);
+  background: color-mix(in srgb, var(--cb-primary) 7%, var(--cb-bg-surface-muted));
+  color: color-mix(in srgb, var(--cb-primary) 72%, var(--cb-text-muted));
+}
+
+.consumer-booking .cb-activity-cell-icon svg {
+  color: inherit;
 }
 
 .consumer-booking .cb-activity-cell-icon--selected {
   background: color-mix(in srgb, var(--cb-primary) 12%, var(--cb-bg-surface-muted));
+  color: var(--cb-primary);
 }
 
 .consumer-booking .cb-booking-nav-band {
