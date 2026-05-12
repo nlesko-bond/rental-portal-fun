@@ -1766,6 +1766,29 @@ body {
   }
 }
 
+@media (max-width: 639px) {
+  .consumer-booking .cb-breadcrumb-bar--fit {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.3rem;
+    overflow: visible;
+    width: 100%;
+  }
+
+  .consumer-booking .cb-breadcrumb-bar--fit .cb-breadcrumb-sep {
+    display: none;
+  }
+
+  .consumer-booking .cb-breadcrumb-bar--fit .cb-breadcrumb-trigger {
+    width: 100%;
+    max-width: none;
+    justify-content: center;
+    padding: 0.42rem 0.45rem;
+    font-size: 0.72rem;
+    gap: 0.18rem;
+  }
+}
+
 @media (min-width: 640px) {
   /* Desktop: pills hug content — avoid flex-grow stretching the last trigger. */
   .consumer-booking .cb-breadcrumb-bar--fit {
