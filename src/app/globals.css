@@ -1272,8 +1272,8 @@ body {
 }
 
 .consumer-booking .cb-resource-selector-card .cb-resource-tabs {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: 0.55rem;
   overflow: visible;
   padding: 0;
@@ -1281,10 +1281,10 @@ body {
 }
 
 .consumer-booking .cb-resource-selector-card .cb-resource-tab {
-  width: auto;
-  max-width: none;
+  width: 13.5rem;
+  max-width: 100%;
+  flex: 0 0 13.5rem;
   min-height: 3.35rem;
-  flex: none;
   justify-content: flex-start;
   gap: 0.6rem;
   border-width: 1px;
@@ -4291,6 +4291,13 @@ body {
   scroll-snap-type: none;
 }
 
+.consumer-booking .cb-addon-slot-config {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex-direction: column;
+}
+
 .consumer-booking .cb-addon-card-v2 {
   position: relative;
   box-sizing: border-box;
@@ -4447,10 +4454,11 @@ body {
 /* Slot panel that expands below the rail when a per-slot/per-hour addon is selected */
 .consumer-booking .cb-addon-slot-panel {
   margin-top: 0.5rem;
+  max-width: 52rem;
   border-radius: 0.5rem;
   background: #f5f7fe;
   border: none;
-  padding: 0.55rem 0 0;
+  padding: 0.55rem;
 }
 
 .consumer-booking .cb-addon-slot-panel-head {
@@ -4510,9 +4518,8 @@ body {
   list-style: none;
   margin: 0.55rem 0 0;
   padding: 0;
-  display: flex;
-  flex-direction: column;
-  flex-wrap: nowrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
   gap: 0.45rem;
   overflow: visible;
   scroll-snap-type: none;
@@ -4574,9 +4581,15 @@ body {
 }
 
 .consumer-booking .cb-checkout-drawer .cb-addon-slot-panel-list {
+  display: flex;
   flex-direction: column;
   overflow-x: visible;
   scroll-snap-type: none;
+}
+
+.consumer-booking .cb-checkout-drawer .cb-addon-slot-panel {
+  max-width: none;
+  padding: 0.55rem 0 0;
 }
 
 .consumer-booking .cb-checkout-drawer .cb-addon-slot-panel-row {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import type { MouseEvent } from "react";
 import { useTranslations } from "next-intl";
 import { getEffectiveAddonSlotKeys } from "@/lib/addon-slot-targeting";
 import type { PackageAddonLine } from "@/lib/product-package-addons";
@@ -55,7 +55,7 @@ type StepperProps = {
 };
 
 function QtyStepper({ qty, onChange, ariaLabel, size = "md", stopPropagation }: StepperProps) {
-  const handler = (next: number) => (e: React.MouseEvent) => {
+  const handler = (next: number) => (e: MouseEvent) => {
     if (stopPropagation) e.stopPropagation();
     onChange(clampQty(next));
   };
@@ -361,7 +361,6 @@ export function BookingAddonPanel({
   const ta = useTranslations("addons");
   const allSlotKeys = pickedSlots.map((s) => s.key);
   const slotKeySet = new Set(allSlotKeys);
-  const [activeSlotAddonId, setActiveSlotAddonId] = useState<number | null>(null);
 
   const reservation = visibleAddons.filter((a) => a.level === "reservation");
   const slot = visibleAddons.filter((a) => a.level === "slot");
@@ -371,19 +370,7 @@ export function BookingAddonPanel({
   const addOnLevelCount = [reservation, slot, hour].filter((items) => items.length > 0).length;
   const showSectionHeadings = omitPanelHeading || addOnLevelCount > 1;
 
-  useEffect(() => {
-    if (activeSlotAddonId != null && !visibleAddons.some((addon) => addon.id === activeSlotAddonId)) {
-      setActiveSlotAddonId(null);
-    }
-  }, [activeSlotAddonId, visibleAddons]);
-
   if (!hasAny) return null;
-
-  /** Find the first selected addon in a list — its slot panel renders below the rail. */
-  const firstSelected = (items: PackageAddonLine[]): PackageAddonLine | null => {
-    for (const a of items) if (selectedAddonIds.has(a.id)) return a;
-    return null;
-  };
 
   const renderReservationSection = () => {
     if (reservation.length === 0) return null;
@@ -429,10 +416,6 @@ export function BookingAddonPanel({
   ) => {
     if (items.length === 0) return null;
     const sectionId = `addon-section-${titleKey}`;
-    const active =
-      activeSlotAddonId == null
-        ? firstSelected(items)
-        : items.find((addon) => addon.id === activeSlotAddonId && selectedAddonIds.has(addon.id)) ?? firstSelected(items);
     return (
       <section
         className={`cb-addon-section ${showSectionHeadings ? "" : "cb-addon-section--headless"}`}
@@ -447,38 +430,37 @@ export function BookingAddonPanel({
           {items.map((a) => {
             const sel = selectedAddonIds.has(a.id);
             return (
-              <SlotAddonCard
-                key={a.id}
-                addon={a}
-                selected={sel}
-                slotKeySet={slotKeySet}
-                targeting={addonSlotTargeting}
-                slotQuantities={addonSlotQuantities?.get(a.id)}
-                onToggle={() => {
-                  setActiveSlotAddonId(a.id);
-                  onToggleAddon(a);
-                }}
-                formatPrice={formatPrice}
-                copy={ta}
-              />
+              <div key={a.id} className="cb-addon-slot-config">
+                <SlotAddonCard
+                  addon={a}
+                  selected={sel}
+                  slotKeySet={slotKeySet}
+                  targeting={addonSlotTargeting}
+                  slotQuantities={addonSlotQuantities?.get(a.id)}
+                  onToggle={() => onToggleAddon(a)}
+                  formatPrice={formatPrice}
+                  copy={ta}
+                />
+                {sel && pickedSlots.length > 0 ? (
+                  <SlotPanel
+                    addon={a}
+                    pickedSlots={pickedSlots}
+                    allSlotKeys={allSlotKeys}
+                    slotKeySet={slotKeySet}
+                    targeting={addonSlotTargeting}
+                    slotQuantities={addonSlotQuantities?.get(a.id)}
+                    onToggleSlot={onToggleAddonSlot}
+                    onSelectAllSlots={onAddonSelectAllSlots}
+                    onSetSlotQty={onSetAddonSlotQty}
+                    selectAllLabel={omitPanelHeading ? ta("addToAllTimeSlots") : ta("selectAllSlots")}
+                    copy={ta}
+                  />
+                ) : null}
+              </div>
             );
           })}
         </div>
-        {active && pickedSlots.length > 0 ? (
-          <SlotPanel
-            addon={active}
-            pickedSlots={pickedSlots}
-            allSlotKeys={allSlotKeys}
-            slotKeySet={slotKeySet}
-            targeting={addonSlotTargeting}
-            slotQuantities={addonSlotQuantities?.get(active.id)}
-            onToggleSlot={onToggleAddonSlot}
-            onSelectAllSlots={onAddonSelectAllSlots}
-            onSetSlotQty={onSetAddonSlotQty}
-            selectAllLabel={omitPanelHeading ? ta("addToAllTimeSlots") : ta("selectAllSlots")}
-            copy={ta}
-          />
-        ) : active && pickedSlots.length === 0 ? (
+        {pickedSlots.length === 0 && items.some((a) => selectedAddonIds.has(a.id)) ? (
           <p className="cb-addon-slot-hint">{ta("selectSlotsFirst")}</p>
         ) : null}
       </section>
