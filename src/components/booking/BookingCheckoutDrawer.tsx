@@ -793,8 +793,8 @@ export function BookingCheckoutDrawer({
   const productRequiredList = useMemo(() => parseProductRequiredProducts(product), [product]);
   const userRequiredList = useMemo(() => parseExtendedRequiredProductsList(requiredQuery.data), [requiredQuery.data]);
   const extendedRequiredList = useMemo(
-    () => (productRequiredList.length > 0 ? productRequiredList : userRequiredList),
-    [productRequiredList, userRequiredList]
+    () => (requiredQuery.isSuccess && requiredQuery.data !== undefined ? userRequiredList : productRequiredList),
+    [productRequiredList, requiredQuery.data, requiredQuery.isSuccess, userRequiredList]
   );
 
   const { membershipOptions, otherRequired } = useMemo(() => {
@@ -1393,24 +1393,30 @@ export function BookingCheckoutDrawer({
       if (choice != null) {
         body.paymentMethodId = choice.finalizePaymentMethodId;
       }
-      if (overrideAmount != null && overrideAmount > 0) {
-        body.amountToPay = overrideAmount;
-      } else {
-        const freshCart = await getOrganizationCart(orgId, cartId);
-        const combinedApprovalMap: Record<number, boolean> = {};
-        for (const row of bagSnapshots) {
-          if (row.approvalByProductId) Object.assign(combinedApprovalMap, row.approvalByProductId);
+      const freshCart = await getOrganizationCart(orgId, cartId);
+      const combinedApprovalMap: Record<number, boolean> = {};
+      for (const row of bagSnapshots) {
+        if (row.approvalByProductId) Object.assign(combinedApprovalMap, row.approvalByProductId);
+      }
+      const payableTotal = bondCartPayableTotalForFinalize(freshCart, combinedApprovalMap);
+      let amount = payableTotal;
+      if (overrideAmount != null && overrideAmount > 0 && payableTotal != null && payableTotal > 0) {
+        const cartMinimum = cartChargeableMinimum(freshCart);
+        const requestedAmount = Math.round(overrideAmount * CURRENCY_CENTS) / CURRENCY_CENTS;
+        const normalizedMinimum =
+          cartMinimum != null && requestedAmount <= cartMinimum + BOND_KIND_LINE_MIN
+            ? cartMinimum
+            : requestedAmount;
+        amount = Math.min(normalizedMinimum, payableTotal);
+      }
+      if (amount == null || amount <= 0) {
+        const ui = estimatedAmountDueRef.current;
+        if (ui != null && Number.isFinite(ui) && ui > 0) {
+          amount = Math.round(ui * CURRENCY_CENTS) / CURRENCY_CENTS;
         }
-        let amount = bondCartPayableTotalForFinalize(freshCart, combinedApprovalMap);
-        if (amount == null || amount <= 0) {
-          const ui = estimatedAmountDueRef.current;
-          if (ui != null && Number.isFinite(ui) && ui > 0) {
-            amount = Math.round(ui * 100) / 100;
-          }
-        }
-        if (amount != null && amount > 0) {
-          body.amountToPay = amount;
-        }
+      }
+      if (amount != null && amount > 0) {
+        body.amountToPay = amount;
       }
       return finalizeCart(orgId, cartId, body);
     },
