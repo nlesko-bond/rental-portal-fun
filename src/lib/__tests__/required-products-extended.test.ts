@@ -102,6 +102,21 @@ describe("membershipFrequencyLabel", () => {
     expect(membershipFrequencyLabel(node)).toBeNull();
   });
 
+  it("reads explicit monthly or annual cadence from membership display labels", () => {
+    expect(
+      membershipFrequencyLabel(baseNode({
+        name: "Elite Sports Monthly Membership",
+        endDate: "2200-01-01",
+      } as Record<string, unknown>))
+    ).toBe("month");
+    expect(
+      membershipFrequencyLabel(baseNode({
+        name: "Elite Sports Annual Membership",
+        endDate: "2200-01-01",
+      } as Record<string, unknown>))
+    ).toBe("year");
+  });
+
   it("formats rolling membership renewal cadence for cart and gating display", () => {
     expect(
       membershipDisplaySummary(baseNode({

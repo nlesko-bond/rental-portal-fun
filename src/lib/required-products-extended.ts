@@ -181,6 +181,14 @@ function intervalEnumToRenewalCadenceLabel(raw: string | null): string | null {
   return compact;
 }
 
+function cadenceLabelFromExplicitDisplayText(raw: string | null): string | null {
+  if (!raw) return null;
+  if (/\b(month|monthly)\b/i.test(raw)) return "month";
+  if (/\b(year|yearly|annual|annually)\b/i.test(raw)) return "year";
+  if (/\b(quarter|quarterly)\b/i.test(raw)) return "quarter";
+  return null;
+}
+
 function formatUtcDateLabel(iso: string): string | null {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return null;
@@ -326,6 +334,10 @@ export function membershipFrequencyLabel(node: ExtendedRequiredProductNode): str
     const formatted = formatUtcDateLabel(realExpiration);
     if (formatted) return `exp ${formatted}`;
   }
+  const displayCadence =
+    cadenceLabelFromExplicitDisplayText(node.name ?? null) ??
+    cadenceLabelFromExplicitDisplayText(primaryListPrice(node)?.label ?? null);
+  if (displayCadence) return displayCadence;
   return null;
 }
 
