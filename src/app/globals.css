@@ -1696,8 +1696,8 @@ body {
 }
 
 .consumer-booking .cb-activity-cell-icon--selected {
-  background: color-mix(in srgb, var(--cb-primary) 12%, var(--cb-bg-surface-muted));
-  color: var(--cb-primary);
+  background: var(--cb-primary);
+  color: #fff;
 }
 
 .consumer-booking .cb-booking-nav-band {
