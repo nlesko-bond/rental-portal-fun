@@ -734,22 +734,10 @@ export function BookingExperience() {
     [selectedProductForHooks]
   );
 
-  /** Slot/matrix: member-tier pricing label only while the participant may still need to buy required membership. */
+  /** Slot/matrix: member-tier zero prices should render as free instead of "$0". */
   const effectiveMembershipGated = useMemo(() => {
-    if (!catalogMembershipGated) return false;
-    if (bondAuth.session.status !== "authenticated") return true;
-    if (effectiveBookingUserId == null) return true;
-    const q = memberRequiredQueryForSelected;
-    if (q == null) return true;
-    if (q.isPending) return false;
-    if (!q.isSuccess || q.data === undefined) return catalogMembershipGated;
-    return userNeedsMembershipFromRequiredResponse(q.data);
-  }, [
-    catalogMembershipGated,
-    bondAuth.session.status,
-    effectiveBookingUserId,
-    memberRequiredQueryForSelected,
-  ]);
+    return catalogMembershipGated;
+  }, [catalogMembershipGated]);
 
   /**
    * Checkout: when the selected participant’s GET …/required says they still owe a membership, we run the membership step.

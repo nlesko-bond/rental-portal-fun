@@ -2570,6 +2570,8 @@ export function BookingCheckoutDrawer({
           freeLabel: tb("free"),
           freeForMembersLabel: tb("freeForMembers"),
         });
+      const itemTotalValueClassName = (label: string) =>
+        `cb-checkout-review-item-total-value${/[A-Za-z]/.test(label) ? " cb-checkout-review-item-total-value--text" : ""}`;
       const reviewMoney = (strike: number | undefined, net: number) =>
         strike != null && strike > net + 0.005 ? (
           <>
@@ -2714,7 +2716,7 @@ export function BookingCheckoutDrawer({
           ) : null}
           <div className="cb-checkout-review-item-total">
             <span className="cb-checkout-review-item-total-label">{tx("itemTotal")}</span>
-            <span className="cb-checkout-review-item-total-value">{fmtBookingMoney(amount)}</span>
+            <span className={itemTotalValueClassName(fmtBookingMoney(amount))}>{fmtBookingMoney(amount)}</span>
           </div>
         </li>
       );
@@ -2847,14 +2849,19 @@ export function BookingCheckoutDrawer({
                     {nestedAddonRows(s.nestedAddons)}
                   </div>
                 ) : null}
-                <div className="cb-checkout-review-item-total">
-                  <span className="cb-checkout-review-item-total-label">{tx("itemTotal")}</span>
-                  <span className="cb-checkout-review-item-total-value">
-                    {fmtBookingMoney(
-                      s.amount + s.nestedAddons.reduce((sum, a) => sum + a.amount, 0)
-                    )}
-                  </span>
-                </div>
+                {(() => {
+                  const slotItemTotal = fmtBookingMoney(
+                    s.amount + s.nestedAddons.reduce((sum, a) => sum + a.amount, 0)
+                  );
+                  return (
+                    <div className="cb-checkout-review-item-total">
+                      <span className="cb-checkout-review-item-total-label">{tx("itemTotal")}</span>
+                      <span className={itemTotalValueClassName(slotItemTotal)}>
+                        {slotItemTotal}
+                      </span>
+                    </div>
+                  );
+                })()}
               </li>
             ))}
             {m.reservationAddonItems.map((x) => {
@@ -2926,10 +2933,15 @@ export function BookingCheckoutDrawer({
                       </div>
                     </div>
                   </div>
-                  <div className="cb-checkout-review-item-total">
-                    <span className="cb-checkout-review-item-total-label">{tx("itemTotal")}</span>
-                    <span className="cb-checkout-review-item-total-value">{fmtBookingMoney(x.amount)}</span>
-                  </div>
+                  {(() => {
+                    const addonItemTotal = fmtBookingMoney(x.amount);
+                    return (
+                      <div className="cb-checkout-review-item-total">
+                        <span className="cb-checkout-review-item-total-label">{tx("itemTotal")}</span>
+                        <span className={itemTotalValueClassName(addonItemTotal)}>{addonItemTotal}</span>
+                      </div>
+                    );
+                  })()}
                 </li>
               );
             })}

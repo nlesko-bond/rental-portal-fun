@@ -8263,6 +8263,11 @@ body {
   font-size: 1.125rem;
 }
 
+.consumer-booking .cb-checkout-review-item-total-value--text {
+  font-size: 0.95rem;
+  line-height: 1.2;
+}
+
 .consumer-booking .cb-checkout-review-nested-addon {
   display: flex;
   align-items: center;
