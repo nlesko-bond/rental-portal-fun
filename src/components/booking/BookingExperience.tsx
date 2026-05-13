@@ -56,7 +56,7 @@ import {
 import { parseExtendedRequiredProductsList, parseProductRequiredProducts } from "@/lib/required-products-extended";
 import { activeMembershipsFromUnknown, bookingPartyMembersFromProfile } from "@/lib/booking-party-options";
 import { BondBffError } from "@/lib/bond-json";
-import type { ExtendedProductDto, OnlineBookingView, OrganizationCartDto, ScheduleTimeSlotDto } from "@/types/online-booking";
+import type { ExtendedProductDto, OnlineBookingView, OrganizationCartDto, ReservationProductCategoryDto, ScheduleTimeSlotDto } from "@/types/online-booking";
 import type { PackageAddonLine } from "@/lib/product-package-addons";
 import { CB_BOOKING_APPEARANCE_EVENT, CB_BOOKING_APPEARANCE_KEY } from "@/lib/booking-appearance";
 import {
@@ -138,9 +138,9 @@ const SOLO_RESOURCE_PREVIEW_COUNT = 3;
 const MINUTES_PER_HOUR = 60;
 const RESUME_CHECKOUT_AFTER_AUTH_KEY = "cb:resume-checkout-after-auth";
 
-function IconUserCircle() {
+function IconUserCircle({ className }: { className?: string }) {
   return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden>
+    <svg className={className} width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden>
       <circle cx="12" cy="8.5" r="3.25" stroke="currentColor" strokeWidth="1.75" />
       <path
         d="M5.5 19.25c.85-2.35 3.05-4 6.5-4s5.65 1.65 6.5 4"
@@ -153,6 +153,26 @@ function IconUserCircle() {
 }
 
 const START_TIME_AUTO = "__auto__";
+
+function categoryPrimaryResourceKind(category: ReservationProductCategoryDto): "person" | "space" {
+  const settings = category.settings;
+  if (!settings) return "space";
+  const values = [
+    settings.primaryResource,
+    settings.primaryResourceType,
+    settings.primary_resource,
+    settings.primary_resource_type,
+    settings.resourceType,
+    settings.resource_type,
+    settings.resourceNameType,
+    settings.resource_name_type,
+  ];
+  const text = values
+    .filter((value): value is string => typeof value === "string")
+    .join(" ")
+    .toLowerCase();
+  return text.includes("instructor") || text.includes("person") || text.includes("coach") ? "person" : "space";
+}
 
 function readResumeCheckoutAfterAuth(): boolean {
   if (typeof window === "undefined") return false;
@@ -1474,6 +1494,7 @@ export function BookingExperience() {
   if (!portal || !state) return null;
 
   const category = portal.options.categories.find((c) => c.id === state.categoryId) ?? portal.options.defaultCategory;
+  const categoryResourceKind = categoryPrimaryResourceKind(category);
   const categoryApprovalRequired = categoryRequiresApproval(category);
   categoryApprovalRequiredRef.current = categoryApprovalRequired;
   const durations =
@@ -1649,7 +1670,11 @@ export function BookingExperience() {
             <BreadcrumbChevronRight className="cb-breadcrumb-chev-icon" />
           </span>
           <button type="button" className="cb-breadcrumb-trigger" aria-label={categoryName} onClick={() => setPicker("category")}>
-            <IconCalendar className="size-3.5 shrink-0 text-[var(--cb-text-muted)]" />
+            {categoryResourceKind === "person" ? (
+              <IconUserCircle className="size-3.5 shrink-0 text-[var(--cb-text-muted)]" />
+            ) : (
+              <IconCalendar className="size-3.5 shrink-0 text-[var(--cb-text-muted)]" />
+            )}
             <span className="truncate">{categoryName}</span>
             <span className="cb-faint text-[0.65rem]" aria-hidden>
               ▾
