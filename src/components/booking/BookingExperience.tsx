@@ -53,7 +53,13 @@ import {
   membershipRequiredForProductFromResponse,
   userNeedsMembershipFromRequiredResponse,
 } from "@/lib/required-products-eligibility";
-import { parseExtendedRequiredProductsList, parseProductRequiredProducts } from "@/lib/required-products-extended";
+import {
+  isMembershipRequiredProduct,
+  membershipFrequencyLabel,
+  parseExtendedRequiredProductsList,
+  parseProductRequiredProducts,
+  primaryListPrice,
+} from "@/lib/required-products-extended";
 import { activeMembershipsFromUnknown, bookingPartyMembersFromProfile } from "@/lib/booking-party-options";
 import { BondBffError } from "@/lib/bond-json";
 import type { ExtendedProductDto, OnlineBookingView, OrganizationCartDto, ReservationProductCategoryDto, ScheduleTimeSlotDto } from "@/types/online-booking";
@@ -134,7 +140,6 @@ import { WelcomeToast } from "@/components/ui/WelcomeToast";
 
 const PRODUCTS_PAGE_SIZE = 30;
 const SOLO_ADDON_PREVIEW_COUNT = 2;
-const SOLO_RESOURCE_PREVIEW_COUNT = 3;
 const MINUTES_PER_HOUR = 60;
 const RESUME_CHECKOUT_AFTER_AUTH_KEY = "cb:resume-checkout-after-auth";
 
@@ -153,6 +158,24 @@ function IconUserCircle({ className }: { className?: string }) {
 }
 
 const START_TIME_AUTO = "__auto__";
+
+function requiredMembershipPillsForProduct(product: ExtendedProductDto): string[] {
+  const memberships = parseProductRequiredProducts(product).filter(isMembershipRequiredProduct);
+  return memberships
+    .map((membership) => {
+      const name = membership.name?.trim();
+      if (!name) return null;
+      const price = primaryListPrice(membership);
+      const cadence = membershipFrequencyLabel(membership);
+      const priceLabel = price
+        ? cadence
+          ? `${formatPrice(price.amount, price.currency)} / ${cadence}`
+          : formatPrice(price.amount, price.currency)
+        : null;
+      return priceLabel ? `${name} ${priceLabel}` : name;
+    })
+    .filter((label): label is string => label != null);
+}
 
 function categoryPrimaryResourceKind(category: ReservationProductCategoryDto): "person" | "space" {
   const settings = category.settings;
@@ -1888,37 +1911,24 @@ export function BookingExperience() {
                     </div>
                   );
                 })()}
-                {(() => {
-                  const resources = scheduleSettingsQuery.data?.resources ?? [];
-                  if (resources.length === 0) return null;
-                  const names = resources.map((r) => r.name);
-                  const shown = names.slice(0, SOLO_RESOURCE_PREVIEW_COUNT);
-                  const more = names.length > SOLO_RESOURCE_PREVIEW_COUNT ? names.length - SOLO_RESOURCE_PREVIEW_COUNT : 0;
-                  const resourceLabel = resources.some((r) => isInstructorScheduleResourceType(r.type))
-                    ? tb("productDetailInstructors")
-                    : tb("productDetailSpaces");
-                  return (
-                    <div className="cb-product-solo-info-pill-section">
-                        <span className="cb-product-solo-info-row-label">{resourceLabel}</span>
-                        <span className="cb-product-solo-info-pill-list" title={names.join(", ")}>
-                          {shown.map((name, index) => (
-                            <span key={`${name}-${index}`} className="cb-product-solo-info-mini-pill">{name}</span>
-                          ))}
-                          {more > 0 ? <span className="cb-product-solo-info-mini-pill">+{more} more</span> : null}
-                        </span>
-                    </div>
-                  );
-                })()}
                 {productMembershipGated(soloProduct) ? (
-                  <div className="cb-product-solo-info-row">
-                    <span className="cb-product-solo-info-row-icon" aria-hidden>
-                      <IconLockDetail className="size-4" />
-                    </span>
-                    <span className="cb-product-solo-info-row-copy">
-                      <span className="cb-product-solo-info-row-label">{tb("productDetailAccess")}</span>
-                      <span className="cb-product-solo-info-row-value">{tb("productDetailMembersOnly")}</span>
-                    </span>
-                  </div>
+                  (() => {
+                    const memberships = requiredMembershipPillsForProduct(soloProduct);
+                    return (
+                      <div className="cb-product-solo-info-pill-section">
+                        <span className="cb-product-solo-info-row-label">{tb("memberAccess")}</span>
+                        <span className="cb-product-solo-info-pill-list" title={memberships.join(", ")}>
+                          {memberships.length > 0 ? (
+                            memberships.map((name, index) => (
+                              <span key={`${name}-${index}`} className="cb-product-solo-info-mini-pill">{name}</span>
+                            ))
+                          ) : (
+                            <span className="cb-product-solo-info-mini-pill">{tb("productDetailMembersOnly")}</span>
+                          )}
+                        </span>
+                      </div>
+                    );
+                  })()
                 ) : null}
                 {(() => {
                   const addons = bookingOptionalAddons(soloProduct);

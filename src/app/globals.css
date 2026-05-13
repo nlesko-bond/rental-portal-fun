@@ -2282,7 +2282,7 @@ body {
 }
 @media (min-width: 768px) {
   .consumer-booking .cb-product-solo-group {
-    grid-template-columns: 9.5rem minmax(0, 1fr);
+    grid-template-columns: 12rem minmax(0, 1fr);
     gap: 0;
     align-items: stretch;
     min-height: 8.75rem;
