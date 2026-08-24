@@ -511,3 +511,15 @@ External:
 ---
 
 *Single source of agent truth. Update this file when project conventions, the BFF allowlist, the directory layout, or pinned items change.*
+
+## Cursor Cloud specific instructions
+
+This repo is a **single Next.js 16 app**. There is no local database, Docker Compose, or Bond `squad-c` process to start. The only local process is `pnpm dev` (http://localhost:3000). Live discovery/schedule/checkout talk to hosted Bond APIs through the BFF.
+
+- **Package manager:** `pnpm` (see `pnpm-lock.yaml`). Node 22 is already on PATH via nvm.
+- **Startup refresh:** `pnpm install --config.dangerouslyAllowAllBuilds=true`. pnpm 10 otherwise skips native postinstalls (`sharp`, `@swc/core`, `esbuild`, `@parcel/watcher`, `unrs-resolver`). Do not run interactive `pnpm approve-builds`.
+- **Env:** copy `.env.example` → `.env.local` (gitignored). Org/portal defaults (`155` / `133`) are already in the example. The BFF returns HTTP 500 `Missing BOND_API_BASE_URL or BOND_API_KEY` until `BOND_API_KEY` is set; Bond's public host returns 401 without a valid key. Anonymous browse needs that server key; login/checkout also needs `NEXT_PUBLIC_BOND_OAUTH_*` and `NEXT_PUBLIC_BOND_PUBLIC_API_KEY`.
+- **Commands:** `pnpm dev`, `pnpm test`, `pnpm build`, `pnpm lint` as documented above. Vitest does **not** need Bond or the Next server.
+- **Lint:** `pnpm lint` currently fails on pre-existing app/vendor issues (not a Cloud setup regression). Treat that as known unless you are specifically fixing lint.
+- **OAuth redirect:** `.env.example` uses `http://localhost:3000/auth/callback`. That matches this VM's dev server.
+- **Do not** clone or run Bond `squad-c` / `apiv2` to develop this portal.
