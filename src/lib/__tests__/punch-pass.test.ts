@@ -7,7 +7,6 @@ import {
   punchPassCartPurchaseForSnapshot,
   punchPassPackDisplayAmount,
   punchPassPackPrice,
-  punchPassPackRequiredProductLine,
   punchPassSlotCap,
   punchesNeededForSlots,
   resolvePunchPassCheckout,
@@ -171,23 +170,6 @@ describe("punchPassCartPurchaseForSnapshot", () => {
         punchPassCartPurchaseForSnapshot(pass, redeem, { packSubtitle: "10 visits", visitSubtitle: "1 punch" })
       )
     ).toBe(0);
-  });
-});
-
-describe("punchPassPackRequiredProductLine", () => {
-  const pass = parsePunchPassProduct(product())!;
-
-  it("sends the pack at pack price on first buy", () => {
-    const buy = resolvePunchPassCheckout(pass, 0, 1)!;
-    expect(punchPassPackRequiredProductLine(buy, pass.productId)).toEqual({
-      productId: 701,
-      unitPrice: 200,
-    });
-  });
-
-  it("is omitted on redeem", () => {
-    const redeem = resolvePunchPassCheckout(pass, 8, 1)!;
-    expect(punchPassPackRequiredProductLine(redeem, pass.productId)).toBeNull();
   });
 });
 

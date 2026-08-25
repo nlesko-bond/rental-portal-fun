@@ -227,6 +227,47 @@ describe("checkoutCardsFromSnapshot", () => {
     expect(cards[1]?.badges.some((badge) => badge.kind === "deposit_optional")).toBe(false);
   });
 
+  it("keeps one included visit when Bond returns the same $0 slot twice", () => {
+    const punchPassPurchase = {
+      kind: "buyAndRedeem" as const,
+      productId: 1089823,
+      packName: "Court 10-pack",
+      punchCount: 10,
+      packAmount: 150,
+      punchesNeeded: 1,
+      packSubtitle: "10 visits on this pass",
+      visitSubtitle: "Included visit",
+    };
+    const row: SessionCartSnapshot = {
+      cart: {
+        id: 9,
+        cartItems: [
+          {
+            id: 20,
+            productId: 1089823,
+            product: { id: 1089823, name: "Court 10-pack" },
+            metadata: { description: "reservation_type_rental" },
+            subtotal: 0,
+          },
+          {
+            id: 21,
+            productId: 1089823,
+            product: { id: 1089823, name: "Court 10-pack" },
+            metadata: { description: "reservation_type_rental" },
+            subtotal: 0,
+          },
+        ],
+      } as unknown as OrganizationCartDto,
+      productName: "Court 10-pack",
+      punchPassPurchase,
+    };
+
+    const cards = checkoutCardsFromSnapshot(row, 0);
+    const visits = cards.filter((card) => card.unitSubtitle === "Included visit");
+    expect(visits).toHaveLength(1);
+    expect(cards.filter((card) => card.itemTotal === 150)).toHaveLength(1);
+  });
+
   it("does not double the pack when Bond already invoiced it", () => {
     const row: SessionCartSnapshot = {
       cart: {

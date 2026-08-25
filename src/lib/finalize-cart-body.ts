@@ -32,3 +32,23 @@ export function resolveFinalizeAmountToPay(args: ResolveFinalizeAmountToPayArgs)
   if (amount == null || amount <= 0) return null;
   return amount;
 }
+
+/** Inputs for `buildFinalizeCartBody` — Bond charge vs $0 visit. */
+export type BuildFinalizeCartBodyArgs = {
+  amountToPay: number | null;
+  paymentMethodId?: number | null;
+};
+
+/**
+ * Bond `POST …/finalize` body. Empty `{}` 500s; a payment method on a $0 cart also 500s.
+ * Chargeable carts send amount + method. Zero-dollar carts send `amountToPay: 0` only.
+ */
+export function buildFinalizeCartBody(args: BuildFinalizeCartBodyArgs): Record<string, unknown> {
+  const amount = args.amountToPay;
+  if (amount != null && amount > BOND_KIND_LINE_MIN) {
+    const body: Record<string, unknown> = { amountToPay: amount };
+    if (args.paymentMethodId != null) body.paymentMethodId = args.paymentMethodId;
+    return body;
+  }
+  return { amountToPay: 0 };
+}

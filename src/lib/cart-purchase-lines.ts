@@ -21,6 +21,7 @@ import {
   getBondCartReceiptLineItems,
   resolveBondLineDisplayAmounts,
   bondCartInvoicesPunchPack,
+  BOND_KIND_LINE_MIN,
 } from "@/lib/checkout-bag-totals";
 import {
   type BagRemovePolicy,
@@ -29,7 +30,7 @@ import {
 } from "@/lib/bond-cart-removal";
 import { dedupeDiscountCaptionSegments, describeEntitlementsForDisplay } from "@/lib/entitlement-discount";
 import { membershipDisplaySummary, type MembershipDisplaySummary } from "@/lib/required-products-extended";
-import { punchPassPackDisplayAmount } from "@/lib/punch-pass";
+import { punchPassPackDisplayAmount, type PunchPassCartPurchase } from "@/lib/punch-pass";
 import type { SessionCartSnapshot } from "@/lib/session-cart-snapshot";
 import { flatLineIndexSegmentsForMergedBookings } from "@/lib/session-cart-grouping";
 import type { OrganizationCartDto } from "@/types/online-booking";
@@ -539,6 +540,39 @@ function finalizePurchaseDisplayLines(
   return withPunchPassPurchaseLines(annotated, row, rowIndex);
 }
 
+function cartItemHasBookingChildren(it: Record<string, unknown>): boolean {
+  const ch = it.children;
+  if (!Array.isArray(ch) || ch.length === 0) return false;
+  return ch.some(
+    (raw) =>
+      raw != null &&
+      typeof raw === "object" &&
+      classifyCartItemLineKind(raw as Record<string, unknown>) === "booking"
+  );
+}
+
+function collapseExtraPunchPassVisitLines(
+  lines: CartPurchaseDisplayLine[],
+  purchase: PunchPassCartPurchase
+): CartPurchaseDisplayLine[] {
+  if (purchase.punchesNeeded !== 1) return lines;
+  let keptVisit = false;
+  const out: CartPurchaseDisplayLine[] = [];
+  for (const line of lines) {
+    const kind = line.lineKind ?? "booking";
+    const isZeroVisit =
+      kind === "booking" && (line.amount == null || line.amount <= BOND_KIND_LINE_MIN);
+    if (!isZeroVisit) {
+      out.push(line);
+      continue;
+    }
+    if (keptVisit) continue;
+    keptVisit = true;
+    out.push(line);
+  }
+  return out;
+}
+
 /**
  * Bond only holds the redeemed visit. Prepend the pack purchase captured at add-to-cart.
  */
@@ -562,8 +596,10 @@ function withPunchPassPurchaseLines(
       })
     : lines;
   const packAmount = punchPassPackDisplayAmount(purchase);
-  if (packAmount <= 0) return visitLines;
-  if (bondCartInvoicesPunchPack(row.cart, purchase.productId)) return visitLines;
+  if (packAmount <= 0) return collapseExtraPunchPassVisitLines(visitLines, purchase);
+  if (bondCartInvoicesPunchPack(row.cart, purchase.productId)) {
+    return collapseExtraPunchPassVisitLines(visitLines, purchase);
+  }
   const cartId = (row.cart as OrganizationCartDto).id;
   const packLine: CartPurchaseDisplayLine = {
     key: `snap-${rowIndex}-punchpack-${cartId}`,
@@ -572,7 +608,7 @@ function withPunchPassPurchaseLines(
     amount: packAmount,
     unitSubtitle: purchase.packSubtitle,
   };
-  return [packLine, ...visitLines];
+  return collapseExtraPunchPassVisitLines([packLine, ...visitLines], purchase);
 }
 
 function productIdFromBondItem(it: Record<string, unknown>): number | null {
@@ -853,6 +889,7 @@ export function expandSnapshotForPurchaseList(
       if (fromItem == null) return;
       const it = o as Record<string, unknown>;
       const kind = classifyCartItemLineKind(it);
+      if (kind === "booking" && cartItemHasBookingChildren(it)) return;
       /**
        * For rental (`booking`) lines Bond's `cart_item.name` is auto-generated as
        * `"{firstName} Reservation"` — that's a back-office artifact, not a customer-facing

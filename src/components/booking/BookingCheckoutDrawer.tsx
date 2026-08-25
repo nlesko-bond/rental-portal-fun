@@ -27,8 +27,8 @@ import {
 } from "@/lib/online-booking-user-api";
 import { buildOnlineBookingCreateBody, splitAddonPayloadForCreate } from "@/lib/online-booking-create-body";
 import { formatBookingPriceOrFree, productMembershipGated } from "@/lib/booking-pricing";
-import { punchPassPackDueOnSnapshots, punchPassPackRequiredProductLine, type PunchPassCheckout } from "@/lib/punch-pass";
-import { resolveFinalizeAmountToPay } from "@/lib/finalize-cart-body";
+import { punchPassPackDueOnSnapshots, type PunchPassCheckout } from "@/lib/punch-pass";
+import { buildFinalizeCartBody, resolveFinalizeAmountToPay } from "@/lib/finalize-cart-body";
 import {
   bookingContactSnapshot,
   findProfilePersonById,
@@ -1269,12 +1269,6 @@ export function BookingCheckoutDrawer({
     });
     const hasSegmentAddons = perSegment.some((a) => a.length > 0);
 
-    const punchPackLine = punchPassPackRequiredProductLine(punchPass, productId);
-    const requiredProductLineItems = [
-      ...requiredProductLineItemsForBond,
-      ...(punchPackLine != null ? [punchPackLine] : []),
-    ];
-
     return buildOnlineBookingCreateBody({
       userId,
       portalId,
@@ -1299,7 +1293,7 @@ export function BookingCheckoutDrawer({
       cartId:
         includeCartMerge && mergeCartId != null && mergeCartId > 0 ? mergeCartId : undefined,
       requiredProductLineItems:
-        requiredProductLineItems.length === 0 ? undefined : requiredProductLineItems,
+        requiredProductLineItemsForBond.length === 0 ? undefined : requiredProductLineItemsForBond,
     });
   }, [
     answers,
@@ -1307,7 +1301,6 @@ export function BookingCheckoutDrawer({
     addonQuantities,
     requiredIdsForBond,
     requiredProductLineItemsForBond,
-    punchPass,
     packageAddons,
     addonSlotTargeting,
     userId,
@@ -1413,7 +1406,6 @@ export function BookingCheckoutDrawer({
       if (cartId == null) {
         throw new BondBffError(400, "No cart to finalize", null);
       }
-      const body: Record<string, unknown> = {};
       const freshCart = await getOrganizationCart(orgId, cartId);
       const combinedApprovalMap: Record<number, boolean> = {};
       for (const row of bagSnapshots) {
@@ -1426,14 +1418,12 @@ export function BookingCheckoutDrawer({
         overrideAmount,
         cartMinimum: cartChargeableMinimum(freshCart),
       });
-      if (amount != null) {
-        body.amountToPay = amount;
-        const pmSel = selectedPaymentMethodIdRef.current;
-        const choice = paymentChoicesRef.current.find((c) => c.id === pmSel);
-        if (choice != null) {
-          body.paymentMethodId = choice.finalizePaymentMethodId;
-        }
-      }
+      const pmSel = selectedPaymentMethodIdRef.current;
+      const choice = paymentChoicesRef.current.find((c) => c.id === pmSel);
+      const body = buildFinalizeCartBody({
+        amountToPay: amount,
+        paymentMethodId: choice?.finalizePaymentMethodId ?? null,
+      });
       return finalizeCart(orgId, cartId, body);
     },
     onMutate: () => {

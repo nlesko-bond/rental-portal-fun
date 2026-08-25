@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveFinalizeAmountToPay } from "@/lib/finalize-cart-body";
+import { buildFinalizeCartBody, resolveFinalizeAmountToPay } from "@/lib/finalize-cart-body";
 import { punchPassPackDueOnSnapshots } from "@/lib/punch-pass";
 
 describe("punchPassPackDueOnSnapshots", () => {
@@ -87,5 +87,25 @@ describe("resolveFinalizeAmountToPay", () => {
         cartMinimum: 73,
       })
     ).toBe(73);
+  });
+});
+
+describe("buildFinalizeCartBody", () => {
+  it("sends amount and payment method when Bond will charge", () => {
+    expect(
+      buildFinalizeCartBody({
+        amountToPay: 40,
+        paymentMethodId: 99,
+      })
+    ).toEqual({ amountToPay: 40, paymentMethodId: 99 });
+  });
+
+  it("sends amountToPay 0 without a payment method for a $0 Bond cart", () => {
+    expect(
+      buildFinalizeCartBody({
+        amountToPay: null,
+        paymentMethodId: 99,
+      })
+    ).toEqual({ amountToPay: 0 });
   });
 });
