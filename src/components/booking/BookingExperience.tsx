@@ -154,7 +154,6 @@ import { useBondAuth } from "@/components/auth/BondAuthContext";
 import { BookingForDrawer } from "@/components/auth/BookingForDrawer";
 import { LoginModal } from "@/components/auth/LoginModal";
 import { BookingCheckoutDrawer, type CheckoutStep } from "./BookingCheckoutDrawer";
-import { PunchPassPassesModal } from "./PunchPassPassesModal";
 import { WelcomeToast } from "@/components/ui/WelcomeToast";
 
 const PRODUCTS_PAGE_SIZE = 30;
@@ -537,7 +536,6 @@ export function BookingExperience() {
   const [welcomeToastOpen, setWelcomeToastOpen] = useState(false);
   const [checkoutDrawerOpen, setCheckoutDrawerOpen] = useState(false);
   const [punchWalletRevision, setPunchWalletRevision] = useState(0);
-  const [punchPassesOpen, setPunchPassesOpen] = useState(false);
   const punchWalletSeededRef = useRef<string | null>(null);
   /** `checkout` = build booking; `bag` = view session carts from cart FAB. */
   const [checkoutDrawerMode, setCheckoutDrawerMode] = useState<"checkout" | "bag">("checkout");
@@ -767,7 +765,6 @@ export function BookingExperience() {
   const punchRemaining = punchPassParsed
     ? remainingPunchesForProduct(punchWallet, punchPassParsed.productId)
     : 0;
-  const punchWalletTotalRemaining = punchWallet.entries.reduce((sum, entry) => sum + Math.max(0, entry.remaining), 0);
 
   useEffect(() => {
     if (!env.ok || punchPassParsed == null) return;
@@ -1790,17 +1787,6 @@ export function BookingExperience() {
           )}
         </div>
         <div className="flex items-center justify-end gap-2 justify-self-end">
-          {punchWallet.entries.length > 0 ? (
-            <button
-              type="button"
-              className="cb-punch-wallet-chip"
-              onClick={() => setPunchPassesOpen(true)}
-              aria-label={tb("punchPassWalletAria", { count: punchWalletTotalRemaining })}
-            >
-              <IconPassTicket className="size-4 shrink-0" aria-hidden />
-              <span>{tb("punchPassWalletChip", { count: punchWalletTotalRemaining })}</span>
-            </button>
-          ) : null}
           {bondAuth.session.status === "authenticated" ? (
             <>
               <div
@@ -2660,7 +2646,7 @@ export function BookingExperience() {
           onClear={clearSlotSelection}
           themeStyle={themeStyle}
           appearanceClass={appearanceClass}
-          overlayOpen={bondAuth.loginOpen || picker != null || checkoutDrawerOpen || punchPassesOpen}
+          overlayOpen={bondAuth.loginOpen || picker != null || checkoutDrawerOpen}
           onOpenCart={sessionCartRows.length > 0 ? onOpenCartBag : undefined}
           onBook={onBookNow}
           bookBusy={checkoutBusy}
@@ -2676,16 +2662,6 @@ export function BookingExperience() {
       ) : null}
 
       <LoginModal orgName={branding.orgName} orgLogoUrl={branding.logoUrl} />
-
-      <PunchPassPassesModal
-        open={punchPassesOpen}
-        onClose={() => setPunchPassesOpen(false)}
-        entries={punchWallet.entries}
-        onSelectPass={(productId) => {
-          setPunchPassesOpen(false);
-          setProduct(productId);
-        }}
-      />
 
       <WelcomeToast
         open={welcomeToastOpen}

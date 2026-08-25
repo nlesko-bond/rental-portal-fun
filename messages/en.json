@@ -216,17 +216,10 @@
     "punchPassVisitCount": "{count, plural, one {# visit} other {# visits}}",
     "punchPassRemainingOnPass": "{remaining} of {total} remaining — pick times to redeem.",
     "punchPassBuyThenRedeemHint": "Pick times, then buy this pass and book those visits in checkout.",
-    "punchPassWalletChip": "{count, plural, one {# punch} other {# punches}}",
-    "punchPassWalletAria": "My punch passes, {count, plural, one {# punch remaining} other {# punches remaining}}",
-    "punchPassMyPassesTitle": "My passes",
-    "punchPassMyPassesEmpty": "No punch passes yet. Select a pass, pick times, and buy it in checkout.",
     "punchPassRemaining": "{remaining} of {total} remaining",
-    "punchPassGoRedeem": "Redeem a visit",
-    "punchPassBuyAnother": "Buy another pass",
     "punchPassSlotLabel": "1 punch",
     "punchPassDurationLocked": "Visit length is set by this pass",
-    "punchPassNeedMore": "{who} cannot add another visit on this pass in this checkout.",
-    "punchPassWalletEntryAria": "{name}, {remaining} remaining"
+    "punchPassNeedMore": "{who} cannot add another visit on this pass in this checkout."
   },
   "checkout": {
     "loadingPricing": "Loading pricing…",
