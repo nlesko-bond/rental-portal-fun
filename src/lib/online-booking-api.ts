@@ -98,6 +98,34 @@ export type ScheduleQuery = {
   userId?: number;
 };
 
+/**
+ * Settings only needs product + facility (+ optional user). `date` / `duration` /
+ * `timeIncrements` make Bond generate a per-day slot grid (~10–16s) instead of the
+ * date list (~400ms). Preferred-start times come from the slots response.
+ */
+export function bondScheduleSettingsQuery(q: ScheduleQuery): ScheduleQuery {
+  return {
+    facilityId: q.facilityId,
+    productId: q.productId,
+    ...(q.userId != null ? { userId: q.userId } : {}),
+  };
+}
+
+/**
+ * Slot fetches keep `date` + `duration` but omit `timeIncrements`. Sending portal
+ * intervals (e.g. 15+30+45) makes Bond ~10–15s slower and drops on-the-hour starts.
+ */
+export function bondScheduleSlotsQuery(q: ScheduleQuery): ScheduleQuery {
+  return {
+    facilityId: q.facilityId,
+    productId: q.productId,
+    ...(q.date ? { date: q.date } : {}),
+    ...(q.duration != null ? { duration: q.duration } : {}),
+    ...(q.userId != null ? { userId: q.userId } : {}),
+    ...(q.resourcesIds != null && q.resourcesIds.length > 0 ? { resourcesIds: q.resourcesIds } : {}),
+  };
+}
+
 function scheduleSearchParams(q: ScheduleQuery): URLSearchParams {
   const sp = new URLSearchParams();
   sp.set("facilityId", String(q.facilityId));
@@ -125,7 +153,7 @@ export async function fetchBookingScheduleSettings(
 
 export async function fetchBookingSchedule(orgId: number, q: ScheduleQuery): Promise<BookingScheduleDto> {
   const path = [...orgBase(orgId), "online-booking", "schedule"];
-  const dto = await bondBffGetJson<BookingScheduleDto>(path, scheduleSearchParams(q));
+  const dto = await bondBffGetJson<BookingScheduleDto>(path, scheduleSearchParams(bondScheduleSlotsQuery(q)));
   return normalizeSchedule(dto);
 }
 
@@ -207,13 +235,13 @@ export function fetchBookingScheduleSettingsRecovering(
   orgId: number,
   q: ScheduleQuery
 ): Promise<BookingScheduleSettingsDto> {
-  return withSchedule500Fallback(orgId, q, (oid, vq) =>
+  return withSchedule500Fallback(orgId, bondScheduleSettingsQuery(q), (oid, vq) =>
     withScheduleMinimumNoticeRecovery(oid, vq, fetchBookingScheduleSettings)
   );
 }
 
 export function fetchBookingScheduleRecovering(orgId: number, q: ScheduleQuery): Promise<BookingScheduleDto> {
-  return withSchedule500Fallback(orgId, q, (oid, vq) =>
+  return withSchedule500Fallback(orgId, bondScheduleSlotsQuery(q), (oid, vq) =>
     withScheduleMinimumNoticeRecovery(oid, vq, fetchBookingSchedule)
   );
 }

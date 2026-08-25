@@ -122,12 +122,12 @@ Checkout persists via `POST …/online-booking/create`; Bond may return richer l
 
 ### Schedule & slots
 
-- **Settings:** `GET .../online-booking/schedule/settings`.
-- **Slots:** `GET .../online-booking/schedule` with `facilityId`, `productId`, `date`, `duration`, `timeIncrements` (zeros omitted).
+- **Settings:** `GET .../online-booking/schedule/settings` with `facilityId` + `productId` (+ optional `userId`). Do **not** send `date` / `duration` / `timeIncrements` — those make Bond generate a slot grid (~10–16s) instead of the date list (~400ms). Date clicks reuse the cached settings query.
+- **Slots:** `GET .../online-booking/schedule` with `facilityId`, `productId`, `date`, `duration`. Omit `timeIncrements` (portal intervals make Bond ~10–15s slower and drop on-the-hour starts). Preferred start is applied client-side from the day’s slots. Previous slots stay visible (`keepPreviousData`) while the next product/date loads; neighbor dates and hovered products prefetch.
 - **Views:** calendar (`ScheduleCalendarView.tsx`), matrix (inline table in `BookingExperience.tsx`), list view label in portal (client may still map list → calendar per `booking-views.ts`).
 - **“Unavailable slots hidden” / “Hide unavailable slots”** toggle (calendar); filters disabled/full slots client-side.
 - **Slot selection** with validation: max hours per day + max sequential hours from category `default` settings; Bond sends **`maxBookingHours`** / **`maxSequentialBookings`** as `{ amount, unit }` — parsed in `category-booking-settings.ts` (`hoursLimitFromSetting`).
-- **Loading UX:** single primary loader under “Available times” when both settings + slots pending; refetch line “Cooking up some fresh slots…”; delayed fun copy on portal load (`BookingDelayedFunLoader`, `booking-loading-copy.ts`).
+- **Loading UX:** full “Cooking up some fresh slots…” loader only on the first slots fetch; product/date changes keep the previous grid with a refetch status line. Delayed fun copy on portal load (`BookingDelayedFunLoader`, `booking-loading-copy.ts`).
 
 ### Add-ons (packages / `isAddon`)
 

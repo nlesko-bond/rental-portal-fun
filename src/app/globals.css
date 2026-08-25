@@ -5907,6 +5907,11 @@ body {
   animation: cb-fun-spin 0.75s linear infinite;
 }
 
+.consumer-booking .cb-schedule-slots-busy {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
 /* Delayed fun loader (portal + in-flow) */
 .cb-fun-loader-row {
   display: flex;

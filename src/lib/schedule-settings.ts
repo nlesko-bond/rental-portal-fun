@@ -1,4 +1,7 @@
-import type { DateAndTimesDto } from "@/types/online-booking";
+import type { BookingScheduleDto, DateAndTimesDto } from "@/types/online-booking";
+import { bondCalendarDateKey } from "./bond-calendar-date";
+
+const HH_MM_SS = /^(\d{2}):(\d{2}):(\d{2})$/;
 
 /**
  * `GET .../online-booking/schedule/settings` returns `dates[]` where each row is:
@@ -9,10 +12,25 @@ import type { DateAndTimesDto } from "@/types/online-booking";
 export function getTimesForScheduleDate(rows: DateAndTimesDto[], dateKey: string): string[] {
   const row = rows.find((r) => r.date === dateKey);
   if (!row?.times?.length) return [];
-  return row.times.filter((t): t is string => typeof t === "string" && /^\d{2}:\d{2}:\d{2}$/.test(t));
+  return row.times.filter((t): t is string => typeof t === "string" && HH_MM_SS.test(t));
 }
 
-const HH_MM_SS = /^(\d{2}):(\d{2}):(\d{2})$/;
+/**
+ * Preferred-start options derived from the day's slot grid when settings omit `dates[].times`.
+ */
+export function startTimesFromSchedule(schedule: BookingScheduleDto, dateKey: string): string[] {
+  const times = new Set<string>();
+  for (const row of schedule.resources ?? []) {
+    for (const slot of row.timeSlots ?? []) {
+      const slotDate = bondCalendarDateKey(slot.startDate);
+      if (slotDate !== dateKey) continue;
+      if (typeof slot.startTime === "string" && HH_MM_SS.test(slot.startTime)) {
+        times.add(slot.startTime);
+      }
+    }
+  }
+  return [...times].sort();
+}
 
 /** Display label for preferred-start `<select>`; value sent to Bond stays `HH:mm:ss`. */
 export function formatPreferredStartOptionLabel(hhmmss: string): string {

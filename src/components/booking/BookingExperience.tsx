@@ -1,6 +1,6 @@
 "use client";
 
-import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -33,7 +33,7 @@ import {
   filterStartTimesByMinimumNotice,
   snapPreferredStartToEligible,
 } from "@/lib/booking-schedule-start";
-import { formatPreferredStartOptionLabel, getTimesForScheduleDate } from "@/lib/schedule-settings";
+import { formatPreferredStartOptionLabel, getTimesForScheduleDate, startTimesFromSchedule } from "@/lib/schedule-settings";
 import { useHydrated } from "@/hooks/useHydrated";
 import {
   fetchBookingScheduleRecovering,
@@ -157,6 +157,9 @@ import { PunchPassPassesModal } from "./PunchPassPassesModal";
 import { WelcomeToast } from "@/components/ui/WelcomeToast";
 
 const PRODUCTS_PAGE_SIZE = 30;
+const ONE_MINUTE_MS = 60 * 1000;
+const PORTAL_QUERY_STALE_MINUTES = 5;
+const PORTAL_QUERY_STALE_TIME_MS = PORTAL_QUERY_STALE_MINUTES * ONE_MINUTE_MS;
 const SOLO_ADDON_PREVIEW_COUNT = 2;
 const MINUTES_PER_HOUR = 60;
 const RESUME_CHECKOUT_AFTER_AUTH_KEY = "cb:resume-checkout-after-auth";
@@ -492,6 +495,7 @@ export function BookingExperience() {
       return fetchPublicPortal(env.orgId, env.portalId);
     },
     enabled: env.ok,
+    staleTime: PORTAL_QUERY_STALE_TIME_MS,
   });
 
   const [bookingTargetUserId, setBookingTargetUserId] = useState<number | null>(null);
@@ -864,48 +868,31 @@ export function BookingExperience() {
     return (u: number) => applyEntitlementDiscountsToUnitPrice(u, ent);
   }, [bondAuth.session.status, selectedProductForHooks]);
 
-  const scheduleContext = useMemo(() => {
-    if (!env.ok || !state?.productId || !portal) return null;
-    let timeIncrements: number[] | undefined;
-    if (portal.options.enableStartTimeSelection !== false) {
-      const raw = portal.options.startTimeIntervals;
-      if (Array.isArray(raw)) {
-        const filtered = raw.filter((n) => typeof n === "number" && Number.isFinite(n) && n > 0);
-        if (filtered.length > 0) timeIncrements = filtered;
-      }
-    }
-    const durationMinutes =
-      punchPassParsed != null
-        ? punchPassParsed.durationMinutes
-        : state.duration ?? undefined;
+  const scheduleSettingsContext = useMemo(() => {
+    if (!env.ok || !state?.productId) return null;
     const base = {
       facilityId: state.facilityId,
       productId: state.productId,
-      duration: durationMinutes,
-      timeIncrements,
     };
     return effectiveBookingUserId != null ? { ...base, userId: effectiveBookingUserId } : base;
-  }, [env.ok, state, portal, effectiveBookingUserId, punchPassParsed]);
+  }, [env.ok, state?.facilityId, state?.productId, effectiveBookingUserId]);
+
+  const scheduleSlotsContext = useMemo(() => {
+    if (!scheduleSettingsContext) return null;
+    const durationMinutes =
+      punchPassParsed != null ? punchPassParsed.durationMinutes : state?.duration ?? undefined;
+    return { ...scheduleSettingsContext, duration: durationMinutes };
+  }, [scheduleSettingsContext, punchPassParsed, state?.duration]);
 
   /** Schedule settings for the product open in the info modal (may differ from selected booking product). */
   const detailModalScheduleContext = useMemo(() => {
-    if (!env.ok || !state || !portal || productInfoId == null) return null;
-    let timeIncrements: number[] | undefined;
-    if (portal.options.enableStartTimeSelection !== false) {
-      const raw = portal.options.startTimeIntervals;
-      if (Array.isArray(raw)) {
-        const filtered = raw.filter((n) => typeof n === "number" && Number.isFinite(n) && n > 0);
-        if (filtered.length > 0) timeIncrements = filtered;
-      }
-    }
+    if (!env.ok || !state || productInfoId == null) return null;
     const base = {
       facilityId: state.facilityId,
       productId: productInfoId,
-      duration: state.duration ?? undefined,
-      timeIncrements,
     };
     return effectiveBookingUserId != null ? { ...base, userId: effectiveBookingUserId } : base;
-  }, [env.ok, state, portal, productInfoId, effectiveBookingUserId]);
+  }, [env.ok, state?.facilityId, productInfoId, effectiveBookingUserId]);
 
   const detailModalScheduleSettingsQuery = useQuery({
     queryKey: [
@@ -913,28 +900,23 @@ export function BookingExperience() {
       "scheduleSettingsForModal",
       env.ok ? env.orgId : 0,
       detailModalScheduleContext,
-      state?.date,
     ],
     queryFn: () => {
       if (!env.ok || !detailModalScheduleContext) throw new Error("Missing modal schedule context");
-      return fetchBookingScheduleSettingsRecovering(env.orgId, {
-        ...detailModalScheduleContext,
-        date: state?.date ?? undefined,
-      });
+      return fetchBookingScheduleSettingsRecovering(env.orgId, detailModalScheduleContext);
     },
     enabled: env.ok && detailModalScheduleContext != null,
+    placeholderData: keepPreviousData,
   });
 
   const scheduleSettingsQuery = useQuery({
-    queryKey: ["bond", "scheduleSettings", env.ok ? env.orgId : 0, scheduleContext, state?.date],
+    queryKey: ["bond", "scheduleSettings", env.ok ? env.orgId : 0, scheduleSettingsContext],
     queryFn: () => {
-      if (!env.ok || !scheduleContext) throw new Error("Missing schedule context");
-      return fetchBookingScheduleSettingsRecovering(env.orgId, {
-        ...scheduleContext,
-        date: state?.date ?? undefined,
-      });
+      if (!env.ok || !scheduleSettingsContext) throw new Error("Missing schedule context");
+      return fetchBookingScheduleSettingsRecovering(env.orgId, scheduleSettingsContext);
     },
-    enabled: env.ok && !!scheduleContext,
+    enabled: env.ok && !!scheduleSettingsContext,
+    placeholderData: keepPreviousData,
   });
 
   const bookingInfoDateRange = useMemo(() => {
@@ -1087,25 +1069,6 @@ export function BookingExperience() {
 
   const scheduleDateKey = state?.date ?? null;
 
-  /** Start times allowed for the selected calendar day after minimum-notice trim. */
-  const eligiblePreferredStarts = useMemo(() => {
-    if (!scheduleDateKey) return [];
-    const raw = getTimesForScheduleDate(filteredScheduleDates, scheduleDateKey);
-    return filterStartTimesByMinimumNotice(
-      raw,
-      scheduleDateKey,
-      effectiveMinimumBookingNoticeMinutes
-    ).sort();
-  }, [filteredScheduleDates, scheduleDateKey, effectiveMinimumBookingNoticeMinutes]);
-
-  /** Nearest Bond-allowed start for the fetch (minimum notice + category increments). */
-  const resolvedPreferredStartForFetch = useMemo(() => {
-    if (!preferredStartTime || !scheduleDateKey) return null;
-    if (eligiblePreferredStarts.length === 0) return null;
-    if (eligiblePreferredStarts.includes(preferredStartTime)) return preferredStartTime;
-    return snapPreferredStartToEligible(preferredStartTime, eligiblePreferredStarts);
-  }, [preferredStartTime, scheduleDateKey, eligiblePreferredStarts]);
-
   const scheduleDateParamForSlots = scheduleDateKey ?? undefined;
 
   useEffect(() => {
@@ -1118,13 +1081,91 @@ export function BookingExperience() {
   }, [scheduleSettingsQuery.data, filteredScheduleDates, state, pushBookingState]);
 
   const scheduleQuery = useQuery({
-    queryKey: ["bond", "schedule", env.ok ? env.orgId : 0, scheduleContext, scheduleDateParamForSlots],
+    queryKey: ["bond", "schedule", env.ok ? env.orgId : 0, scheduleSlotsContext, scheduleDateParamForSlots],
     queryFn: () => {
-      if (!env.ok || !scheduleContext || !scheduleDateParamForSlots) throw new Error("Missing schedule query");
-      return fetchBookingScheduleRecovering(env.orgId, { ...scheduleContext, date: scheduleDateParamForSlots });
+      if (!env.ok || !scheduleSlotsContext || !scheduleDateParamForSlots) throw new Error("Missing schedule query");
+      return fetchBookingScheduleRecovering(env.orgId, { ...scheduleSlotsContext, date: scheduleDateParamForSlots });
     },
-    enabled: env.ok && !!scheduleContext && !!scheduleDateParamForSlots,
+    enabled: env.ok && !!scheduleSlotsContext && !!scheduleDateParamForSlots,
+    placeholderData: keepPreviousData,
   });
+
+  useEffect(() => {
+    if (resolvedBondOrgId == null || !scheduleSlotsContext || !scheduleQuery.isSuccess) return;
+    const neighbors = [scheduleNavDates.prev, scheduleNavDates.next].filter(
+      (date): date is string => typeof date === "string" && date.length > 0
+    );
+    for (const date of neighbors) {
+      void queryClient.prefetchQuery({
+        queryKey: ["bond", "schedule", resolvedBondOrgId, scheduleSlotsContext, date],
+        queryFn: () => fetchBookingScheduleRecovering(resolvedBondOrgId, { ...scheduleSlotsContext, date }),
+      });
+    }
+  }, [
+    queryClient,
+    resolvedBondOrgId,
+    scheduleNavDates.next,
+    scheduleNavDates.prev,
+    scheduleQuery.isSuccess,
+    scheduleSlotsContext,
+  ]);
+
+  const prefetchProductSchedule = useCallback(
+    (productId: number) => {
+      if (resolvedBondOrgId == null || !state || !scheduleDateParamForSlots || productId === state.productId) return;
+      const product = productsQuery.data?.data.find((row) => row.id === productId);
+      const parsed = product ? parsePunchPassProduct(product) : null;
+      const durationMinutes = parsed != null ? parsed.durationMinutes : state.duration ?? undefined;
+      const settingsContext = {
+        facilityId: state.facilityId,
+        productId,
+        ...(effectiveBookingUserId != null ? { userId: effectiveBookingUserId } : {}),
+      };
+      const slotsContext = { ...settingsContext, duration: durationMinutes };
+      void queryClient.prefetchQuery({
+        queryKey: ["bond", "scheduleSettings", resolvedBondOrgId, settingsContext],
+        queryFn: () => fetchBookingScheduleSettingsRecovering(resolvedBondOrgId, settingsContext),
+      });
+      void queryClient.prefetchQuery({
+        queryKey: ["bond", "schedule", resolvedBondOrgId, slotsContext, scheduleDateParamForSlots],
+        queryFn: () =>
+          fetchBookingScheduleRecovering(resolvedBondOrgId, { ...slotsContext, date: scheduleDateParamForSlots }),
+      });
+    },
+    [
+      effectiveBookingUserId,
+      productsQuery.data,
+      queryClient,
+      resolvedBondOrgId,
+      scheduleDateParamForSlots,
+      state,
+    ]
+  );
+
+  /** Start times allowed for the selected calendar day after minimum-notice trim. */
+  const eligiblePreferredStarts = useMemo(() => {
+    if (!scheduleDateKey) return [];
+    const fromSettings = getTimesForScheduleDate(filteredScheduleDates, scheduleDateKey);
+    const raw =
+      fromSettings.length > 0
+        ? fromSettings
+        : scheduleQuery.data
+          ? startTimesFromSchedule(scheduleQuery.data, scheduleDateKey)
+          : [];
+    return filterStartTimesByMinimumNotice(
+      raw,
+      scheduleDateKey,
+      effectiveMinimumBookingNoticeMinutes
+    ).sort();
+  }, [filteredScheduleDates, scheduleDateKey, effectiveMinimumBookingNoticeMinutes, scheduleQuery.data]);
+
+  /** Nearest Bond-allowed start for the fetch (minimum notice + category increments). */
+  const resolvedPreferredStartForFetch = useMemo(() => {
+    if (!preferredStartTime || !scheduleDateKey) return null;
+    if (eligiblePreferredStarts.length === 0) return null;
+    if (eligiblePreferredStarts.includes(preferredStartTime)) return preferredStartTime;
+    return snapPreferredStartToEligible(preferredStartTime, eligiblePreferredStarts);
+  }, [preferredStartTime, scheduleDateKey, eligiblePreferredStarts]);
 
   const scheduleResourceIsInstructor = useMemo(() => {
     const settingsResources = scheduleSettingsQuery.data?.resources;
@@ -1150,6 +1191,7 @@ export function BookingExperience() {
 
   const toggleSlot = useCallback(
     (resourceId: number, resourceName: string, s: ScheduleTimeSlotDto) => {
+      if (scheduleQuery.isPlaceholderData) return;
       const key = slotControlKey(resourceId, s);
       if (reservedSlotKeysInCart.has(key) || requestedOrBookedSlotKeys.has(key)) return;
       setSelectedSlots((prev) => {
@@ -1228,6 +1270,7 @@ export function BookingExperience() {
       bookingForLabel,
       punchPassParsed,
       punchRemaining,
+      scheduleQuery.isPlaceholderData,
     ]
   );
 
@@ -1530,7 +1573,7 @@ export function BookingExperience() {
   }, []);
 
   const slotsRefetching =
-    scheduleQuery.isFetching && !scheduleQuery.isPending && scheduleQuery.data != null;
+    scheduleQuery.isFetching && scheduleQuery.data != null && !scheduleQuery.isPending;
 
   if (!env.ok) {
     return (
@@ -1599,10 +1642,7 @@ export function BookingExperience() {
     categoryRules?.durationOptionsMinutes?.length && categoryRules.durationOptionsMinutes.length > 0
       ? categoryRules.durationOptionsMinutes
       : [60];
-  /** Bond returns `times` per day from schedule/settings — first day is often truncated (minimum notice). */
-  const preferredStartOptions = state.date
-    ? getTimesForScheduleDate(filteredScheduleDates, state.date)
-    : [];
+  const preferredStartOptions = eligiblePreferredStarts;
   /** Portal can disable explicitly; otherwise show when API lists start options for the selected day. */
   const showPreferredStart =
     portal.options.enableStartTimeSelection !== false && preferredStartOptions.length > 0;
@@ -1902,6 +1942,8 @@ export function BookingExperience() {
                     type="button"
                     className="cb-product-card-main"
                     onClick={() => setProduct(p.id)}
+                    onMouseEnter={() => prefetchProductSchedule(p.id)}
+                    onFocus={() => prefetchProductSchedule(p.id)}
                     aria-current={selected ? "true" : undefined}
                   >
                     <div className="cb-product-card-media">
@@ -2418,7 +2460,7 @@ export function BookingExperience() {
               </div>
             </div>
           ) : null}
-          {scheduleQuery.data && !scheduleQuery.isPending && state.view === "matrix" &&
+          {scheduleQuery.data && !scheduleQuery.isPending && !scheduleQuery.isPlaceholderData && state.view === "matrix" &&
             scheduleQuery.data.resources.every((r) => r.timeSlots.length === 0) ? (
             <div className="cb-slots-empty mt-4">
               <p className="cb-slots-empty-msg">{tb("noSlotsOnDate")}</p>
@@ -2434,7 +2476,7 @@ export function BookingExperience() {
             </div>
           ) : null}
           {scheduleQuery.data && state.view === "matrix" && (
-            <div className="cb-matrix-wrap cb-matrix-wrap--in-shell mt-2">
+            <div className={`cb-matrix-wrap cb-matrix-wrap--in-shell mt-2${slotsRefetching ? " cb-schedule-slots-busy" : ""}`}>
               <ScheduleMatrix
                 schedule={scheduleQuery.data}
                 product={selectedProduct}
@@ -2455,7 +2497,7 @@ export function BookingExperience() {
           )}
 
           {scheduleQuery.data && state.view === "calendar" && (
-            <div className="mt-6">
+            <div className={`mt-6${slotsRefetching ? " cb-schedule-slots-busy" : ""}`}>
               <ScheduleCalendarView
                 schedule={scheduleQuery.data}
                 product={selectedProduct}
