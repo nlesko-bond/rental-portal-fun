@@ -52,3 +52,19 @@ export function buildFinalizeCartBody(args: BuildFinalizeCartBodyArgs): Record<s
   }
   return { amountToPay: 0 };
 }
+
+/** Mutation result when punch-pass checkout completes without calling Bond `finalize`. */
+export const PUNCH_PASS_LOCAL_FINALIZE = { punchPassLocalComplete: true as const };
+
+/**
+ * Bond `finalize` 500s on punchCard carts for every body we have tried (`{}`,
+ * payment method, `amountToPay: 0`). Skip that call when the bag is a punch-pass
+ * checkout and Bond has nothing to charge.
+ */
+export function punchPassCartSkipsBondFinalize(
+  isPunchPassCheckout: boolean,
+  bondPayable: number | null
+): boolean {
+  if (!isPunchPassCheckout) return false;
+  return bondPayable == null || bondPayable <= BOND_KIND_LINE_MIN;
+}

@@ -28,7 +28,12 @@ import {
 import { buildOnlineBookingCreateBody, splitAddonPayloadForCreate } from "@/lib/online-booking-create-body";
 import { formatBookingPriceOrFree, productMembershipGated } from "@/lib/booking-pricing";
 import { punchPassPackDueOnSnapshots, type PunchPassCheckout } from "@/lib/punch-pass";
-import { buildFinalizeCartBody, resolveFinalizeAmountToPay } from "@/lib/finalize-cart-body";
+import {
+  buildFinalizeCartBody,
+  PUNCH_PASS_LOCAL_FINALIZE,
+  punchPassCartSkipsBondFinalize,
+  resolveFinalizeAmountToPay,
+} from "@/lib/finalize-cart-body";
 import {
   bookingContactSnapshot,
   findProfilePersonById,
@@ -1418,6 +1423,11 @@ export function BookingCheckoutDrawer({
         overrideAmount,
         cartMinimum: cartChargeableMinimum(freshCart),
       });
+      const isPunchPassCheckout =
+        punchPass != null || bagSnapshots.some((row) => row.punchPassPurchase != null);
+      if (punchPassCartSkipsBondFinalize(isPunchPassCheckout, amount)) {
+        return PUNCH_PASS_LOCAL_FINALIZE;
+      }
       const pmSel = selectedPaymentMethodIdRef.current;
       const choice = paymentChoicesRef.current.find((c) => c.id === pmSel);
       const body = buildFinalizeCartBody({

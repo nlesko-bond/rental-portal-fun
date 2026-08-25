@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildFinalizeCartBody, resolveFinalizeAmountToPay } from "@/lib/finalize-cart-body";
+import { buildFinalizeCartBody, punchPassCartSkipsBondFinalize, resolveFinalizeAmountToPay } from "@/lib/finalize-cart-body";
 import { punchPassPackDueOnSnapshots } from "@/lib/punch-pass";
 
 describe("punchPassPackDueOnSnapshots", () => {
@@ -107,5 +107,17 @@ describe("buildFinalizeCartBody", () => {
         paymentMethodId: 99,
       })
     ).toEqual({ amountToPay: 0 });
+  });
+});
+
+describe("punchPassCartSkipsBondFinalize", () => {
+  it("skips Bond when the bag is a punch-pass checkout and Bond payable is $0", () => {
+    expect(punchPassCartSkipsBondFinalize(true, null)).toBe(true);
+    expect(punchPassCartSkipsBondFinalize(true, 0)).toBe(true);
+  });
+
+  it("still finalizes through Bond when the cart actually charges", () => {
+    expect(punchPassCartSkipsBondFinalize(true, 150)).toBe(false);
+    expect(punchPassCartSkipsBondFinalize(false, null)).toBe(false);
   });
 });
