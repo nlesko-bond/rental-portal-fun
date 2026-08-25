@@ -1,3 +1,4 @@
+import type { PunchPassCartPurchase } from "@/lib/punch-pass";
 import type { OrganizationCartDto } from "@/types/online-booking";
 
 /**
@@ -65,10 +66,40 @@ export type SessionCartSnapshot = {
   productDownpaymentByProductId?: Record<number, number>;
   /** Human slot summary for pending / synthetic rows (payment step) when Bond cart id is not yet persisted. */
   scheduleSummary?: string;
+  /**
+   * Punch-pass buy/redeem captured at add-to-cart. Bond only stores the $0 visit, so the bag
+   * uses this to show the pack purchase after slots are cleared.
+   */
+  punchPassPurchase?: PunchPassCartPurchase;
 };
 
 /** Bump when cart row shape or client logic changes so stale tabs don’t keep broken session rows. */
 const STORAGE_KEY = "bond-rental-portal-session-carts-v4";
+
+function normalizePunchPassPurchase(raw: unknown): PunchPassCartPurchase | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const o = raw as Record<string, unknown>;
+  if (o.kind !== "buyAndRedeem" && o.kind !== "redeem") return undefined;
+  const productId = typeof o.productId === "number" && Number.isFinite(o.productId) ? o.productId : null;
+  const packName = typeof o.packName === "string" && o.packName.trim().length > 0 ? o.packName.trim() : null;
+  const punchCount = typeof o.punchCount === "number" && Number.isFinite(o.punchCount) ? o.punchCount : null;
+  const packAmount = typeof o.packAmount === "number" && Number.isFinite(o.packAmount) ? o.packAmount : 0;
+  const punchesNeeded =
+    typeof o.punchesNeeded === "number" && Number.isFinite(o.punchesNeeded) ? o.punchesNeeded : null;
+  const packSubtitle = typeof o.packSubtitle === "string" ? o.packSubtitle : "";
+  const visitSubtitle = typeof o.visitSubtitle === "string" ? o.visitSubtitle : "";
+  if (productId == null || packName == null || punchCount == null || punchesNeeded == null) return undefined;
+  return {
+    kind: o.kind,
+    productId,
+    packName,
+    punchCount,
+    packAmount,
+    punchesNeeded,
+    packSubtitle,
+    visitSubtitle,
+  };
+}
 
 function normalizeDisplayLines(raw: unknown): SessionCartDisplayLine[] | undefined {
   if (!Array.isArray(raw) || raw.length === 0) return undefined;
@@ -243,6 +274,7 @@ function normalizeRow(x: unknown, rowIndex: number): SessionCartSnapshot | null 
       typeof o.scheduleSummary === "string" && o.scheduleSummary.trim().length > 0
         ? o.scheduleSummary.trim()
         : undefined;
+    const punchPassPurchase = normalizePunchPassPurchase(o.punchPassPurchase);
     return {
       cart,
       productName: typeof o.productName === "string" && o.productName.length > 0 ? o.productName : "Booking",
@@ -258,6 +290,7 @@ function normalizeRow(x: unknown, rowIndex: number): SessionCartSnapshot | null 
       ...(displayLines != null ? { displayLines } : {}),
       ...(reservationGroups != null ? { reservationGroups } : {}),
       ...(scheduleSummary != null ? { scheduleSummary } : {}),
+      ...(punchPassPurchase != null ? { punchPassPurchase } : {}),
     };
   }
   if (typeof (o as { id?: unknown }).id === "number") {

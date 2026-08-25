@@ -4,6 +4,8 @@ import {
   cartLooksPayable,
   isPunchPassProduct,
   parsePunchPassProduct,
+  punchPassCartPurchaseForSnapshot,
+  punchPassPackDisplayAmount,
   punchPassPackPrice,
   punchPassSlotCap,
   punchesNeededForSlots,
@@ -149,6 +151,25 @@ describe("punchPassSlotCap", () => {
     const pass = parsePunchPassProduct(product())!;
     expect(punchPassSlotCap(pass, 0)).toBe(10);
     expect(punchPassSlotCap(pass, 4)).toBe(14);
+  });
+});
+
+describe("punchPassCartPurchaseForSnapshot", () => {
+  const pass = parsePunchPassProduct(product())!;
+
+  it("keeps the pack amount only for buy-and-redeem", () => {
+    const buy = resolvePunchPassCheckout(pass, 0, 2)!;
+    expect(
+      punchPassPackDisplayAmount(
+        punchPassCartPurchaseForSnapshot(pass, buy, { packSubtitle: "10 visits", visitSubtitle: "Included" })
+      )
+    ).toBe(200);
+    const redeem = resolvePunchPassCheckout(pass, 8, 2)!;
+    expect(
+      punchPassPackDisplayAmount(
+        punchPassCartPurchaseForSnapshot(pass, redeem, { packSubtitle: "10 visits", visitSubtitle: "1 punch" })
+      )
+    ).toBe(0);
   });
 });
 

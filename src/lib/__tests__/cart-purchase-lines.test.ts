@@ -188,4 +188,42 @@ describe("checkoutCardsFromSnapshot", () => {
     expect(checkoutCardsFromSnapshot(singleSlotRow, 0)[0]?.unitSubtitle).toBeNull();
     expect(checkoutCardsFromSnapshot(multiSlotRow, 0)[0]?.unitSubtitle).toContain("x 2");
   });
+
+  it("prepends the punch-pass pack purchase above the Bond $0 visit", () => {
+    const row: SessionCartSnapshot = {
+      cart: {
+        id: 9,
+        cartItems: [
+          {
+            id: 20,
+            productId: 1089823,
+            product: { id: 1089823, name: "Court 10-pack", downPayment: 1 },
+            metadata: { description: "reservation_type_rental" },
+            subtotal: 0,
+          },
+        ],
+      } as unknown as OrganizationCartDto,
+      productName: "Court 10-pack",
+      punchPassPurchase: {
+        kind: "buyAndRedeem",
+        productId: 1089823,
+        packName: "Court 10-pack",
+        punchCount: 10,
+        packAmount: 150,
+        punchesNeeded: 1,
+        packSubtitle: "10 visits on this pass",
+        visitSubtitle: "Included visit",
+      },
+    };
+
+    const cards = checkoutCardsFromSnapshot(row, 0);
+    expect(cards).toHaveLength(2);
+    expect(cards[0]?.title).toBe("Court 10-pack");
+    expect(cards[0]?.itemTotal).toBe(150);
+    expect(cards[0]?.unitSubtitle).toBe("10 visits on this pass");
+    expect(cards[0]?.badges.some((badge) => badge.kind === "deposit_optional")).toBe(false);
+    expect(cards[1]?.itemTotal).toBe(0);
+    expect(cards[1]?.unitSubtitle).toBe("Included visit");
+    expect(cards[1]?.badges.some((badge) => badge.kind === "deposit_optional")).toBe(false);
+  });
 });

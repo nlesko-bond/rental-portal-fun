@@ -27,7 +27,7 @@ import {
 } from "@/lib/online-booking-user-api";
 import { buildOnlineBookingCreateBody, splitAddonPayloadForCreate } from "@/lib/online-booking-create-body";
 import { formatBookingPriceOrFree, productMembershipGated } from "@/lib/booking-pricing";
-import { type PunchPassCheckout } from "@/lib/punch-pass";
+import { punchPassPackDisplayAmount, type PunchPassCheckout } from "@/lib/punch-pass";
 import {
   bookingContactSnapshot,
   findProfilePersonById,
@@ -1416,9 +1416,13 @@ export function BookingCheckoutDrawer({
             : requestedAmount;
         amount = Math.min(normalizedMinimum, payableTotal);
       }
-      if (amount == null || amount <= 0) {
+      if (amount == null) {
+        const punchPackDue = bagSnapshots.reduce(
+          (sum, row) => sum + punchPassPackDisplayAmount(row.punchPassPurchase),
+          0
+        );
         const ui = estimatedAmountDueRef.current;
-        if (ui != null && Number.isFinite(ui) && ui > 0) {
+        if (punchPackDue <= 0 && ui != null && Number.isFinite(ui) && ui > 0) {
           amount = Math.round(ui * CURRENCY_CENTS) / CURRENCY_CENTS;
         }
       }

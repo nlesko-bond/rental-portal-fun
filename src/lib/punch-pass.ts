@@ -157,6 +157,41 @@ export function resolvePunchPassCheckout(
   };
 }
 
+/** Snapshot of a punch-pass checkout so the bag still shows the pack after slots are cleared. */
+export type PunchPassCartPurchase = {
+  kind: PunchPassCheckoutKind;
+  productId: number;
+  packName: string;
+  punchCount: number;
+  packAmount: number;
+  punchesNeeded: number;
+  packSubtitle: string;
+  visitSubtitle: string;
+};
+
+export function punchPassCartPurchaseForSnapshot(
+  pass: PunchPassProduct,
+  checkout: PunchPassCheckout,
+  copy: { packSubtitle: string; visitSubtitle: string }
+): PunchPassCartPurchase {
+  return {
+    kind: checkout.kind,
+    productId: pass.productId,
+    packName: checkout.packName,
+    punchCount: checkout.punchCount,
+    packAmount: checkout.kind === "buyAndRedeem" ? checkout.packAmount : 0,
+    punchesNeeded: checkout.punchesNeeded,
+    packSubtitle: copy.packSubtitle,
+    visitSubtitle: copy.visitSubtitle,
+  };
+}
+
+export function punchPassPackDisplayAmount(purchase: PunchPassCartPurchase | undefined | null): number {
+  if (purchase == null || purchase.kind !== "buyAndRedeem") return 0;
+  const amount = purchase.packAmount;
+  return Number.isFinite(amount) && amount > 0 ? amount : 0;
+}
+
 export function cartLooksPayable(cart: { price?: unknown; total?: unknown } | null | undefined): boolean {
   if (!cart) return false;
   const price = typeof cart.price === "number" ? cart.price : null;

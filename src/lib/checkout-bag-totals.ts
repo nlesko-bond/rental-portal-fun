@@ -1,5 +1,6 @@
 /** Display-only parsing of `OrganizationCartDto` (BFF → Bond). No invented prices — only `coerce` + key fallbacks. */
 import type { OrganizationCartDto } from "@/types/online-booking";
+import { punchPassPackDisplayAmount } from "@/lib/punch-pass";
 import type { SessionCartSnapshot } from "@/lib/session-cart-snapshot";
 import {
   groupSessionCartSnapshotsByLabel,
@@ -753,7 +754,7 @@ export function aggregateSessionCartRowTotals(row: SessionCartSnapshot): {
 } {
   const base = getOrganizationCartNumericBreakdown(row.cart);
   const dl = row.displayLines;
-  if (!dl || dl.length === 0) return base;
+  if (!dl || dl.length === 0) return withPunchPassPackOnTotals(base, row);
   let gross = 0;
   let net = 0;
   let count = 0;
@@ -769,23 +770,56 @@ export function aggregateSessionCartRowTotals(row: SessionCartSnapshot): {
         : l.amount;
     gross += s;
   }
-  if (count === 0) return base;
+  if (count === 0) return withPunchPassPackOnTotals(base, row);
   const impliedDisc = Math.max(0, gross - net);
   if (impliedDisc > 0.005) {
-    return {
-      line: gross,
-      discount: impliedDisc,
+    return withPunchPassPackOnTotals(
+      {
+        line: gross,
+        discount: impliedDisc,
+        tax: base.tax,
+        fee: base.fee,
+        total: base.total,
+      },
+      row
+    );
+  }
+  return withPunchPassPackOnTotals(
+    {
+      line: net,
+      discount: base.discount,
       tax: base.tax,
       fee: base.fee,
       total: base.total,
-    };
-  }
+    },
+    row
+  );
+}
+
+function withPunchPassPackOnTotals(
+  totals: {
+    line: number | null;
+    discount: number | null;
+    tax: number | null;
+    fee: number | null;
+    total: number | null;
+  },
+  row: SessionCartSnapshot
+): {
+  line: number | null;
+  discount: number | null;
+  tax: number | null;
+  fee: number | null;
+  total: number | null;
+} {
+  const pack = punchPassPackDisplayAmount(row.punchPassPurchase);
+  if (pack <= 0) return totals;
   return {
-    line: net,
-    discount: base.discount,
-    tax: base.tax,
-    fee: base.fee,
-    total: base.total,
+    line: (totals.line ?? 0) + pack,
+    discount: totals.discount,
+    tax: totals.tax,
+    fee: totals.fee,
+    total: (totals.total ?? totals.line ?? 0) + pack,
   };
 }
 

@@ -81,6 +81,7 @@ import { countSessionCartLineItems } from "@/lib/cart-purchase-lines";
 import {
   isPunchPassProduct,
   parsePunchPassProduct,
+  punchPassCartPurchaseForSnapshot,
   punchPassSlotCap,
   resolvePunchPassCheckout,
 } from "@/lib/punch-pass";
@@ -1335,6 +1336,20 @@ export function BookingExperience() {
 
   /** Immediately after Bond `finalizeCart` succeeds: clear session cart and slots so confirmation is not stacked on the cart. */
   const finalizeBondBookingSuccess = useCallback((finalizedSlotKeys: string[]) => {
+    if (env.ok) {
+      let wallet = loadPunchPassWallet(env.orgId);
+      for (const row of sessionCartRowsRef.current) {
+        const purchase = row.punchPassPurchase;
+        if (purchase == null) continue;
+        wallet = applyPunchPassCheckoutToWallet(
+          wallet,
+          { productId: purchase.productId, name: purchase.packName, punchCount: purchase.punchCount },
+          { kind: purchase.kind, punchesNeeded: purchase.punchesNeeded }
+        );
+      }
+      savePunchPassWallet(env.orgId, wallet);
+      setPunchWalletRevision((n) => n + 1);
+    }
     if (finalizedSlotKeys.length > 0) {
       setVendedSlotKeys((prev) => [...new Set([...prev, ...finalizedSlotKeys])]);
     }
@@ -1344,7 +1359,7 @@ export function BookingExperience() {
     clearSlotSelection();
     void queryClient.invalidateQueries({ queryKey: ["bond", "schedule"] });
     void queryClient.invalidateQueries({ queryKey: ["bond", "userBookingInformation"] });
-  }, [clearSlotSelection, queryClient]);
+  }, [clearSlotSelection, env, queryClient]);
 
   /** Drop tab cart UI + sessionStorage (shared computers; session expired; post–sign-out safety). */
   const wipeLocalBookingCartState = useCallback(() => {
@@ -2814,15 +2829,18 @@ export function BookingExperience() {
             }
           }}
           onSuccess={(cart) => {
-            if (punchPassParsed != null && env.ok && punchPassCheckout != null) {
-              const next = applyPunchPassCheckoutToWallet(
-                punchWallet,
-                punchPassParsed,
-                punchPassCheckout
-              );
-              savePunchPassWallet(env.orgId, next);
-              setPunchWalletRevision((n) => n + 1);
-            }
+            const punchPassPurchase =
+              punchPassParsed != null && punchPassCheckout != null
+                ? punchPassCartPurchaseForSnapshot(punchPassParsed, punchPassCheckout, {
+                    packSubtitle: tx("punchPassPackSubtitle", { count: punchPassCheckout.punchCount }),
+                    visitSubtitle:
+                      punchPassCheckout.kind === "buyAndRedeem"
+                        ? tx("punchPassIncludedVisit")
+                        : tx("punchPassUnitPunch", {
+                            duration: formatDurationPriceBadge(punchPassParsed.durationMinutes),
+                          }),
+                  })
+                : undefined;
             const name = selectedProduct?.name ?? tb("serviceDefault");
             const normalizedCart = coerceCartFromApi(cart);
             const mergedBondId = positiveBondCartId(normalizedCart);
@@ -2993,6 +3011,8 @@ export function BookingExperience() {
                     currentApproval ||
                     anySiblingApproval ||
                     Object.values(approvalByProductId).some(Boolean);
+                  const mergedPunchPassPurchase =
+                    punchPassPurchase ?? siblings.find((s) => s.punchPassPurchase != null)?.punchPassPurchase;
                   return [
                     ...rest,
                     {
@@ -3011,6 +3031,7 @@ export function BookingExperience() {
                       ...(mergedProductDiscountLabelByProductId != null ? { productDiscountLabelByProductId: mergedProductDiscountLabelByProductId } : {}),
                       ...(displayLines != null ? { displayLines } : {}),
                       ...(reservationGroups != null ? { reservationGroups } : {}),
+                      ...(mergedPunchPassPurchase != null ? { punchPassPurchase: mergedPunchPassPurchase } : {}),
                     },
                   ];
                 }
@@ -3035,6 +3056,7 @@ export function BookingExperience() {
                     ...(productDownpaymentByProductId != null ? { productDownpaymentByProductId } : {}),
                     ...(productDiscountLabelByProductId != null ? { productDiscountLabelByProductId } : {}),
                     ...(displayLines != null ? { displayLines } : {}),
+                    ...(punchPassPurchase != null ? { punchPassPurchase } : {}),
                   },
                 ];
               });

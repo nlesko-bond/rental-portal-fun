@@ -28,6 +28,7 @@ import {
 } from "@/lib/bond-cart-removal";
 import { dedupeDiscountCaptionSegments, describeEntitlementsForDisplay } from "@/lib/entitlement-discount";
 import { membershipDisplaySummary, type MembershipDisplaySummary } from "@/lib/required-products-extended";
+import { punchPassPackDisplayAmount } from "@/lib/punch-pass";
 import type { SessionCartSnapshot } from "@/lib/session-cart-snapshot";
 import { flatLineIndexSegmentsForMergedBookings } from "@/lib/session-cart-grouping";
 import type { OrganizationCartDto } from "@/types/online-booking";
@@ -478,7 +479,9 @@ function finalizePurchaseDisplayLines(
     ? flattenBondCartItemNodes(c.cartItems as unknown[])
     : [];
   const hasAnyDeposit = flatBond.some((it) => bondItemHasDownpayment(row, it));
-  if (!want && !needApprovalFlags && !hasPerProductApproval && !hasAnyDeposit) return lines;
+  if (!want && !needApprovalFlags && !hasPerProductApproval && !hasAnyDeposit) {
+    return withPunchPassPurchaseLines(lines, row, rowIndex);
+  }
 
   const segByFlat = flatIndexToSegmentMap(c);
   const segApprovalCache = new Map<number, boolean>();
@@ -507,7 +510,7 @@ function finalizePurchaseDisplayLines(
     return has;
   };
 
-  return lines.map((line) => {
+  const annotated = lines.map((line) => {
     const j = parseSnapLineFlatIndex(line.key, rowIndex);
     const bondRec = flatBond[j] as Record<string, unknown> | undefined;
     const segIdx = segByFlat.get(j) ?? 0;
@@ -532,6 +535,42 @@ function finalizePurchaseDisplayLines(
       ...(depositRequired ? { depositRequired: true } : {}),
     };
   });
+  return withPunchPassPurchaseLines(annotated, row, rowIndex);
+}
+
+/**
+ * Bond only holds the redeemed visit. Prepend the pack purchase captured at add-to-cart.
+ */
+function withPunchPassPurchaseLines(
+  lines: CartPurchaseDisplayLine[],
+  row: SessionCartSnapshot,
+  rowIndex: number
+): CartPurchaseDisplayLine[] {
+  const purchase = row.punchPassPurchase;
+  if (purchase == null) return lines;
+  const visitLines = purchase.visitSubtitle
+    ? lines.map((line) => {
+        const kind = line.lineKind ?? "booking";
+        if (kind !== "booking") return line;
+        return {
+          ...line,
+          unitSubtitle: purchase.visitSubtitle,
+          memberAccessNote: undefined,
+          depositRequired: undefined,
+        };
+      })
+    : lines;
+  const packAmount = punchPassPackDisplayAmount(purchase);
+  if (packAmount <= 0) return visitLines;
+  const cartId = (row.cart as OrganizationCartDto).id;
+  const packLine: CartPurchaseDisplayLine = {
+    key: `snap-${rowIndex}-punchpack-${cartId}`,
+    title: purchase.packName,
+    meta: "",
+    amount: packAmount,
+    unitSubtitle: purchase.packSubtitle,
+  };
+  return [packLine, ...visitLines];
 }
 
 function productIdFromBondItem(it: Record<string, unknown>): number | null {

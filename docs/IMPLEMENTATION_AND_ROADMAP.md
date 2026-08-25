@@ -272,7 +272,7 @@ Public Bond APIs expose `isPunchPass` + `quantity` on catalog products. There is
 4. Pricing: a **Pack** row at the pack price **Z**, plus a **Visit** row at `$0` (or 100% entitlement) so redeem `POST create` does not invoice Z per slot.
 5. Confirm `GET .../category/{id}/products` returns `isPunchPass: true`.
 
-**App behavior:** the pass sits in the product rail like any other SKU. Selecting it shows the normal schedule with duration locked to Y; slot cells show **1 punch**. Pick times, then checkout: with **0 remaining** the CTA is **Buy pass & book** (credits the local wallet for the pack, then redeems the picked visits). With remaining punches the CTA is **Redeem** (creates the Bond reservation and decrements the wallet). Remaining updates in the header chip. Dev seed: `?seedPunches=10` (preserved like other URL overrides).
+**App behavior:** the pass sits in the product rail like any other SKU. Selecting it shows the normal schedule with duration locked to Y; slot cells show **1 punch**. Pick times, then checkout: with **0 remaining** the CTA is **Buy pass & book**. Bond only invoices the $0 visit; the bag snapshot stores the pack purchase so payment shows **Court 10-pack $Z** plus included visits. The local wallet credits on **finalize**, not add-to-cart. With remaining punches the CTA is **Redeem**. Dev seed: `?seedPunches=10` (preserved like other URL overrides).
 
 Helpers: `src/lib/punch-pass.ts`, `src/lib/punch-pass-wallet.ts`.
 
