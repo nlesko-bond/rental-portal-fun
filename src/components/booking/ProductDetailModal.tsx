@@ -422,7 +422,7 @@ export function ProductDetailModal({
   const showMembersOnly = Boolean(membershipGated || product.memberOnly);
   const hasScheduleResources =
     Array.isArray(scheduleResources) && scheduleResources.length > 0;
-  const currency = product.prices[0]?.currency ?? "USD";
+  const currency = product.prices?.[0]?.currency ?? "USD";
 
   return (
     <RightDrawer

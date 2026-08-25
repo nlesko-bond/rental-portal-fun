@@ -117,6 +117,8 @@ type Props = {
   autoScrollKey: string;
   /** Snapped preferred start (matches slot fetch); when set, matrix scrolls to that column or first available at/after it. */
   preferredStartResolved: string | null;
+  /** When set, slot cells show this instead of cash (punch-pass redeem). */
+  slotPriceLabel?: string;
 };
 
 export function ScheduleMatrix({
@@ -133,6 +135,7 @@ export function ScheduleMatrix({
   adjustSlotUnitPrice,
   autoScrollKey,
   preferredStartResolved,
+  slotPriceLabel,
 }: Props) {
   const ts = useTranslations("schedule");
   const membershipGateNames = useMemo(() => membershipGateProductNames(product), [product]);
@@ -219,7 +222,7 @@ export function ScheduleMatrix({
             const peerUnitsRawForRow = row.timeSlots.filter((s) => s.isAvailable).map((s) => s.price);
             const roundedRow = peerUnitsRawForRow.map((n) => Math.round(n * 100) / 100);
             const distinctRow = new Set(roundedRow);
-            const showPeerTiers = distinctRow.size >= 2;
+            const showPeerTiers = slotPriceLabel == null && distinctRow.size >= 2;
 
             return (
             <tr key={row.resource.id} className="border-b border-[var(--cb-border)]">
@@ -272,17 +275,21 @@ export function ScheduleMatrix({
                             {isRequested ? ts("requested") : "In cart"}
                           </span>
                         ) : null}
-                        {slot.isAvailable && priceCurrency && !blocked ? (
+                        {slot.isAvailable && !blocked ? (
                           <span className="cb-matrix-slot-price text-sm font-bold leading-none text-[var(--cb-primary)] sm:text-base">
-                            <SlotMemberPriceLabel
-                              amount={slotTotal}
-                              currency={priceCurrency}
-                              membershipGated={membershipGated}
-                              membershipGateNames={membershipGateNames}
-                            />
+                            {slotPriceLabel ? (
+                              slotPriceLabel
+                            ) : priceCurrency ? (
+                              <SlotMemberPriceLabel
+                                amount={slotTotal}
+                                currency={priceCurrency}
+                                membershipGated={membershipGated}
+                                membershipGateNames={membershipGateNames}
+                              />
+                            ) : (
+                              <span className="text-sm font-semibold">{String(slot.price)}</span>
+                            )}
                           </span>
-                        ) : slot.isAvailable && !blocked ? (
-                          <span className="text-sm font-semibold">{String(slot.price)}</span>
                         ) : (
                           <span className="text-[0.7rem] text-[var(--cb-text-faint)]">—</span>
                         )}

@@ -110,6 +110,7 @@ Checkout persists via `POST …/online-booking/create`; Bond may return richer l
 
 - Paginated list: `GET .../category/{categoryId}/products` with `facilitiesIds`, `sports`.
 - Horizontal **service cards** with image (Unsplash / org URL / fallback), price pill, variable-pricing (peak) indicator, tags (member benefits, punch pass, members only, **optional add-ons**).
+- **Demo punch passes (sibling SKU):** a rental-shaped product in the same category with `isPunchPass: true`, `quantity` = punch count **X**, `duration` = minutes per punch **Y**, and pack price **Z**. Buy pack is a local wallet (no Bond pack-purchase API). Redeem picks slots on the pass product, `POST …/create` holds the time, and the wallet decrements. See **Demo punch passes** below.
 - **Product detail** modal: description (sanitized HTML), pricing, **add-ons list** with billing level.
 - Pagination controls; default product selection when list changes.
 
@@ -259,6 +260,24 @@ Everything below assumes **hosted Bond public APIs** and existing BFF patterns.
 
 ---
 
+## Demo punch passes (sibling rental SKU)
+
+Public Bond APIs expose `isPunchPass` + `quantity` on catalog products. There is **no** user inventory, buy-pack, or redeem endpoint on the rental public API (`POST …/online-booking/create` requires at least one segment). This portal therefore uses a **local wallet** (`sessionStorage`, keyed by org + participant) for holders.
+
+**Bond backoffice / DB setup** (same org, portal, category, facilities, and resources as the hourly sibling):
+
+1. Duplicate the hourly rental. Name it like `Court 10-pack`.
+2. Set the punch-pass flag (`isPunchPass` / `is_punch_pass`) and `quantity = 10` (or the pack size).
+3. Set product duration to the visit length (must match a category duration chip, e.g. 60 minutes).
+4. Pricing: a **Pack** row at the pack price **Z**, plus a **Visit** row at `$0` (or 100% entitlement) so redeem `POST create` does not invoice Z per slot.
+5. Confirm `GET .../category/{id}/products` returns `isPunchPass: true`.
+
+**App behavior:** selecting a pass with 0 punches opens **Buy pass** (credits the wallet; labeled as a demo purchase). Selecting a pass with remaining punches shows the normal schedule with duration locked to Y; slot cells show **1 punch**; checkout **Redeem** creates the Bond reservation and decrements the wallet. Dev seed: `?seedPunches=10` (preserved like other URL overrides).
+
+Helpers: `src/lib/punch-pass.ts`, `src/lib/punch-pass-wallet.ts`.
+
+---
+
 ## Known issues / deferred
 
 - **Missing confirmation screen after pay / submit (production):** After `finalizeCart` resolves successfully, the "Booking Confirmed" / "Booking Submitted" success view is not rendering in production. Reported 2026-04-23; reproduction path + root cause TBD. Entry points to audit: `BookingCheckoutDrawer.tsx` `submitBookingRequestMutation.onSuccess` (sets `finalizeSuccess` via `parseFinalizeCartResponse`), `parseFinalizeCartResponse` in the same file, and the confirmation-view render gate. Candidates: (a) response shape mismatch so `parseFinalizeCartResponse` returns `null`; (b) `answersStaleAfterFinalizeRef` / parent `onFinalizeBookingSuccess` clearing session cart before the success screen mounts; (c) Bond returning `204`/no-body in prod vs `201` in dev.
@@ -278,6 +297,7 @@ Everything below assumes **hosted Bond public APIs** and existing BFF patterns.
 | Bond fetch / errors | `src/lib/bond-json.ts`, `bond-client.ts`, `bond-errors.ts` |
 | Online booking API | `src/lib/online-booking-api.ts` |
 | URL / dev overrides | `src/components/booking/booking-url.ts` |
+| Punch passes (demo) | `src/lib/punch-pass.ts`, `punch-pass-wallet.ts`, `PunchPassBuyDrawer.tsx` |
 | Theme | `src/lib/booking-theme.ts` |
 | Category rules / durations | `src/lib/category-booking-settings.ts` |
 | Slot validation | `src/lib/slot-selection.ts` |

@@ -33,6 +33,11 @@ type Props = {
   onBook?: () => void;
   bookBusy?: boolean;
   bookDisabled?: boolean;
+  /**
+   * Punch-pass sibling SKU: `buy` shows a pack CTA with no slots;
+   * `redeem` relabels the slot checkout CTA.
+   */
+  punchPassAction?: "buy" | "redeem" | null;
 };
 
 function useIsClient(): boolean {
@@ -59,6 +64,7 @@ export function BookingSelectionPortal({
   onBook,
   bookBusy,
   bookDisabled,
+  punchPassAction = null,
 }: Props) {
   /** Root namespace avoids Turbopack/client edge cases where nested `useTranslations(ns)` misses keys in portaled subtrees. */
   const t = useTranslations();
@@ -67,7 +73,8 @@ export function BookingSelectionPortal({
   if (!isClient || typeof document === "undefined") return null;
   if (overlayOpen) return null;
 
-  const show = slotCount > 0 || cartSessionCount > 0 || (error != null && error.length > 0);
+  const showBuyPass = punchPassAction === "buy" && onBook != null;
+  const show = slotCount > 0 || cartSessionCount > 0 || showBuyPass || (error != null && error.length > 0);
   if (!show) return null;
 
   /** Cart badge must reflect saved cart lines, not draft slot selection (they are separate). */
@@ -79,11 +86,19 @@ export function BookingSelectionPortal({
       : 0;
   const fabBadge = cartBadge;
   /** Show draft slot CTA whenever slots are selected; cart FAB still opens bag when there are saved bookings. */
-  const showSlotBar = slotCount > 0;
-  const primaryActionLabel = t("booking.slotsSelectedCompleteBooking", { count: slotCount });
-  const primaryActionMobileLabel = t("booking.slotsSelectedCheckout", { count: slotCount });
+  const showSlotBar = slotCount > 0 || showBuyPass;
+  const primaryActionLabel = showBuyPass
+    ? t("booking.punchPassBuyCta")
+    : punchPassAction === "redeem"
+      ? t("booking.punchPassSlotsRedeem", { count: slotCount })
+      : t("booking.slotsSelectedCompleteBooking", { count: slotCount });
+  const primaryActionMobileLabel = showBuyPass
+    ? t("booking.punchPassBuyCta")
+    : punchPassAction === "redeem"
+      ? t("booking.punchPassSlotsRedeemShort", { count: slotCount })
+      : t("booking.slotsSelectedCheckout", { count: slotCount });
   const fabOpensBag = cartSessionCount > 0 && onOpenCart != null;
-  const fabOpensCheckout = slotCount > 0 && onBook != null;
+  const fabOpensCheckout = (slotCount > 0 || showBuyPass) && onBook != null;
   const fabClickable = fabOpensBag || fabOpensCheckout;
   const handleFabClick = () => {
     if (fabOpensBag) onOpenCart!();
@@ -107,7 +122,7 @@ export function BookingSelectionPortal({
   return createPortal(
     <div className={wrapCls} style={themeStyle}>
       {error && slotCount === 0 && cartSessionCount === 0 ? <p className="cb-selection-err">{error}</p> : null}
-      {slotCount > 0 || cartSessionCount > 0 ? (
+      {slotCount > 0 || cartSessionCount > 0 || showBuyPass ? (
         <div className="cb-selection-cluster cb-selection-cluster--split">
           <div className="cb-selection-fab-row">
             {fabClickable ? (
@@ -142,13 +157,15 @@ export function BookingSelectionPortal({
           {showSlotBar ? (
             <div className="cb-selection-bar cb-selection-bar--unified" role="status">
               <div className="cb-selection-actions">
-                <button type="button" className="cb-selection-clearbtn" onClick={onClear}>
-                  {t("common.clear")}
-                </button>
+                {showBuyPass ? null : (
+                  <button type="button" className="cb-selection-clearbtn" onClick={onClear}>
+                    {t("common.clear")}
+                  </button>
+                )}
                 <button
                   type="button"
                   className="cb-selection-book cb-selection-book--unified cb-selection-slot-cta"
-                  disabled={bookDisabled || bookBusy}
+                  disabled={showBuyPass ? bookBusy : bookDisabled || bookBusy}
                   aria-busy={bookBusy ? true : undefined}
                   onClick={onBook}
                 >

@@ -10391,5 +10391,169 @@ body {
   font-size: 1rem;
 }
 
+.consumer-booking .cb-punch-wallet-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 2.25rem;
+  padding: 0 0.7rem;
+  border-radius: 999px;
+  border: 1px solid var(--cb-border);
+  background: var(--cb-bg-surface-muted, #edf4fc);
+  color: var(--cb-primary);
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.consumer-booking .cb-punch-buy-panel {
+  margin-top: 1rem;
+}
+
+.consumer-booking .cb-punch-ticket {
+  position: relative;
+  padding: 1.15rem 1.25rem 1.2rem;
+  border-radius: 1.1rem;
+  border: 1px dashed color-mix(in srgb, var(--cb-primary) 45%, var(--cb-border));
+  background: var(--cb-bg-surface-muted, #edf4fc);
+  overflow: hidden;
+}
+
+.consumer-booking .cb-punch-ticket-kicker {
+  margin: 0 0 0.2rem;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--cb-primary);
+}
+
+.consumer-booking .cb-punch-ticket-name {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 800;
+  color: var(--cb-text);
+}
+
+.consumer-booking .cb-punch-stamps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.85rem;
+}
+
+.consumer-booking .cb-punch-stamp {
+  width: 0.85rem;
+  height: 0.85rem;
+  border-radius: 999px;
+  border: 2px solid color-mix(in srgb, var(--cb-primary) 40%, var(--cb-border));
+  background: transparent;
+}
+
+.consumer-booking .cb-punch-stamp--remaining {
+  background: var(--cb-primary);
+  border-color: var(--cb-primary);
+}
+
+.consumer-booking .cb-punch-buy-panel-lead {
+  margin: 0.5rem 0 0.75rem;
+  color: var(--cb-text);
+  font-size: 0.95rem;
+}
+
+.consumer-booking .cb-punch-buy-panel-price {
+  margin: 0 0 0.75rem;
+  color: var(--cb-primary);
+  font-size: 1.35rem;
+  font-weight: 800;
+}
+
+.consumer-booking .cb-punch-buy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.25rem 0 1rem;
+}
+
+.consumer-booking .cb-punch-buy-hero {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3rem;
+  height: 3rem;
+  border-radius: 0.85rem;
+  background: color-mix(in srgb, var(--cb-primary) 12%, var(--cb-bg-surface));
+  color: var(--cb-primary);
+}
+
+.consumer-booking .cb-punch-buy-name {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: var(--cb-text);
+}
+
+.consumer-booking .cb-punch-buy-summary,
+.consumer-booking .cb-punch-buy-lead {
+  margin: 0;
+  color: var(--cb-text-muted);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.consumer-booking .cb-punch-buy-price {
+  margin: 0;
+  color: var(--cb-primary);
+  font-size: 1.5rem;
+  font-weight: 800;
+}
+
+.consumer-booking .cb-punch-buy-cta {
+  width: 100%;
+  min-height: 2.85rem;
+  margin-top: 0.5rem;
+}
+
+.consumer-booking .cb-punch-passes-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.consumer-booking .cb-punch-passes-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.85rem 1rem;
+  border-radius: 0.85rem;
+  border: 1px solid var(--cb-border);
+  background: var(--cb-bg-surface);
+}
+
+.consumer-booking .cb-punch-passes-name {
+  margin: 0 0 0.2rem;
+  font-weight: 700;
+}
+
+.consumer-booking .cb-punch-passes-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.consumer-booking .cb-punch-invoice-note {
+  margin: 0.75rem 0 0;
+  padding: 0.75rem 0.85rem;
+  border-radius: 0.7rem;
+  background: var(--cb-bg-surface-muted, #edf4fc);
+  color: var(--cb-text);
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
 /* login-redesign-v1 */
 /* cache-bust-1776883940 */

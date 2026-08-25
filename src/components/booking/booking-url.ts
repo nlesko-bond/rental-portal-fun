@@ -34,6 +34,7 @@ export const BOOKING_URL_DEV_PARAM_KEYS = [
   "tertiary",
   "orgName",
   "logoUrl",
+  "seedPunches",
 ] as const;
 
 function parseHexColorParam(raw: string | null): string | undefined {
@@ -80,9 +81,10 @@ function parseLogoUrlParam(raw: string | null): string | undefined {
 /**
  * Optional URL overrides for local testing / demo:
  * `?orgId=155&portalId=42&primary=%230d4774&accent=%23f7b500&surface=%23f0f4f7
- *   &orgName=Sonic+Squad&logoUrl=https%3A%2F%2F…%2Flogo.png`
+ *   &orgName=Sonic+Squad&logoUrl=https%3A%2F%2F…%2Flogo.png&seedPunches=10`
  * Hex colors should be `%23`-encoded; `secondary` is an alias for `accent`,
- * `tertiary` is an alias for `surface`.
+ * `tertiary` is an alias for `surface`. `seedPunches` credits the selected punch-pass
+ * product after login (demo wallet).
  */
 export function readBookingDevOverrides(searchParams: URLSearchParams): BookingDevUrlOverrides {
   const orgId = parseIntParam(searchParams, "orgId") ?? parseIntParam(searchParams, "org") ?? undefined;

@@ -62,6 +62,8 @@ type Props = {
   onToggleSlot: (resourceId: number, resourceName: string, slot: ScheduleTimeSlotDto) => void;
   /** Apply member entitlement discount to schedule unit price before pro-rating (display). */
   adjustSlotUnitPrice?: (unitPrice: number) => number;
+  /** When set, slot cells show this instead of cash (punch-pass redeem). */
+  slotPriceLabel?: string;
 };
 
 export function ScheduleCalendarView({
@@ -78,6 +80,7 @@ export function ScheduleCalendarView({
   resourceSelectorSearchPlaceholder,
   onToggleSlot,
   adjustSlotUnitPrice,
+  slotPriceLabel,
 }: Props) {
   const tb = useTranslations("booking");
   const ts = useTranslations("schedule");
@@ -133,7 +136,7 @@ export function ScheduleCalendarView({
     /** Tier labels vs peers use raw schedule units so member $0 display does not hide peak/off-peak. */
     const peerUnitsRaw = list.map((s) => s.price);
     const distinctPrices = new Set(peerUnitsRaw.filter((n) => Number.isFinite(n)));
-    const showPeerTiers = distinctPrices.size >= 2;
+    const showPeerTiers = slotPriceLabel == null && distinctPrices.size >= 2;
     if (list.length === 0) {
       return (
         <p className="cb-resource-empty" role="status">
@@ -170,14 +173,18 @@ export function ScheduleCalendarView({
                     {isRequested ? ts("requested") : "In cart"}
                   </span>
                 ) : null}
-                {s.isAvailable && priceCurrency && !blocked ? (
+                {s.isAvailable && !blocked ? (
                   <span className="cb-slot-btn-price">
-                    <SlotMemberPriceLabel
-                      amount={total}
-                      currency={priceCurrency}
-                      membershipGated={membershipGated}
-                      membershipGateNames={membershipGateNames}
-                    />
+                    {slotPriceLabel ? (
+                      slotPriceLabel
+                    ) : priceCurrency ? (
+                      <SlotMemberPriceLabel
+                        amount={total}
+                        currency={priceCurrency}
+                        membershipGated={membershipGated}
+                        membershipGateNames={membershipGateNames}
+                      />
+                    ) : null}
                   </span>
                 ) : null}
                 {s.isAvailable && !blocked && showPeerTiers && tier === "peak" ? (

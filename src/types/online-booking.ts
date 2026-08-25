@@ -134,6 +134,8 @@ export type ExtendedProductDto = {
   downpayment?: number;
   memberOnly?: boolean;
   entitlementDiscounts?: unknown[];
+  /** Bond `DurationDto` — minutes-per-punch on punch-pass SKUs. */
+  duration?: { amount: number; unit: string };
 };
 
 export type PaginationMetaDto = {
