@@ -1,3 +1,4 @@
+import { bondCalendarDateKey } from "./bond-calendar-date";
 import {
   calendarDateKeyFromNoticeInstant,
   extractEarliestBookableInstantFromNoticeMessage,
@@ -7,12 +8,48 @@ import { bondBffGetJson, BondBffError } from "./bond-json";
 import type {
   BookingScheduleDto,
   BookingScheduleSettingsDto,
+  DateAndTimesDto,
   PaginatedProductsResponse,
   PublicOnlineBookingPortalDto,
+  PublicResourceScheduleDto,
 } from "@/types/online-booking";
 
 function orgBase(orgId: number): string[] {
   return ["v1", "organization", String(orgId)];
+}
+
+function normalizeDateAndTimes(rows: DateAndTimesDto[] | undefined): DateAndTimesDto[] {
+  if (!Array.isArray(rows)) return [];
+  const out: DateAndTimesDto[] = [];
+  for (const row of rows) {
+    const date = bondCalendarDateKey(row.date);
+    if (date == null) continue;
+    out.push({ ...row, date });
+  }
+  return out;
+}
+
+function normalizeScheduleSettings(dto: BookingScheduleSettingsDto): BookingScheduleSettingsDto {
+  return {
+    ...dto,
+    dates: normalizeDateAndTimes(dto.dates),
+  };
+}
+
+function normalizeSchedule(dto: BookingScheduleDto): BookingScheduleDto {
+  const resources: PublicResourceScheduleDto[] = (dto.resources ?? []).map((row) => ({
+    ...row,
+    timeSlots: (row.timeSlots ?? []).map((slot) => ({
+      ...slot,
+      startDate: bondCalendarDateKey(slot.startDate) ?? slot.startDate,
+      endDate: bondCalendarDateKey(slot.endDate) ?? slot.endDate,
+    })),
+  }));
+  return {
+    ...dto,
+    dates: normalizeDateAndTimes(dto.dates),
+    resources,
+  };
 }
 
 export async function fetchPublicPortal(orgId: number, portalId: number): Promise<PublicOnlineBookingPortalDto> {
@@ -44,6 +81,7 @@ export async function fetchCategoryProducts(
   }
   if (opts.userId != null) q.set("userId", String(opts.userId));
   q.append("expand", "media");
+  q.append("expand", "prices");
   q.append("expand", "requiredProducts");
   q.append("expand", "entitlementDiscounts");
   return bondBffGetJson<PaginatedProductsResponse>(path, q);
@@ -81,12 +119,14 @@ export async function fetchBookingScheduleSettings(
   q: ScheduleQuery
 ): Promise<BookingScheduleSettingsDto> {
   const path = [...orgBase(orgId), "online-booking", "schedule", "settings"];
-  return bondBffGetJson<BookingScheduleSettingsDto>(path, scheduleSearchParams(q));
+  const dto = await bondBffGetJson<BookingScheduleSettingsDto>(path, scheduleSearchParams(q));
+  return normalizeScheduleSettings(dto);
 }
 
 export async function fetchBookingSchedule(orgId: number, q: ScheduleQuery): Promise<BookingScheduleDto> {
   const path = [...orgBase(orgId), "online-booking", "schedule"];
-  return bondBffGetJson<BookingScheduleDto>(path, scheduleSearchParams(q));
+  const dto = await bondBffGetJson<BookingScheduleDto>(path, scheduleSearchParams(q));
+  return normalizeSchedule(dto);
 }
 
 function scheduleQuerySignature(v: ScheduleQuery): string {

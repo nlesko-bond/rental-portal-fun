@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyPunchPassCheckoutToWallet,
   creditPunchPass,
   debitPunchPass,
   emptyPunchPassWallet,
@@ -44,6 +45,31 @@ describe("punch-pass wallet", () => {
     expect(twice.entries[0]).toMatchObject({ remaining: 20, total: 20 });
     const after = debitPunchPass(twice, 701, 3);
     expect(remainingPunchesForProduct(after, 701)).toBe(17);
+  });
+
+  it("credits a pack then debits redeemed slots on first checkout", () => {
+    const after = applyPunchPassCheckoutToWallet(
+      emptyPunchPassWallet(),
+      { productId: 701, name: "Court 10-pack", punchCount: 10 },
+      { kind: "buyAndRedeem", punchesNeeded: 2 }
+    );
+    expect(remainingPunchesForProduct(after, 701)).toBe(8);
+    expect(after.entries[0]).toMatchObject({ total: 10, remaining: 8 });
+  });
+
+  it("debits only on redeem checkout", () => {
+    const owned = creditPunchPass(emptyPunchPassWallet(), {
+      productId: 701,
+      name: "Court 10-pack",
+      punches: 8,
+    });
+    const after = applyPunchPassCheckoutToWallet(
+      owned,
+      { productId: 701, name: "Court 10-pack", punchCount: 10 },
+      { kind: "redeem", punchesNeeded: 2 }
+    );
+    expect(remainingPunchesForProduct(after, 701)).toBe(6);
+    expect(after.entries[0]?.total).toBe(8);
   });
 
   it("does not debit below zero", () => {

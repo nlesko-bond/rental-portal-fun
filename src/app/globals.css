@@ -355,10 +355,10 @@ body {
   -webkit-appearance: none;
   display: flex;
   align-items: center;
-  background-color: var(--cb-bg-surface, #fff);
-  border: 1px solid var(--cb-border, #d1d5db);
+  background-color: var(--cb-bg-surface);
+  border: 1px solid var(--cb-border);
   border-radius: 0.625rem;
-  color: inherit;
+  color: var(--cb-text);
   cursor: pointer;
   font-size: 0.9rem;
   font-family: inherit;
@@ -501,12 +501,12 @@ body {
 
 .consumer-booking .cb-matrix-table thead th.cb-matrix-cell--sticky-row {
   z-index: 30;
-  background: var(--cb-bg-table-head, var(--cb-bg, #fff));
+  background: var(--cb-bg-table-head, var(--cb-bg-surface));
 }
 
 .consumer-booking .cb-matrix-table tbody td.cb-matrix-cell--sticky-row {
   z-index: 30;
-  background: var(--cb-bg, #fff);
+  background: var(--cb-bg-surface);
 }
 
 .consumer-booking .cb-matrix-slot {
@@ -545,6 +545,27 @@ body {
   box-shadow:
     0 0 0 1px color-mix(in srgb, var(--cb-primary) 25%, transparent),
     var(--cb-shadow-card);
+}
+
+.consumer-booking.consumer-booking--dark .cb-matrix-slot--standard {
+  background: var(--cb-bg-slot);
+}
+.consumer-booking.consumer-booking--dark .cb-matrix-slot--peak {
+  background: color-mix(in srgb, #f59e0b 18%, var(--cb-bg-slot));
+}
+.consumer-booking.consumer-booking--dark .cb-matrix-slot--offpeak {
+  background: color-mix(in srgb, var(--cb-primary) 25%, var(--cb-bg-slot));
+}
+@media (prefers-color-scheme: dark) {
+  .consumer-booking:not(.consumer-booking--light) .cb-matrix-slot--standard {
+    background: var(--cb-bg-slot);
+  }
+  .consumer-booking:not(.consumer-booking--light) .cb-matrix-slot--peak {
+    background: color-mix(in srgb, #f59e0b 18%, var(--cb-bg-slot));
+  }
+  .consumer-booking:not(.consumer-booking--light) .cb-matrix-slot--offpeak {
+    background: color-mix(in srgb, var(--cb-primary) 25%, var(--cb-bg-slot));
+  }
 }
 
 .consumer-booking .cb-matrix-slot--picked .cb-matrix-slot-time,
@@ -756,7 +777,7 @@ body {
   border-radius: 0.65rem;
   overflow: visible;
   position: relative;
-  border: 1px solid #dae6f0;
+  border: 1px solid var(--cb-border);
   background: var(--cb-bg-slot);
   padding: 0.65rem 0.75rem;
   text-align: center;
@@ -792,8 +813,8 @@ body {
 
 .consumer-booking .cb-slot-btn--picked {
   border-width: 3px;
-  border-color: #0571e0;
-  background: #ffffff;
+  border-color: var(--cb-primary);
+  background: var(--cb-slot-selected-bg);
   box-shadow: var(--cb-shadow-card);
 }
 
@@ -801,8 +822,8 @@ body {
 .consumer-booking .cb-slot-btn--picked.cb-slot-btn--peak,
 .consumer-booking .cb-slot-btn--picked.cb-slot-btn--offpeak,
 .consumer-booking .cb-slot-btn--picked.cb-slot-btn--standard {
-  border-color: #0571e0;
-  background: #ffffff;
+  border-color: var(--cb-primary);
+  background: var(--cb-slot-selected-bg);
 }
 
 .consumer-booking .cb-slot-btn--picked .cb-slot-btn-time {
@@ -861,6 +882,20 @@ body {
   line-height: 1.2;
   color: var(--cb-text);
   white-space: normal;
+}
+
+.consumer-booking .cb-slot-btn-date {
+  max-width: 100%;
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--cb-text-muted);
+}
+
+.consumer-booking .cb-slot-btn:has(.cb-slot-btn-date) {
+  height: auto;
+  min-height: 4.75rem;
+  max-height: none;
 }
 
 @media (max-width: 639px) {
@@ -2813,7 +2848,7 @@ body {
   right: 0.55rem;
   top: 0.55rem;
   max-width: calc(100% - 1rem);
-  background: rgba(255, 255, 255, 0.97);
+  background: var(--cb-bg-chip);
   padding: 0.28rem 0.65rem;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
 }
@@ -2836,13 +2871,13 @@ body {
 .consumer-booking .cb-product-chip-price-sep {
   font-size: 0.68rem;
   font-weight: 600;
-  color: #64748b;
+  color: var(--cb-text-muted);
 }
 
 .consumer-booking .cb-product-chip-price-dur {
   font-size: 0.68rem;
   font-weight: 600;
-  color: #64748b;
+  color: var(--cb-text-muted);
 }
 
 .consumer-booking .cb-product-chip--member-free .cb-product-chip-price-row {
@@ -2875,8 +2910,8 @@ body {
   align-items: center;
   gap: 0.28rem;
   border-radius: 9999px;
-  border: 1px solid color-mix(in srgb, var(--cb-primary) 18%, rgba(255, 255, 255, 0.85));
-  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid color-mix(in srgb, var(--cb-primary) 18%, var(--cb-border));
+  background: var(--cb-bg-chip);
   padding: 0.22rem 0.5rem;
   font-size: 0.58rem;
   font-weight: 700;
@@ -2909,6 +2944,14 @@ body {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+.consumer-booking .cb-product-card-remaining {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--cb-primary);
 }
 
 .consumer-booking .cb-product-corner {
@@ -10391,6 +10434,13 @@ body {
   font-size: 1rem;
 }
 
+.consumer-booking .cb-punch-schedule-hint {
+  margin: 0.15rem 0 0;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: var(--cb-text-muted);
+}
+
 .consumer-booking .cb-punch-wallet-chip {
   display: inline-flex;
   align-items: center;
@@ -10404,35 +10454,6 @@ body {
   font-size: 0.78rem;
   font-weight: 700;
   cursor: pointer;
-}
-
-.consumer-booking .cb-punch-buy-panel {
-  margin-top: 1rem;
-}
-
-.consumer-booking .cb-punch-ticket {
-  position: relative;
-  padding: 1.15rem 1.25rem 1.2rem;
-  border-radius: 1.1rem;
-  border: 1px dashed color-mix(in srgb, var(--cb-primary) 45%, var(--cb-border));
-  background: var(--cb-bg-surface-muted, #edf4fc);
-  overflow: hidden;
-}
-
-.consumer-booking .cb-punch-ticket-kicker {
-  margin: 0 0 0.2rem;
-  font-size: 0.68rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--cb-primary);
-}
-
-.consumer-booking .cb-punch-ticket-name {
-  margin: 0;
-  font-size: 1.2rem;
-  font-weight: 800;
-  color: var(--cb-text);
 }
 
 .consumer-booking .cb-punch-stamps {
@@ -10453,65 +10474,6 @@ body {
 .consumer-booking .cb-punch-stamp--remaining {
   background: var(--cb-primary);
   border-color: var(--cb-primary);
-}
-
-.consumer-booking .cb-punch-buy-panel-lead {
-  margin: 0.5rem 0 0.75rem;
-  color: var(--cb-text);
-  font-size: 0.95rem;
-}
-
-.consumer-booking .cb-punch-buy-panel-price {
-  margin: 0 0 0.75rem;
-  color: var(--cb-primary);
-  font-size: 1.35rem;
-  font-weight: 800;
-}
-
-.consumer-booking .cb-punch-buy {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  padding: 0.25rem 0 1rem;
-}
-
-.consumer-booking .cb-punch-buy-hero {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 3rem;
-  height: 3rem;
-  border-radius: 0.85rem;
-  background: color-mix(in srgb, var(--cb-primary) 12%, var(--cb-bg-surface));
-  color: var(--cb-primary);
-}
-
-.consumer-booking .cb-punch-buy-name {
-  margin: 0;
-  font-size: 1.15rem;
-  font-weight: 800;
-  color: var(--cb-text);
-}
-
-.consumer-booking .cb-punch-buy-summary,
-.consumer-booking .cb-punch-buy-lead {
-  margin: 0;
-  color: var(--cb-text-muted);
-  font-size: 0.9rem;
-  line-height: 1.45;
-}
-
-.consumer-booking .cb-punch-buy-price {
-  margin: 0;
-  color: var(--cb-primary);
-  font-size: 1.5rem;
-  font-weight: 800;
-}
-
-.consumer-booking .cb-punch-buy-cta {
-  width: 100%;
-  min-height: 2.85rem;
-  margin-top: 0.5rem;
 }
 
 .consumer-booking .cb-punch-passes-list {
@@ -10543,16 +10505,6 @@ body {
 .consumer-booking .cb-punch-passes-actions {
   display: flex;
   gap: 0.5rem;
-}
-
-.consumer-booking .cb-punch-invoice-note {
-  margin: 0.75rem 0 0;
-  padding: 0.75rem 0.85rem;
-  border-radius: 0.7rem;
-  background: var(--cb-bg-surface-muted, #edf4fc);
-  color: var(--cb-text);
-  font-size: 0.85rem;
-  line-height: 1.45;
 }
 
 /* login-redesign-v1 */

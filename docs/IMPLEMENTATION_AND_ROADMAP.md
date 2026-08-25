@@ -108,9 +108,9 @@ Checkout persists via `POST …/online-booking/create`; Bond may return richer l
 
 ### Products
 
-- Paginated list: `GET .../category/{categoryId}/products` with `facilitiesIds`, `sports`.
-- Horizontal **service cards** with image (Unsplash / org URL / fallback), price pill, variable-pricing (peak) indicator, tags (member benefits, punch pass, members only, **optional add-ons**).
-- **Demo punch passes (sibling SKU):** a rental-shaped product in the same category with `isPunchPass: true`, `quantity` = punch count **X**, `duration` = minutes per punch **Y**, and pack price **Z**. Buy pack is a local wallet (no Bond pack-purchase API). Redeem picks slots on the pass product, `POST …/create` holds the time, and the wallet decrements. See **Demo punch passes** below.
+- Paginated list: `GET .../category/{categoryId}/products` with `facilitiesIds`, `sports`, and `expand` (`media`, `prices`, `requiredProducts`, `entitlementDiscounts`).
+- Horizontal **service cards** with image (Unsplash / org URL / fallback), price pill, variable-pricing (peak) indicator, tags (member benefits, members only, **optional add-ons**). Punch-pass SKUs use the same card chrome; pack price **Z** fills the pill when Bond lists a Pack/Pass row.
+- **Demo punch passes (sibling SKU):** a rental-shaped product in the same category with `isPunchPass: true`, `quantity` = punch count **X**, `duration` = minutes per punch **Y**, and pack price **Z**. Selecting it shows the same date/duration/schedule as other rentals. Buy pack is a local wallet (no Bond pack-purchase API). Redeem picks slots on the pass product, `POST …/create` holds the time, and the wallet decrements. See **Demo punch passes** below.
 - **Product detail** modal: description (sanitized HTML), pricing, **add-ons list** with billing level.
 - Pagination controls; default product selection when list changes.
 
@@ -118,7 +118,7 @@ Checkout persists via `POST …/online-booking/create`; Bond may return richer l
 
 - Schedule **settings** drive available dates; **advance booking window** and **minimum notice** from category `settings` (`category-booking-settings.ts`, `filterDatesByAdvanceWindow`, `booking-schedule-start.ts`).
 - Date strip + calendar modal (`AvailableDateCalendarBody.tsx`); schedule pills for date / duration / optional preferred start.
-- Portal `startTimeIntervals` / `enableStartTimeSelection` respected; schedule fetch can use `date` or `dateTstart` style param when a preferred start is chosen.
+- Portal `startTimeIntervals` / `enableStartTimeSelection` respected. Bond `getBookingSchedule` `date` is **`YYYY-MM-DD` only** (ISO datetimes 400). Preferred start is applied client-side after the day fetch.
 
 ### Schedule & slots
 
@@ -216,7 +216,7 @@ Everything below assumes **hosted Bond public APIs** and existing BFF patterns.
 | 3.4 | **Advance booking windows** | **Partial** | `filterDatesByAdvanceWindow` + VIP early access dates. **Remaining:** merge with **booking-information** per user. |
 | 3.5 | **Customer-gated products** | **Partial** | Product card gating; friendly **`INVALID_PRODUCT`** copy when eligibility fails. **Remaining:** per-member eligibility beyond required-products API if needed. |
 | 3.6 | **Booking restrictions** | **Partial** | Client-side slot validation (max hours/day, sequential). **Remaining:** enforce **booking-information** + category limits at slot selection, after login, and checkout. |
-| 3.7 | **Online product schedules** | **Partial** | In use. **Remaining:** regression tests; document `date` vs `dateTstart` behavior. |
+| 3.7 | **Online product schedules** | **Partial** | In use. `date` query is `YYYY-MM-DD` (Bond 400s on ISO datetimes). Calendar “today” uses facility/local civil date, not UTC. |
 | 3.8 | **Conflicts** | **Not done** | Double-booking / overlap: rely on Bond errors + refetch; document error codes; optional client pre-check if API supports it. |
 
 ---
@@ -262,7 +262,7 @@ Everything below assumes **hosted Bond public APIs** and existing BFF patterns.
 
 ## Demo punch passes (sibling rental SKU)
 
-Public Bond APIs expose `isPunchPass` + `quantity` on catalog products. There is **no** user inventory, buy-pack, or redeem endpoint on the rental public API (`POST …/online-booking/create` requires at least one segment). This portal therefore uses a **local wallet** (`sessionStorage`, keyed by org + participant) for holders.
+Public Bond APIs expose `isPunchPass` + `quantity` on catalog products. There is **no** user inventory, buy-pack, or redeem endpoint on the rental public API (`POST …/online-booking/create` requires at least one segment). This portal therefore uses a **local wallet** (`localStorage`, keyed by org) for remaining punches.
 
 **Bond backoffice / DB setup** (same org, portal, category, facilities, and resources as the hourly sibling):
 
@@ -272,7 +272,7 @@ Public Bond APIs expose `isPunchPass` + `quantity` on catalog products. There is
 4. Pricing: a **Pack** row at the pack price **Z**, plus a **Visit** row at `$0` (or 100% entitlement) so redeem `POST create` does not invoice Z per slot.
 5. Confirm `GET .../category/{id}/products` returns `isPunchPass: true`.
 
-**App behavior:** selecting a pass with 0 punches opens **Buy pass** (credits the wallet; labeled as a demo purchase). Selecting a pass with remaining punches shows the normal schedule with duration locked to Y; slot cells show **1 punch**; checkout **Redeem** creates the Bond reservation and decrements the wallet. Dev seed: `?seedPunches=10` (preserved like other URL overrides).
+**App behavior:** the pass sits in the product rail like any other SKU. Selecting it shows the normal schedule with duration locked to Y; slot cells show **1 punch**. Pick times, then checkout: with **0 remaining** the CTA is **Buy pass & book** (credits the local wallet for the pack, then redeems the picked visits). With remaining punches the CTA is **Redeem** (creates the Bond reservation and decrements the wallet). Remaining updates in the header chip. Dev seed: `?seedPunches=10` (preserved like other URL overrides).
 
 Helpers: `src/lib/punch-pass.ts`, `src/lib/punch-pass-wallet.ts`.
 
@@ -297,7 +297,7 @@ Helpers: `src/lib/punch-pass.ts`, `src/lib/punch-pass-wallet.ts`.
 | Bond fetch / errors | `src/lib/bond-json.ts`, `bond-client.ts`, `bond-errors.ts` |
 | Online booking API | `src/lib/online-booking-api.ts` |
 | URL / dev overrides | `src/components/booking/booking-url.ts` |
-| Punch passes (demo) | `src/lib/punch-pass.ts`, `punch-pass-wallet.ts`, `PunchPassBuyDrawer.tsx` |
+| Punch passes (demo) | `src/lib/punch-pass.ts`, `punch-pass-wallet.ts` |
 | Theme | `src/lib/booking-theme.ts` |
 | Category rules / durations | `src/lib/category-booking-settings.ts` |
 | Slot validation | `src/lib/slot-selection.ts` |

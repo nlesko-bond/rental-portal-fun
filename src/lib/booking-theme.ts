@@ -21,6 +21,8 @@ export type BookingThemeUrlOverrides = {
   surface?: string;
 };
 
+export type BookingAppearanceMode = "system" | "light" | "dark";
+
 /**
  * Theme: URL query overrides (dev) > `NEXT_PUBLIC_BOOKING_*` env > portal `options.branding` > defaults.
  * Colors must be valid CSS color values (hex, rgb, etc.).
@@ -30,7 +32,8 @@ export type BookingThemeUrlOverrides = {
  */
 export function resolveBookingThemeStyle(
   portal: PublicOnlineBookingPortalDto | undefined,
-  urlOverrides?: BookingThemeUrlOverrides | null
+  urlOverrides?: BookingThemeUrlOverrides | null,
+  appearance?: BookingAppearanceMode
 ): CSSProperties {
   const b = readBranding(portal);
 
@@ -63,6 +66,7 @@ export function resolveBookingThemeStyle(
     else fontSans = "var(--font-montserrat), system-ui, sans-serif";
   }
 
+  const applySurfaceTokens = appearance === "light";
   const bgPage = str(process.env.NEXT_PUBLIC_BOOKING_BG_PAGE) ?? str(b.backgroundColor);
   const bgSurface =
     str(urlOverrides?.surface) ??
@@ -78,20 +82,18 @@ export function resolveBookingThemeStyle(
     "--cb-success": success,
     "--cb-font-sans": fontSans,
     fontFamily: fontSans,
-    ...(bgPage != null ? { "--cb-bg-page": bgPage } : {}),
-    ...(bgSurface != null
+    ...(applySurfaceTokens && bgPage != null ? { "--cb-bg-page": bgPage } : {}),
+    ...(applySurfaceTokens && bgSurface != null
       ? {
           "--cb-bg-surface": bgSurface,
           "--cb-bg-slot": bgSurface,
         }
       : {}),
-    ...(text != null ? { "--cb-text": text } : {}),
-    ...(textMuted != null ? { "--cb-text-muted": textMuted } : {}),
-    ...(border != null ? { "--cb-border": border } : {}),
+    ...(applySurfaceTokens && text != null ? { "--cb-text": text } : {}),
+    ...(applySurfaceTokens && textMuted != null ? { "--cb-text-muted": textMuted } : {}),
+    ...(applySurfaceTokens && border != null ? { "--cb-border": border } : {}),
   } as CSSProperties;
 }
-
-export type BookingAppearanceMode = "system" | "light" | "dark";
 
 export function bookingAppearanceClass(): string {
   const raw = (process.env.NEXT_PUBLIC_BOOKING_APPEARANCE ?? "system").toLowerCase();

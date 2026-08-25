@@ -5,6 +5,7 @@ import {
 } from "@bondsports/online-booking";
 import type { CategorySettings } from "@/types/online-booking";
 import type { BookingPartyActiveMembership } from "./booking-party-options";
+import { calendarDateKeyNow } from "./bond-calendar-date";
 import { bookingDurationsLegacyArray } from "./category-settings";
 
 function num(v: unknown): number | null {
@@ -17,7 +18,7 @@ export type CategoryBookingRules = {
   durationOptionsMinutes: number[];
   /** Preferred default from API (`defaultDuration`), else first option. */
   defaultDurationMinutes: number;
-  /** If set, hide calendar dates after this many days from today (UTC midnight). */
+  /** If set, hide calendar dates after this many days from today (facility/local civil date). */
   advanceBookingWindowDays: number | null;
   /**
    * Optional wider window for members/VIP (from `memberships[]` or explicit settings).
@@ -438,7 +439,7 @@ export function formatDurationPriceBadge(minutes: number): string {
   return `${h.toFixed(1).replace(/\.0$/, "")}hr`;
 }
 
-/** Drop API-returned calendar dates that exceed advance-booking window (UTC date comparison). */
+/** Drop API-returned calendar dates that exceed advance-booking window (local civil date). */
 export function filterDatesByAdvanceWindow<T extends { date: string }>(
   rows: T[],
   advanceBookingWindowDays: number | null
@@ -446,8 +447,13 @@ export function filterDatesByAdvanceWindow<T extends { date: string }>(
   if (advanceBookingWindowDays == null || !Number.isFinite(advanceBookingWindowDays) || advanceBookingWindowDays < 0) {
     return rows;
   }
-  const today = new Date();
-  const cap = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
+  const todayKey = calendarDateKeyNow();
+  const parts = todayKey.split("-").map((n) => Number(n));
+  const year = parts[0];
+  const month = parts[1];
+  const day = parts[2];
+  if (year == null || month == null || day == null) return rows;
+  const cap = new Date(Date.UTC(year, month - 1, day));
   cap.setUTCDate(cap.getUTCDate() + advanceBookingWindowDays);
   const capStr = cap.toISOString().slice(0, 10);
   return rows.filter((r) => r.date <= capStr);

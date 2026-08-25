@@ -5,7 +5,9 @@ import {
   isPunchPassProduct,
   parsePunchPassProduct,
   punchPassPackPrice,
+  punchPassSlotCap,
   punchesNeededForSlots,
+  resolvePunchPassCheckout,
 } from "@/lib/punch-pass";
 
 function product(overrides: Partial<ExtendedProductDto> = {}): ExtendedProductDto {
@@ -106,6 +108,47 @@ describe("punchesNeededForSlots", () => {
   it("is one punch per slot", () => {
     expect(punchesNeededForSlots(3)).toBe(3);
     expect(punchesNeededForSlots(0)).toBe(0);
+  });
+});
+
+describe("resolvePunchPassCheckout", () => {
+  const pass = parsePunchPassProduct(product())!;
+
+  it("returns null with no slots", () => {
+    expect(resolvePunchPassCheckout(pass, 0, 0)).toBeNull();
+  });
+
+  it("buys the pack and redeems picked slots when remaining is 0", () => {
+    expect(resolvePunchPassCheckout(pass, 0, 2)).toMatchObject({
+      kind: "buyAndRedeem",
+      punchesNeeded: 2,
+      remainingAfter: 8,
+      packAmount: 200,
+    });
+  });
+
+  it("redeems only when remaining covers the slots", () => {
+    expect(resolvePunchPassCheckout(pass, 8, 2)).toMatchObject({
+      kind: "redeem",
+      punchesNeeded: 2,
+      remainingAfter: 6,
+    });
+  });
+
+  it("buys another pack when remaining is short", () => {
+    expect(resolvePunchPassCheckout(pass, 1, 3)).toMatchObject({
+      kind: "buyAndRedeem",
+      punchesNeeded: 3,
+      remainingAfter: 8,
+    });
+  });
+});
+
+describe("punchPassSlotCap", () => {
+  it("allows remaining punches plus one new pack", () => {
+    const pass = parsePunchPassProduct(product())!;
+    expect(punchPassSlotCap(pass, 0)).toBe(10);
+    expect(punchPassSlotCap(pass, 4)).toBe(14);
   });
 });
 

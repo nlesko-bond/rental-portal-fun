@@ -12,6 +12,8 @@ type Props = {
   /** YYYY-MM-DD in API/UTC terms; gold “VIP early access” only when member advance window > guest window. */
   vipEarlyAccessDates?: string[];
   selectedDate: string | null;
+  /** Civil today in the facility timezone (not UTC). */
+  todayDateKey: string;
   onSelect: (d: string) => void;
   onClose: () => void;
   /** When embedded in the schedule band, do not close a parent dialog on day select. */
@@ -56,6 +58,7 @@ export function AvailableDateCalendarBody({
   availableDates,
   vipEarlyAccessDates = [],
   selectedDate,
+  todayDateKey,
   onSelect,
   onClose,
   closeOnSelect = true,
@@ -89,7 +92,6 @@ export function AvailableDateCalendarBody({
 
   const monthLabel = new Date(viewY, viewM, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" });
   const cells = useMemo(() => buildGrid(viewY, viewM), [viewY, viewM]);
-  const todayUtcYmd = new Date().toISOString().slice(0, 10);
 
   function prevMonth() {
     if (viewM === 0) {
@@ -136,10 +138,10 @@ export function AvailableDateCalendarBody({
               </div>
             );
           }
-          const isPast = c.key < todayUtcYmd;
+          const isPast = c.key < todayDateKey;
           const isAvail = !isPast && available.has(c.key);
           const isSel = selectedDate === c.key;
-          const isToday = c.key === todayUtcYmd;
+          const isToday = c.key === todayDateKey;
           const showVipFrame = !isPast && !isAvail && vipEarly.has(c.key);
           const title = showVipFrame ? tb("vipEarlyAccessMemberships") : undefined;
           return (

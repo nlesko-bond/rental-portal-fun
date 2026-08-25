@@ -120,6 +120,25 @@ export function creditPunchPass(
   };
 }
 
+/**
+ * Credits a new pack when checkout buys one, then spends punches for the picked slots.
+ */
+export function applyPunchPassCheckoutToWallet(
+  wallet: PunchPassWallet,
+  pass: { productId: number; name: string; punchCount: number },
+  checkout: { kind: "redeem" | "buyAndRedeem"; punchesNeeded: number }
+): PunchPassWallet {
+  const credited =
+    checkout.kind === "buyAndRedeem"
+      ? creditPunchPass(wallet, {
+          productId: pass.productId,
+          name: pass.name,
+          punches: pass.punchCount,
+        })
+      : wallet;
+  return debitPunchPass(credited, pass.productId, checkout.punchesNeeded);
+}
+
 export function debitPunchPass(wallet: PunchPassWallet, productId: number, punches: number): PunchPassWallet {
   const spend = Math.floor(punches);
   if (!Number.isFinite(spend) || spend <= 0) return wallet;

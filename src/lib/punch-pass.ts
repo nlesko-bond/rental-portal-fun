@@ -101,6 +101,62 @@ export function punchesNeededForSlots(slotCount: number): number {
   return Math.floor(slotCount);
 }
 
+export type PunchPassCheckoutKind = "redeem" | "buyAndRedeem";
+
+/** Checkout payload for a punch-pass SKU: buy a pack then redeem, or redeem only. */
+export type PunchPassCheckout = {
+  kind: PunchPassCheckoutKind;
+  punchesNeeded: number;
+  remainingAfter: number;
+  packName: string;
+  punchCount: number;
+  packAmount: number;
+  packCurrency: string;
+};
+
+/** Max slots in one checkout: remaining punches plus one new pack. */
+export function punchPassSlotCap(pass: PunchPassProduct, remaining: number): number {
+  const held = Math.max(0, Math.floor(remaining));
+  return held + pass.punchCount;
+}
+
+/**
+ * First visit with no remaining punches buys the pack and redeems the picked
+ * slots in one checkout. Later visits redeem only, until remaining is short.
+ */
+export function resolvePunchPassCheckout(
+  pass: PunchPassProduct,
+  remaining: number,
+  slotCount: number
+): PunchPassCheckout | null {
+  const punchesNeeded = punchesNeededForSlots(slotCount);
+  if (punchesNeeded <= 0) return null;
+  const remainingBefore = Math.max(0, Math.floor(remaining));
+  const packAmount = pass.packPrice?.amount ?? 0;
+  const packCurrency = pass.packPrice?.currency ?? DEMO_PACK_CURRENCY;
+  const shared = {
+    punchesNeeded,
+    packName: pass.name,
+    punchCount: pass.punchCount,
+    packAmount,
+    packCurrency,
+  };
+  if (remainingBefore >= punchesNeeded) {
+    return {
+      kind: "redeem",
+      remainingAfter: remainingBefore - punchesNeeded,
+      ...shared,
+    };
+  }
+  const remainingAfter = remainingBefore + pass.punchCount - punchesNeeded;
+  if (remainingAfter < 0) return null;
+  return {
+    kind: "buyAndRedeem",
+    remainingAfter,
+    ...shared,
+  };
+}
+
 export function cartLooksPayable(cart: { price?: unknown; total?: unknown } | null | undefined): boolean {
   if (!cart) return false;
   const price = typeof cart.price === "number" ? cart.price : null;

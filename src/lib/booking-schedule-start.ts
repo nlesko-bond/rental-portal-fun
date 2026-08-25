@@ -1,3 +1,5 @@
+import { calendarDateKeyNow } from "./bond-calendar-date";
+
 /**
  * Client-side alignment of preferred start times with minimum booking notice.
  * Bond still enforces server-side; this reduces bad requests and matches UX expectations.
@@ -8,14 +10,6 @@ function parseHhMmSsToMsFromDate(dateKey: string, hhmmss: string): number {
   if (!m) return Number.NaN;
   const d = new Date(`${dateKey}T${m[1]}:${m[2]}:${m[3]}`);
   return d.getTime();
-}
-
-function todayDateKeyLocal(): string {
-  const d = new Date();
-  const y = d.getFullYear();
-  const mo = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${mo}-${day}`;
 }
 
 /**
@@ -31,7 +25,7 @@ export function filterStartTimesByMinimumNotice(
   if (noticeMinutes == null || !Number.isFinite(noticeMinutes) || noticeMinutes <= 0) {
     return [...times];
   }
-  if (dateKey !== todayDateKeyLocal()) {
+  if (dateKey !== calendarDateKeyNow()) {
     return [...times];
   }
   const deadline = Date.now() + noticeMinutes * 60_000;

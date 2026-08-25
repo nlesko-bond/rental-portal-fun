@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import type { BookingScheduleDto, ExtendedProductDto, ScheduleTimeSlotDto } from "@/types/online-booking";
 import { productMembershipGated, slotDisplayTotalPrice, slotPriceTierRelativeToPeers, type SlotPriceTier } from "@/lib/booking-pricing";
 import { membershipGateProductNames } from "@/lib/session-booking-display-lines";
+import { formatBondSlotDayLabel } from "@/lib/bond-calendar-date";
 import { slotControlKey } from "@/lib/slot-selection";
 import { IconPeakTrend } from "./booking-icons";
 import { SlotMemberPriceLabel } from "./SlotMemberPriceLabel";
@@ -64,6 +65,8 @@ type Props = {
   adjustSlotUnitPrice?: (unitPrice: number) => number;
   /** When set, slot cells show this instead of cash (punch-pass redeem). */
   slotPriceLabel?: string;
+  /** Selected civil date (`YYYY-MM-DD`). Slot tiles show Bond `startDate` when it differs. */
+  selectedDate?: string | null;
 };
 
 export function ScheduleCalendarView({
@@ -81,6 +84,7 @@ export function ScheduleCalendarView({
   onToggleSlot,
   adjustSlotUnitPrice,
   slotPriceLabel,
+  selectedDate = null,
 }: Props) {
   const tb = useTranslations("booking");
   const ts = useTranslations("schedule");
@@ -167,6 +171,9 @@ export function ScheduleCalendarView({
                 title={isRequested ? ts("alreadyRequested") : inCart ? ts("alreadyInCart") : undefined}
                 className={`cb-slot-btn ${picked ? "cb-slot-btn--picked" : ""} ${!s.isAvailable ? "cb-slot-btn--full" : ""} ${blocked ? "cb-slot-btn--incart" : ""} ${tierClass(tier)}`}
               >
+                {selectedDate != null && s.startDate !== selectedDate ? (
+                  <span className="cb-slot-btn-date">{formatBondSlotDayLabel(s.startDate)}</span>
+                ) : null}
                 <span className="cb-slot-btn-time">{formatSlotRange12h(s.startTime, s.endTime)}</span>
                 {blocked ? (
                   <span className="cb-slot-btn-incart mt-0.5 text-[0.65rem] font-bold uppercase tracking-wide text-[var(--cb-text-muted)]">

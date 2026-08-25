@@ -27,7 +27,7 @@ import {
 } from "@/lib/online-booking-user-api";
 import { buildOnlineBookingCreateBody, splitAddonPayloadForCreate } from "@/lib/online-booking-create-body";
 import { formatBookingPriceOrFree, productMembershipGated } from "@/lib/booking-pricing";
-import { cartLooksPayable } from "@/lib/punch-pass";
+import { type PunchPassCheckout } from "@/lib/punch-pass";
 import {
   bookingContactSnapshot,
   findProfilePersonById,
@@ -505,10 +505,9 @@ type Props = {
   onRemoveReservationAddon?: (addonId: number) => void;
   onClearDraftSelection?: () => void;
   /**
-   * Punch-pass redeem: one punch per picked slot. Checkout skips optional add-ons,
-   * labels the persist CTA as Redeem, and shows punch copy instead of cash on slots.
+   * Punch-pass checkout: buy a pack and redeem picked slots, or redeem only.
    */
-  punchPassRedeem?: { punchesNeeded: number; remainingAfter: number } | null;
+  punchPass?: PunchPassCheckout | null;
 };
 
 /** Outlined info-circle for the totals-box callouts (deposit + approval notes). */
@@ -618,7 +617,7 @@ export function BookingCheckoutDrawer({
   onRemoveSlot,
   onRemoveReservationAddon,
   onClearDraftSelection,
-  punchPassRedeem = null,
+  punchPass = null,
 }: Props) {
   const tx = useTranslations("checkout");
   const tAddons = useTranslations("addons");
@@ -845,7 +844,7 @@ export function BookingCheckoutDrawer({
   }, [extendedRequiredList, requiredQuery.data]);
 
   const hasAddonsStep =
-    punchPassRedeem == null &&
+    punchPass == null &&
     (packageAddons.length > 0 ||
       otherRequired.length > 0 ||
       (productCatalogPending && productId > 0));
@@ -1570,14 +1569,26 @@ export function BookingCheckoutDrawer({
     primaryAction.click();
   }, []);
 
-  const subtotal = useMemo(
-    () => pickedSlots.reduce((s, p) => s + p.price, 0),
-    [pickedSlots]
-  );
+  const subtotal = useMemo(() => {
+    if (punchPass == null) {
+      return pickedSlots.reduce((s, p) => s + p.price, 0);
+    }
+    switch (punchPass.kind) {
+      case "buyAndRedeem":
+        return punchPass.packAmount;
+      case "redeem":
+        return 0;
+      default: {
+        const _never: never = punchPass.kind;
+        return _never;
+      }
+    }
+  }, [pickedSlots, punchPass]);
 
   const entitlements = product?.entitlementDiscounts;
 
   const estimatedOriginalSubtotal = useMemo(() => {
+    if (punchPass != null) return null;
     if (!Array.isArray(entitlements) || entitlements.length === 0) return null;
     return pickedSlots.reduce((s, p) => {
       const list =
@@ -1586,7 +1597,7 @@ export function BookingCheckoutDrawer({
           : reverseEntitlementDiscountsToUnitPrice(p.price, entitlements);
       return s + list;
     }, 0);
-  }, [pickedSlots, entitlements]);
+  }, [pickedSlots, entitlements, punchPass]);
 
   const showMemberPricing = useMemo(() => {
     if (!Array.isArray(entitlements) || entitlements.length === 0) return false;
@@ -1928,8 +1939,8 @@ export function BookingCheckoutDrawer({
           ? slot.scheduleUnitPrice
           : slot.price;
       const dur = Math.max(1, Math.round(slotDurationMinutes(slot)));
-      const slotAmount = slot.price;
-      const listForStrike = (() => {
+      const slotAmount = punchPass != null ? 0 : slot.price;
+      const listForStrike = punchPass != null ? undefined : (() => {
         const ls =
           typeof slot.scheduleUnitPrice === "number" &&
           Number.isFinite(slot.scheduleUnitPrice) &&
@@ -1946,10 +1957,21 @@ export function BookingCheckoutDrawer({
       const longDate = formatPickedSlotLongDate(slot);
       const timeRange = formatPickedSlotTimeRange(slot);
       const calendarLine = `${longDate} · ${timeRange}`;
-      const unitSubtitle =
-        punchPassRedeem != null
-          ? tx("punchPassUnitPunch", { duration: formatDurationPriceBadge(dur) })
-          : `${formatPrice(listUnit, currency)} / ${formatDurationPriceBadge(dur)}`;
+      const unitSubtitle = (() => {
+        if (punchPass == null) {
+          return `${formatPrice(listUnit, currency)} / ${formatDurationPriceBadge(dur)}`;
+        }
+        switch (punchPass.kind) {
+          case "buyAndRedeem":
+            return tx("punchPassIncludedVisit");
+          case "redeem":
+            return tx("punchPassUnitPunch", { duration: formatDurationPriceBadge(dur) });
+          default: {
+            const _never: never = punchPass.kind;
+            return _never;
+          }
+        }
+      })();
 
       const nestedAddons: SlotAddonRow[] = [];
       for (const a of packageAddons) {
@@ -1997,7 +2019,7 @@ export function BookingCheckoutDrawer({
     });
 
     const reservationAddonItems: { key: string; addonId: number; name: string; amount: number; qty: number; resourceLine?: string; calendarLines?: string[]; unitSubtitle?: string }[] = [];
-    if (punchPassRedeem == null) {
+    if (punchPass == null) {
     for (const a of packageAddons) {
       if (!selectedAddonIds.has(a.id) || a.level !== "reservation") continue;
       const p = resolveAddonDisplayPrice(a);
@@ -2063,7 +2085,18 @@ export function BookingCheckoutDrawer({
       }
     }
 
+    const packItem =
+      punchPass?.kind === "buyAndRedeem"
+        ? {
+            key: "punch-pack",
+            title: punchPass.packName,
+            unitSubtitle: tx("punchPassPackSubtitle", { count: punchPass.punchCount }),
+            amount: punchPass.packAmount,
+          }
+        : null;
+
     if (
+      packItem == null &&
       slotItems.length === 0 &&
       reservationAddonItems.length === 0 &&
       membershipItems.length === 0 &&
@@ -2071,7 +2104,7 @@ export function BookingCheckoutDrawer({
     ) {
       return null;
     }
-    return { slotItems, reservationAddonItems, membershipItems, otherRequiredItems };
+    return { packItem, slotItems, reservationAddonItems, membershipItems, otherRequiredItems };
   }, [
     pickedSlots,
     entitlements,
@@ -2088,7 +2121,7 @@ export function BookingCheckoutDrawer({
     requiredSelected,
     selectedMembershipNestedIds,
     extendedRequiredList,
-    punchPassRedeem,
+    punchPass,
     tx,
   ]);
 
@@ -2165,6 +2198,30 @@ export function BookingCheckoutDrawer({
     return sum > 0.005 ? sum : null;
   }, [groupedPresummaryLineSections, bagPolicyCheckout, approvalRequired]);
 
+  const punchPassLabels = useMemo(() => {
+    if (punchPass == null) return null;
+    switch (punchPass.kind) {
+      case "redeem":
+        return {
+          reviewTitle: tx("punchPassRedeemTitle"),
+          addedTitle: tx("punchPassRedeemedTitle"),
+          addedSubtitle: tx("punchPassRedeemedSubtitle", { count: punchPass.remainingAfter }),
+          persistCta: tx("punchPassRedeemCta"),
+        };
+      case "buyAndRedeem":
+        return {
+          reviewTitle: tx("punchPassBuyAndBookTitle"),
+          addedTitle: tx("punchPassPurchasedTitle"),
+          addedSubtitle: tx("punchPassPurchasedSubtitle", { count: punchPass.remainingAfter }),
+          persistCta: tx("punchPassBuyAndBookCta"),
+        };
+      default: {
+        const _never: never = punchPass.kind;
+        return _never;
+      }
+    }
+  }, [punchPass, tx]);
+
   const title = useMemo(() => {
     if (mode === "bag") return tx("bagTitle");
     switch (step) {
@@ -2175,13 +2232,13 @@ export function BookingCheckoutDrawer({
       case "forms":
         return tx("additionalInfoTitle");
       case "syncCart":
-        return punchPassRedeem != null ? tx("punchPassRedeemTitle") : tx("addToCart");
+        return punchPassLabels?.reviewTitle ?? tx("addToCart");
       case "addedToCart":
-        return punchPassRedeem != null ? tx("punchPassRedeemedTitle") : tx("addedToCartTitle");
+        return punchPassLabels?.addedTitle ?? tx("addedToCartTitle");
       case "payment":
         return tx("cartDrawerTitle");
     }
-  }, [mode, step, packageAddons.length, punchPassRedeem, tx]);
+  }, [mode, step, packageAddons.length, punchPassLabels, tx]);
 
   const bagDrawerLineCount = useMemo(() => countSessionCartLineItems(bagSnapshots), [bagSnapshots]);
 
@@ -2799,6 +2856,24 @@ export function BookingCheckoutDrawer({
           ) : null}
         </div>
           <ul className="cb-checkout-review-card-list">
+            {m.packItem != null ? (
+              <li key={m.packItem.key} className="cb-checkout-review-card">
+                <div className="cb-checkout-review-card-head">
+                  <div className="cb-checkout-review-card-head-text">
+                    <p className="cb-checkout-review-card-title">{m.packItem.title}</p>
+                  </div>
+                </div>
+                <p className="cb-checkout-review-card-unit cb-checkout-review-card-unit--price cb-muted">
+                  <span>{m.packItem.unitSubtitle}</span>
+                </p>
+                <div className="cb-checkout-review-item-total">
+                  <span className="cb-checkout-review-item-total-label">{tx("itemTotal")}</span>
+                  <span className={itemTotalValueClassName(fmtBookingMoney(m.packItem.amount))}>
+                    {fmtBookingMoney(m.packItem.amount)}
+                  </span>
+                </div>
+              </li>
+            ) : null}
             {m.slotItems.map((s) => (
               <li key={s.key} className="cb-checkout-review-card">
                 <div className="cb-checkout-review-card-head">
@@ -3756,18 +3831,11 @@ export function BookingCheckoutDrawer({
               </div>
             </div>
             <h2 className="cb-checkout-added-to-cart-title">
-              {punchPassRedeem != null ? tx("punchPassRedeemedTitle") : tx("addedToCartTitle")}
+              {punchPassLabels?.addedTitle ?? tx("addedToCartTitle")}
             </h2>
             <p className="cb-checkout-added-to-cart-sub cb-muted text-center text-sm leading-relaxed">
-              {punchPassRedeem != null
-                ? tx("punchPassRedeemedSubtitle", { count: punchPassRedeem.remainingAfter })
-                : tx("addedToCartSubtitle")}
+              {punchPassLabels?.addedSubtitle ?? tx("addedToCartSubtitle")}
             </p>
-            {punchPassRedeem != null && cartLooksPayable(lastCart) ? (
-              <p className="cb-punch-invoice-note" role="note">
-                {tx("punchPassInvoiceNote")}
-              </p>
-            ) : null}
             <div className="cb-checkout-added-to-cart-actions">
               <button
                 type="button"
@@ -3777,7 +3845,7 @@ export function BookingCheckoutDrawer({
                 <span className="cb-checkout-added-to-cart-plus" aria-hidden>
                   +
                 </span>
-                {tx("bookAnotherRental")}
+                {punchPass != null ? tx("punchPassBookAnother") : tx("bookAnotherRental")}
               </button>
               <button
                 type="button"
@@ -4537,9 +4605,9 @@ export function BookingCheckoutDrawer({
                   ...(onRemoveReservationAddon ? { onRemoveAddon: onRemoveReservationAddon } : {}),
                 })
               : null}
-            {punchPassRedeem != null ? (
+            {punchPass != null ? (
               <p className="cb-muted mb-3 text-sm">
-                {tx("punchPassRemainingAfter", { count: punchPassRedeem.remainingAfter })}
+                {tx("punchPassRemainingAfter", { count: punchPass.remainingAfter })}
               </p>
             ) : null}
             {persistCartMutation.isPending ? (
@@ -4622,7 +4690,7 @@ export function BookingCheckoutDrawer({
                           strokeLinejoin="round"
                         />
                       </svg>
-                      {punchPassRedeem != null ? tx("punchPassRedeemCta") : tx("addToCart")}
+                      {punchPassLabels?.persistCta ?? tx("addToCart")}
                     </CbBusyInline>
                   </button>
                 </div>
