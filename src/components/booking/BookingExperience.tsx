@@ -2681,11 +2681,7 @@ export function BookingExperience() {
         open={punchPassesOpen}
         onClose={() => setPunchPassesOpen(false)}
         entries={punchWallet.entries}
-        onRedeem={(productId) => {
-          setPunchPassesOpen(false);
-          setProduct(productId);
-        }}
-        onBuyAnother={(productId) => {
+        onSelectPass={(productId) => {
           setPunchPassesOpen(false);
           setProduct(productId);
         }}

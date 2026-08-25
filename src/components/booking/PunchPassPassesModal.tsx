@@ -10,11 +10,10 @@ type Props = {
   open: boolean;
   onClose: () => void;
   entries: PunchPassWalletEntry[];
-  onRedeem: (productId: number) => void;
-  onBuyAnother: (productId: number) => void;
+  onSelectPass: (productId: number) => void;
 };
 
-export function PunchPassPassesModal({ open, onClose, entries, onRedeem, onBuyAnother }: Props) {
+export function PunchPassPassesModal({ open, onClose, entries, onSelectPass }: Props) {
   const tb = useTranslations("booking");
   return (
     <ModalShell open={open} title={tb("punchPassMyPassesTitle")} onClose={onClose}>
@@ -32,16 +31,8 @@ export function PunchPassPassesModal({ open, onClose, entries, onRedeem, onBuyAn
                 <PunchPassStampRow remaining={entry.remaining} total={entry.total} />
               </div>
               <div className="cb-punch-passes-actions">
-                {entry.remaining > 0 ? (
-                  <CbButton variant="primary" onClick={() => onRedeem(entry.productId)}>
-                    {tb("punchPassGoRedeem")}
-                  </CbButton>
-                ) : null}
-                <CbButton
-                  variant={entry.remaining > 0 ? "ghost" : "primary"}
-                  onClick={() => onBuyAnother(entry.productId)}
-                >
-                  {tb("punchPassBuyAnother")}
+                <CbButton variant="primary" onClick={() => onSelectPass(entry.productId)}>
+                  {entry.remaining > 0 ? tb("punchPassGoRedeem") : tb("punchPassBuyAnother")}
                 </CbButton>
               </div>
             </li>

@@ -222,7 +222,7 @@
     "punchPassMyPassesEmpty": "No punch passes yet. Select a pass, pick times, and buy it in checkout.",
     "punchPassRemaining": "{remaining} of {total} remaining",
     "punchPassGoRedeem": "Redeem a visit",
-    "punchPassBuyAnother": "Use this pass",
+    "punchPassBuyAnother": "Buy another pass",
     "punchPassSlotLabel": "1 punch",
     "punchPassDurationLocked": "Visit length is set by this pass",
     "punchPassNeedMore": "{who} cannot add another visit on this pass in this checkout.",
