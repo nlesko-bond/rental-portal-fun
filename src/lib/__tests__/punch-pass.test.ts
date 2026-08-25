@@ -7,6 +7,8 @@ import {
   punchPassCartPurchaseForSnapshot,
   punchPassPackDisplayAmount,
   punchPassPackPrice,
+  punchPassFillPercent,
+  punchPassOverflowsHeldPunches,
   punchPassSlotCap,
   punchesNeededForSlots,
   resolvePunchPassCheckout,
@@ -143,6 +145,27 @@ describe("resolvePunchPassCheckout", () => {
       punchesNeeded: 3,
       remainingAfter: 8,
     });
+  });
+});
+
+describe("punchPassFillPercent", () => {
+  it("fills remaining over pack total", () => {
+    expect(punchPassFillPercent(7, 10)).toBe(70);
+    expect(punchPassFillPercent(0, 10)).toBe(0);
+    expect(punchPassFillPercent(10, 10)).toBe(100);
+  });
+
+  it("clamps empty or invalid totals", () => {
+    expect(punchPassFillPercent(3, 0)).toBe(0);
+    expect(punchPassFillPercent(12, 10)).toBe(100);
+  });
+});
+
+describe("punchPassOverflowsHeldPunches", () => {
+  it("warns only when extra visits would buy another pack", () => {
+    expect(punchPassOverflowsHeldPunches(2, 3)).toBe(true);
+    expect(punchPassOverflowsHeldPunches(2, 2)).toBe(false);
+    expect(punchPassOverflowsHeldPunches(0, 1)).toBe(false);
   });
 });
 

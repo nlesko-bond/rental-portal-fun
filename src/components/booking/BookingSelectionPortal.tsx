@@ -38,7 +38,42 @@ type Props = {
    * `redeem` relabels the slot checkout CTA.
    */
   punchPassAction?: "buy" | "redeem" | null;
+  /** Formatted extras total when punch-pass add-ons are selected. */
+  punchPassExtrasAmount?: string | null;
+  /** Non-blocking copy under the slot bar (e.g. another pack will be purchased). */
+  hint?: string | null;
 };
+
+function punchPassCtaCopy(
+  t: ReturnType<typeof useTranslations>,
+  action: "buy" | "redeem",
+  slotCount: number,
+  extras: string | null,
+  size: "desktop" | "mobile"
+): string {
+  switch (action) {
+    case "buy":
+      if (extras != null) {
+        return size === "desktop"
+          ? t("booking.punchPassBuyCtaWithExtras", { amount: extras })
+          : t("booking.punchPassBuyCtaShortWithExtras", { amount: extras });
+      }
+      return size === "desktop" ? t("booking.punchPassBuyCta") : t("booking.punchPassBuyCtaShort");
+    case "redeem":
+      if (extras != null) {
+        return size === "desktop"
+          ? t("booking.punchPassSlotsRedeemWithExtras", { count: slotCount, amount: extras })
+          : t("booking.punchPassSlotsRedeemShortWithExtras", { count: slotCount, amount: extras });
+      }
+      return size === "desktop"
+        ? t("booking.punchPassSlotsRedeem", { count: slotCount })
+        : t("booking.punchPassSlotsRedeemShort", { count: slotCount });
+    default: {
+      const _never: never = action;
+      return _never;
+    }
+  }
+}
 
 function useIsClient(): boolean {
   return useSyncExternalStore(
@@ -65,6 +100,8 @@ export function BookingSelectionPortal({
   bookBusy,
   bookDisabled,
   punchPassAction = null,
+  punchPassExtrasAmount = null,
+  hint = null,
 }: Props) {
   /** Root namespace avoids Turbopack/client edge cases where nested `useTranslations(ns)` misses keys in portaled subtrees. */
   const t = useTranslations();
@@ -86,18 +123,15 @@ export function BookingSelectionPortal({
   const fabBadge = cartBadge;
   /** Show draft slot CTA whenever slots are selected; cart FAB still opens bag when there are saved bookings. */
   const showSlotBar = slotCount > 0;
+  const extras = punchPassExtrasAmount != null && punchPassExtrasAmount.length > 0 ? punchPassExtrasAmount : null;
   const primaryActionLabel =
-    punchPassAction === "buy"
-      ? t("booking.punchPassBuyCta")
-      : punchPassAction === "redeem"
-        ? t("booking.punchPassSlotsRedeem", { count: slotCount })
-        : t("booking.slotsSelectedCompleteBooking", { count: slotCount });
+    punchPassAction === "buy" || punchPassAction === "redeem"
+      ? punchPassCtaCopy(t, punchPassAction, slotCount, extras, "desktop")
+      : t("booking.slotsSelectedCompleteBooking", { count: slotCount });
   const primaryActionMobileLabel =
-    punchPassAction === "buy"
-      ? t("booking.punchPassBuyCtaShort")
-      : punchPassAction === "redeem"
-        ? t("booking.punchPassSlotsRedeemShort", { count: slotCount })
-        : t("booking.slotsSelectedCheckout", { count: slotCount });
+    punchPassAction === "buy" || punchPassAction === "redeem"
+      ? punchPassCtaCopy(t, punchPassAction, slotCount, extras, "mobile")
+      : t("booking.slotsSelectedCheckout", { count: slotCount });
   const fabOpensBag = cartSessionCount > 0 && onOpenCart != null;
   const fabOpensCheckout = slotCount > 0 && onBook != null;
   const fabClickable = fabOpensBag || fabOpensCheckout;
@@ -177,6 +211,7 @@ export function BookingSelectionPortal({
             </div>
           ) : null}
           {error ? <p className="cb-selection-err-below">{error}</p> : null}
+          {hint != null && hint.length > 0 ? <p className="cb-selection-hint-below">{hint}</p> : null}
         </div>
       ) : null}
     </div>,

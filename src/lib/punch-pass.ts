@@ -120,6 +120,24 @@ export function punchPassSlotCap(pass: PunchPassProduct, remaining: number): num
   return held + pass.punchCount;
 }
 
+const PUNCH_METER_MAX_PERCENT = 100;
+
+/** Fill percent for the remaining-punches meter (remaining / total). */
+export function punchPassFillPercent(remaining: number, total: number): number {
+  if (!Number.isFinite(total) || total <= 0) return 0;
+  const held = Math.max(0, remaining);
+  return Math.min(PUNCH_METER_MAX_PERCENT, Math.round((held / total) * PUNCH_METER_MAX_PERCENT));
+}
+
+/**
+ * True when the shopper still has punches and this checkout would spend past them
+ * (the extra visits buy another pack). First-time buy (0 remaining) is not a warning.
+ */
+export function punchPassOverflowsHeldPunches(remaining: number, slotCount: number): boolean {
+  const held = Math.max(0, Math.floor(remaining));
+  return held > 0 && slotCount > held;
+}
+
 /**
  * First visit with no remaining punches buys the pack and redeems the picked
  * slots in one checkout. Later visits redeem only, until remaining is short.

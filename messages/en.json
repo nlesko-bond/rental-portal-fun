@@ -214,12 +214,18 @@
     "punchPassSlotsRedeem": "{count, plural, one {# punch — Redeem} other {# punches — Redeem}}",
     "punchPassSlotsRedeemShort": "{count, plural, one {# punch} other {# punches}}",
     "punchPassVisitCount": "{count, plural, one {# visit} other {# visits}}",
-    "punchPassRemainingOnPass": "{remaining} of {total} remaining — pick times to redeem.",
     "punchPassBuyThenRedeemHint": "Pick times, then buy this pass and book those visits in checkout.",
     "punchPassRemaining": "{remaining} of {total} remaining",
+    "punchPassRemainingShort": "{remaining} of {total}",
+    "punchPassPickTimesToRedeem": "Pick times to redeem.",
     "punchPassSlotLabel": "1 punch",
     "punchPassDurationLocked": "Visit length is set by this pass",
-    "punchPassNeedMore": "{who} cannot add another visit on this pass in this checkout."
+    "punchPassNeedMore": "{who} cannot add another visit on this pass in this checkout.",
+    "punchPassBuysAnotherPack": "You have {remaining, plural, one {# punch} other {# punches}} left. Another visit buys a new {count}-visit pass.",
+    "punchPassSlotsRedeemWithExtras": "{count, plural, one {# punch — Redeem · {amount}} other {# punches — Redeem · {amount}}}",
+    "punchPassSlotsRedeemShortWithExtras": "{count, plural, one {# punch · {amount}} other {# punches · {amount}}}",
+    "punchPassBuyCtaWithExtras": "Buy pass & book · {amount}",
+    "punchPassBuyCtaShortWithExtras": "Buy & book · {amount}"
   },
   "checkout": {
     "loadingPricing": "Loading pricing…",
@@ -447,6 +453,7 @@
     "punchPassIncludedVisit": "Included visit",
     "punchPassPackSubtitle": "{count, plural, one {# visit on this pass} other {# visits on this pass}}",
     "punchPassRemainingAfter": "{count, plural, one {# punch remaining after this booking} other {# punches remaining after this booking}}",
+    "punchPassRemainingLabel": "Remaining punches",
     "punchPassRedeemedTitle": "Visits booked",
     "punchPassRedeemedSubtitle": "Your time is held. {count, plural, one {# punch remaining} other {# punches remaining}} on this pass.",
     "punchPassPurchasedTitle": "Pass purchased",

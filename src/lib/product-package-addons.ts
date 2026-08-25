@@ -1,5 +1,8 @@
 import type { ExtendedProductDto, SimplePriceDto } from "@/types/online-booking";
+import { getEffectiveAddonSlotKeys } from "@/lib/addon-slot-targeting";
 import { slotDurationMinutes } from "@/lib/slot-selection";
+
+const DEFAULT_ADDON_QTY = 1;
 
 /** Bond `packages[].level` for optional add-ons (`isAddon: true`). */
 export type AddonBillingLevel = "reservation" | "slot" | "hour";
@@ -106,6 +109,61 @@ export function addonEstimatedChargeForSlot(
     return { amount: base.price, currency: base.currency };
   }
   return null;
+}
+
+/** Inputs for summing selected optional add-ons before a Bond cart exists. */
+export type EstimateSelectedAddonsTotalArgs = {
+  addons: readonly PackageAddonLine[];
+  selectedIds: ReadonlySet<number>;
+  slots: ReadonlyArray<{
+    key: string;
+    startDate: string;
+    endDate: string;
+    startTime: string;
+    endTime: string;
+  }>;
+  targeting: Record<number, { all: boolean; keys: string[] }>;
+  quantities?: ReadonlyMap<number, number>;
+  slotQuantities?: ReadonlyMap<number, ReadonlyMap<string, number>>;
+};
+
+/**
+ * Display-only total for selected optional add-ons (reservation + targeted slot/hour).
+ */
+export function estimateSelectedAddonsTotal(args: EstimateSelectedAddonsTotalArgs): number {
+  const slotKeySet = new Set(args.slots.map((slot) => slot.key));
+  let sum = 0;
+  for (const addon of args.addons) {
+    if (!args.selectedIds.has(addon.id)) continue;
+    switch (addon.level) {
+      case "reservation": {
+        const price = resolveAddonDisplayPrice(addon);
+        if (price == null) break;
+        const qty = Math.max(0, args.quantities?.get(addon.id) ?? DEFAULT_ADDON_QTY);
+        sum += price.price * qty;
+        break;
+      }
+      case "slot":
+      case "hour": {
+        const eff = getEffectiveAddonSlotKeys(args.targeting[addon.id], slotKeySet);
+        const slotQtyMap = args.slotQuantities?.get(addon.id);
+        for (const slot of args.slots) {
+          if (eff.size > 0 && !eff.has(slot.key)) continue;
+          const qty = Math.max(0, slotQtyMap?.get(slot.key) ?? DEFAULT_ADDON_QTY);
+          if (qty <= 0) continue;
+          const charge = addonEstimatedChargeForSlot(addon, slot);
+          if (charge == null) continue;
+          sum += charge.amount * qty;
+        }
+        break;
+      }
+      default: {
+        const _never: never = addon.level;
+        return _never;
+      }
+    }
+  }
+  return sum;
 }
 
 function ingestProductLike(

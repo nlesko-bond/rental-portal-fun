@@ -31,8 +31,10 @@ import { isInstructorScheduleResourceType } from "@/lib/schedule-resource-type";
 import {
   IconDollarDetail,
   IconLockDetail,
+  IconPassTicket,
   IconPeakTrend,
 } from "./booking-icons";
+import { PunchPassRemainingMeter } from "./PunchPassRemainingMeter";
 import { describeEntitlementsForDisplay } from "@/lib/entitlement-discount";
 
 function formatPrice(amount: number, currency: string): string {
@@ -60,6 +62,7 @@ type Props = {
   /** From schedule settings for this product (instructors, spaces, …). */
   scheduleResources?: PublicResourceDto[];
   scheduleResourcesLoading?: boolean;
+  punchRemaining?: { remaining: number; total: number } | null;
   onClose: () => void;
 };
 
@@ -399,6 +402,7 @@ export function ProductDetailModal({
   membershipGated = false,
   scheduleResources,
   scheduleResourcesLoading = false,
+  punchRemaining = null,
   onClose,
 }: Props) {
   const appearanceClass = useBookingAppearanceClass();
@@ -496,6 +500,21 @@ export function ProductDetailModal({
                     </div>
                   )}
                 </DetailRow>
+                {punchRemaining != null && punchRemaining.total > 0 ? (
+                  <DetailRow
+                    icon={<IconPassTicket className="text-[var(--cb-primary)]" />}
+                    label={tc("punchPassRemainingLabel")}
+                  >
+                    <PunchPassRemainingMeter
+                      remaining={punchRemaining.remaining}
+                      total={punchRemaining.total}
+                      label={tb("punchPassRemaining", {
+                        remaining: punchRemaining.remaining,
+                        total: punchRemaining.total,
+                      })}
+                    />
+                  </DetailRow>
+                ) : null}
                 {(hasScheduleResources || scheduleResourcesLoading) ? (
                   <ProductResourcesSection
                     key={product.id}

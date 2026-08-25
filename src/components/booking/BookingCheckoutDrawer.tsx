@@ -863,10 +863,9 @@ export function BookingCheckoutDrawer({
   }, [extendedRequiredList, requiredQuery.data]);
 
   const hasAddonsStep =
-    punchPass == null &&
-    (packageAddons.length > 0 ||
-      otherRequired.length > 0 ||
-      (productCatalogPending && productId > 0));
+    packageAddons.length > 0 ||
+    otherRequired.length > 0 ||
+    (productCatalogPending && productId > 0);
 
   const pruneSatisfiedAddonsRef = useRef(onPruneSatisfiedAddonProductIds);
 

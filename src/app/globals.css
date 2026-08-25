@@ -2946,11 +2946,45 @@ body {
   overflow: hidden;
 }
 
-.consumer-booking .cb-product-card-remaining {
-  display: block;
-  margin-top: 0.2rem;
+.consumer-booking .cb-product-card-footer--meter {
+  min-height: 4.35rem;
+  padding-bottom: 0.7rem;
+}
+
+.consumer-booking .cb-punch-meter {
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+  margin-top: 0.4rem;
+  min-width: 0;
+}
+
+.consumer-booking .cb-punch-meter-label {
   font-size: 0.72rem;
   font-weight: 600;
+  line-height: 1.25;
+  color: var(--cb-primary);
+}
+
+.consumer-booking .cb-punch-meter-track {
+  height: 0.38rem;
+  overflow: hidden;
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--cb-primary) 16%, var(--cb-bg-surface-muted));
+}
+
+.consumer-booking .cb-punch-meter-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--cb-primary);
+}
+
+.consumer-booking .cb-punch-schedule-meter {
+  margin-top: 0.35rem;
+}
+
+.consumer-booking .cb-product-chip--punch-remaining .cb-product-chip-price-amount {
   color: var(--cb-primary);
 }
 
@@ -5881,6 +5915,16 @@ body {
   font-size: 0.72rem;
   font-weight: 600;
   color: var(--cb-error-text);
+  text-align: right;
+}
+
+.cb-selection-hint-below {
+  margin: 0;
+  max-width: 22rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--cb-text);
   text-align: right;
 }
 
