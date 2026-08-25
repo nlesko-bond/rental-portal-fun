@@ -27,7 +27,7 @@ import {
 } from "@/lib/online-booking-user-api";
 import { buildOnlineBookingCreateBody, splitAddonPayloadForCreate } from "@/lib/online-booking-create-body";
 import { formatBookingPriceOrFree, productMembershipGated } from "@/lib/booking-pricing";
-import { punchPassPackDueOnSnapshots, type PunchPassCheckout } from "@/lib/punch-pass";
+import { punchPassPackDueOnSnapshots, punchPassPackRequiredProductLine, type PunchPassCheckout } from "@/lib/punch-pass";
 import { resolveFinalizeAmountToPay } from "@/lib/finalize-cart-body";
 import {
   bookingContactSnapshot,
@@ -1269,6 +1269,12 @@ export function BookingCheckoutDrawer({
     });
     const hasSegmentAddons = perSegment.some((a) => a.length > 0);
 
+    const punchPackLine = punchPassPackRequiredProductLine(punchPass, productId);
+    const requiredProductLineItems = [
+      ...requiredProductLineItemsForBond,
+      ...(punchPackLine != null ? [punchPackLine] : []),
+    ];
+
     return buildOnlineBookingCreateBody({
       userId,
       portalId,
@@ -1293,9 +1299,7 @@ export function BookingCheckoutDrawer({
       cartId:
         includeCartMerge && mergeCartId != null && mergeCartId > 0 ? mergeCartId : undefined,
       requiredProductLineItems:
-        requiredProductLineItemsForBond.length === 0
-          ? undefined
-          : requiredProductLineItemsForBond,
+        requiredProductLineItems.length === 0 ? undefined : requiredProductLineItems,
     });
   }, [
     answers,
@@ -1303,6 +1307,7 @@ export function BookingCheckoutDrawer({
     addonQuantities,
     requiredIdsForBond,
     requiredProductLineItemsForBond,
+    punchPass,
     packageAddons,
     addonSlotTargeting,
     userId,

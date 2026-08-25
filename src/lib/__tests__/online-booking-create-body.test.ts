@@ -42,6 +42,25 @@ describe("buildOnlineBookingCreateBody", () => {
     });
   });
 
+  it("sends the punch-pass pack as a required product so Bond can invoice it", () => {
+    expect(
+      buildOnlineBookingCreateBody({
+        userId: 214932,
+        portalId: 268,
+        categoryId: 7993,
+        activity: "tennis",
+        facilityId: 860,
+        productId: 1089823,
+        slots: [slot],
+        requiredProductLineItems: [{ productId: 1089823, unitPrice: 150 }],
+      })
+    ).toMatchObject({
+      userId: 214932,
+      segments: [{ productId: 1089823 }],
+      requiredProducts: [{ productId: 1089823, userId: 214932, quantity: 1, unitPrice: 150 }],
+    });
+  });
+
   it("sends reservation add-on quantity to Bond", () => {
     expect(
       buildOnlineBookingCreateBody({

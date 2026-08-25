@@ -214,6 +214,35 @@ export function flattenBondCartItemNodes(nodes: unknown[] | undefined): Record<s
   return out;
 }
 
+/**
+ * True when Bond already put a positive pack/punch-pass line on the cart (so the
+ * client must not add a second pack amount).
+ */
+export function bondCartInvoicesPunchPack(
+  cart: OrganizationCartDto | null | undefined,
+  packProductId: number
+): boolean {
+  if (cart == null || !Number.isFinite(packProductId) || packProductId <= 0) return false;
+  const items = cart.cartItems;
+  if (!Array.isArray(items) || items.length === 0) return false;
+  const flat = flattenBondCartItemNodes(items);
+  for (const it of flat) {
+    const amt = getCartItemLineAmount(it);
+    if (amt == null || amt <= BOND_KIND_LINE_MIN) continue;
+    if (getCartItemMetadataDescription(it) === "punch_pass") return true;
+    const prod = it.product && typeof it.product === "object" ? (it.product as Record<string, unknown>) : null;
+    const raw = it.productId ?? prod?.id;
+    const pid =
+      typeof raw === "number"
+        ? raw
+        : typeof raw === "string" && /^\d+$/.test(raw.trim())
+          ? Number(raw.trim())
+          : null;
+    if (pid === packProductId) return true;
+  }
+  return false;
+}
+
 function pickNonNegativeNumber(obj: Record<string, unknown>, keys: readonly string[]): number | null {
   for (const k of keys) {
     const n = coerceFiniteNumber(obj[k]);
@@ -814,6 +843,8 @@ function withPunchPassPackOnTotals(
 } {
   const pack = punchPassPackDisplayAmount(row.punchPassPurchase);
   if (pack <= 0) return totals;
+  const packProductId = row.punchPassPurchase?.productId;
+  if (packProductId != null && bondCartInvoicesPunchPack(row.cart, packProductId)) return totals;
   return {
     line: (totals.line ?? 0) + pack,
     discount: totals.discount,

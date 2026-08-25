@@ -226,4 +226,44 @@ describe("checkoutCardsFromSnapshot", () => {
     expect(cards[1]?.unitSubtitle).toBe("Included visit");
     expect(cards[1]?.badges.some((badge) => badge.kind === "deposit_optional")).toBe(false);
   });
+
+  it("does not double the pack when Bond already invoiced it", () => {
+    const row: SessionCartSnapshot = {
+      cart: {
+        id: 9,
+        price: 150,
+        cartItems: [
+          {
+            id: 20,
+            productId: 1089823,
+            product: { id: 1089823, name: "Court 10-pack" },
+            metadata: { description: "punch_pass" },
+            subtotal: 150,
+          },
+          {
+            id: 21,
+            productId: 1089823,
+            product: { id: 1089823, name: "Court 10-pack" },
+            metadata: { description: "reservation_type_rental" },
+            subtotal: 0,
+          },
+        ],
+      } as unknown as OrganizationCartDto,
+      productName: "Court 10-pack",
+      punchPassPurchase: {
+        kind: "buyAndRedeem",
+        productId: 1089823,
+        packName: "Court 10-pack",
+        punchCount: 10,
+        packAmount: 150,
+        punchesNeeded: 1,
+        packSubtitle: "10 visits on this pass",
+        visitSubtitle: "Included visit",
+      },
+    };
+
+    const cards = checkoutCardsFromSnapshot(row, 0);
+    const priced = cards.filter((card) => card.itemTotal === 150);
+    expect(priced).toHaveLength(1);
+  });
 });

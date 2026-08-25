@@ -110,7 +110,7 @@ Checkout persists via `POST …/online-booking/create`; Bond may return richer l
 
 - Paginated list: `GET .../category/{categoryId}/products` with `facilitiesIds`, `sports`, and `expand` (`media`, `prices`, `requiredProducts`, `entitlementDiscounts`).
 - Horizontal **service cards** with image (Unsplash / org URL / fallback), price pill, variable-pricing (peak) indicator, tags (member benefits, members only, **optional add-ons**). Punch-pass SKUs use the same card chrome; pack price **Z** fills the pill when Bond lists a Pack/Pass row.
-- **Demo punch passes (sibling SKU):** a rental-shaped product in the same category with `isPunchPass: true`, `quantity` = punch count **X**, `duration` = minutes per punch **Y**, and pack price **Z**. Selecting it shows the same date/duration/schedule as other rentals. Buy pack is a local wallet (no Bond pack-purchase API). Redeem picks slots on the pass product, `POST …/create` holds the time, and the wallet decrements. See **Demo punch passes** below.
+- **Demo punch passes (sibling SKU):** a rental-shaped product in the same category with `isPunchPass: true`, `quantity` = punch count **X**, `duration` = minutes per punch **Y**, and pack price **Z**. Selecting it shows the same date/duration/schedule as other rentals. First checkout sends the pack on `requiredProducts[]` so Bond can invoice **Z**, then redeems picked slots. Remaining punches are a local wallet until Bond exposes inventory. See **Demo punch passes** below.
 - **Product detail** modal: description (sanitized HTML), pricing, **add-ons list** with billing level.
 - Pagination controls; default product selection when list changes.
 
@@ -272,7 +272,7 @@ Public Bond APIs expose `isPunchPass` + `quantity` on catalog products. There is
 4. Pricing: a **Pack** row at the pack price **Z**, plus a **Visit** row at `$0` (or 100% entitlement) so redeem `POST create` does not invoice Z per slot.
 5. Confirm `GET .../category/{id}/products` returns `isPunchPass: true`.
 
-**App behavior:** the pass sits in the product rail like any other SKU; remaining punches show on the card (`9 of 10 remaining`). Selecting it shows the normal schedule with duration locked to Y; slot cells show **1 punch**. Pick times, then checkout: with **0 remaining** the CTA is **Buy pass & book**. Bond only invoices the $0 visit; the bag snapshot stores the pack purchase so payment shows **Court 10-pack $Z** plus included visits, and **Pay now** uses that same $Z. Finalize does **not** send `amountToPay` or a payment method for that $0 Bond cart (charging $0 500s). The local wallet credits on **finalize**, not add-to-cart. With remaining punches the CTA is **Redeem**. Dev seed: `?seedPunches=10` (preserved like other URL overrides).
+**App behavior:** the pass sits in the product rail like any other SKU; remaining punches show on the card (`9 of 10 remaining`). Selecting it shows the normal schedule with duration locked to Y; slot cells show **1 punch**. Pick times, then checkout: with **0 remaining** the CTA is **Buy pass & book**. Create sends the pack on `requiredProducts[]` at pack price **Z** (same shape as a membership) plus the slot segment so Bond can invoice the 10-pack; the visit stays the $0 redeem line. If Bond still returns only the $0 visit, the bag snapshot still shows **Court 10-pack $Z**. With remaining punches the CTA is **Redeem** (no pack line). The local wallet credits on **finalize**. Dev seed: `?seedPunches=10` (preserved like other URL overrides).
 
 Helpers: `src/lib/punch-pass.ts`, `src/lib/punch-pass-wallet.ts`.
 

@@ -192,11 +192,36 @@ export function punchPassPackDisplayAmount(purchase: PunchPassCartPurchase | und
   return Number.isFinite(amount) && amount > 0 ? amount : 0;
 }
 
-/** Sum of demo pack amounts on session cart rows (Bond carts stay $0 for visits). */
+/** Sum of demo pack amounts on session cart rows when Bond has not invoiced the pack. */
 export function punchPassPackDueOnSnapshots(
   rows: ReadonlyArray<{ punchPassPurchase?: PunchPassCartPurchase | null }>
 ): number {
   return rows.reduce((sum, row) => sum + punchPassPackDisplayAmount(row.punchPassPurchase), 0);
+}
+
+/**
+ * Pack purchase line for `POST …/online-booking/create` `requiredProducts[]`.
+ * Same shape as a membership: Bond can invoice the 10-pack at pack price while the
+ * segment stays the $0 visit.
+ */
+export function punchPassPackRequiredProductLine(
+  checkout: PunchPassCheckout | null | undefined,
+  productId: number
+): { productId: number; unitPrice: number } | null {
+  if (checkout == null || !Number.isFinite(productId) || productId <= 0) return null;
+  switch (checkout.kind) {
+    case "redeem":
+      return null;
+    case "buyAndRedeem": {
+      const unitPrice = checkout.packAmount;
+      if (!Number.isFinite(unitPrice) || unitPrice <= 0) return null;
+      return { productId, unitPrice };
+    }
+    default: {
+      const _never: never = checkout.kind;
+      return _never;
+    }
+  }
 }
 
 export function cartLooksPayable(cart: { price?: unknown; total?: unknown } | null | undefined): boolean {

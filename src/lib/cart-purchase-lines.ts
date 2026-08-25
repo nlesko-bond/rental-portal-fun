@@ -20,6 +20,7 @@ import {
   flattenBondCartItemNodes,
   getBondCartReceiptLineItems,
   resolveBondLineDisplayAmounts,
+  bondCartInvoicesPunchPack,
 } from "@/lib/checkout-bag-totals";
 import {
   type BagRemovePolicy,
@@ -562,6 +563,7 @@ function withPunchPassPurchaseLines(
     : lines;
   const packAmount = punchPassPackDisplayAmount(purchase);
   if (packAmount <= 0) return visitLines;
+  if (bondCartInvoicesPunchPack(row.cart, purchase.productId)) return visitLines;
   const cartId = (row.cart as OrganizationCartDto).id;
   const packLine: CartPurchaseDisplayLine = {
     key: `snap-${rowIndex}-punchpack-${cartId}`,

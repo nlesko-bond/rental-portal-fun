@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   bondCartPayableTotalForFinalize,
+  bondCartInvoicesPunchPack,
   cartApprovalSubtotal,
   cartChargeableMinimum,
   cartChargeableTotal,
@@ -381,5 +382,35 @@ describe("cart total helpers — purchaseType-aware approval split", () => {
       } as unknown as Partial<OrganizationCartDto>);
       expect(bondCartPayableTotalForFinalize(cart, { 1: true })).toBe(400);
     });
+  });
+});
+
+describe("bondCartInvoicesPunchPack", () => {
+  it("is true when Bond priced the pack product above zero", () => {
+    const cart = makeCart({
+      cartItems: [makeItem(1089823, 150)],
+    } as unknown as Partial<OrganizationCartDto>);
+    expect(bondCartInvoicesPunchPack(cart, 1089823)).toBe(true);
+  });
+
+  it("is true for a punch_pass metadata line", () => {
+    const cart = makeCart({
+      cartItems: [
+        {
+          id: 1,
+          product: { id: 1089823, name: "Court 10-pack" },
+          subtotal: 150,
+          metadata: { description: "punch_pass" },
+        },
+      ],
+    } as unknown as Partial<OrganizationCartDto>);
+    expect(bondCartInvoicesPunchPack(cart, 1089823)).toBe(true);
+  });
+
+  it("is false for a $0 visit on the same product", () => {
+    const cart = makeCart({
+      cartItems: [makeItem(1089823, 0)],
+    } as unknown as Partial<OrganizationCartDto>);
+    expect(bondCartInvoicesPunchPack(cart, 1089823)).toBe(false);
   });
 });
