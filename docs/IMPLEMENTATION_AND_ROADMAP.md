@@ -272,7 +272,7 @@ Public Bond APIs expose `isPunchPass` + `quantity` on catalog products. There is
 4. Pricing: a **Pack** row at the pack price **Z**, plus a **Visit** row at `$0` (or 100% entitlement) so redeem `POST create` does not invoice Z per slot.
 5. Confirm `GET .../category/{id}/products` returns `isPunchPass: true`.
 
-**App behavior:** the pass sits in the product rail like any other SKU; remaining punches show on the card (`9 of 10 remaining`). Selecting it shows the normal schedule with duration locked to Y; slot cells show **1 punch**. Pick times, then checkout: with **0 remaining** the CTA is **Buy pass & book**. Bond only invoices the $0 visit; the bag snapshot stores the pack purchase so payment shows **Court 10-pack $Z** plus included visits. The local wallet credits on **finalize**, not add-to-cart. With remaining punches the CTA is **Redeem**. Dev seed: `?seedPunches=10` (preserved like other URL overrides).
+**App behavior:** the pass sits in the product rail like any other SKU; remaining punches show on the card (`9 of 10 remaining`). Selecting it shows the normal schedule with duration locked to Y; slot cells show **1 punch**. Pick times, then checkout: with **0 remaining** the CTA is **Buy pass & book**. Bond only invoices the $0 visit; the bag snapshot stores the pack purchase so payment shows **Court 10-pack $Z** plus included visits, and **Pay now** uses that same $Z. Finalize does **not** send `amountToPay` or a payment method for that $0 Bond cart (charging $0 500s). The local wallet credits on **finalize**, not add-to-cart. With remaining punches the CTA is **Redeem**. Dev seed: `?seedPunches=10` (preserved like other URL overrides).
 
 Helpers: `src/lib/punch-pass.ts`, `src/lib/punch-pass-wallet.ts`.
 
@@ -297,7 +297,7 @@ Helpers: `src/lib/punch-pass.ts`, `src/lib/punch-pass-wallet.ts`.
 | Bond fetch / errors | `src/lib/bond-json.ts`, `bond-client.ts`, `bond-errors.ts` |
 | Online booking API | `src/lib/online-booking-api.ts` |
 | URL / dev overrides | `src/components/booking/booking-url.ts` |
-| Punch passes (demo) | `src/lib/punch-pass.ts`, `punch-pass-wallet.ts` |
+| Punch passes (demo) | `src/lib/punch-pass.ts`, `punch-pass-wallet.ts`, `finalize-cart-body.ts` |
 | Theme | `src/lib/booking-theme.ts` |
 | Category rules / durations | `src/lib/category-booking-settings.ts` |
 | Slot validation | `src/lib/slot-selection.ts` |

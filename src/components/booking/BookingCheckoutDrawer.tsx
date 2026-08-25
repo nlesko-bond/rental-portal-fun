@@ -27,7 +27,8 @@ import {
 } from "@/lib/online-booking-user-api";
 import { buildOnlineBookingCreateBody, splitAddonPayloadForCreate } from "@/lib/online-booking-create-body";
 import { formatBookingPriceOrFree, productMembershipGated } from "@/lib/booking-pricing";
-import { punchPassPackDisplayAmount, type PunchPassCheckout } from "@/lib/punch-pass";
+import { punchPassPackDueOnSnapshots, type PunchPassCheckout } from "@/lib/punch-pass";
+import { resolveFinalizeAmountToPay } from "@/lib/finalize-cart-body";
 import {
   bookingContactSnapshot,
   findProfilePersonById,
@@ -681,11 +682,21 @@ export function BookingCheckoutDrawer({
 
   const currency = product?.prices?.[0]?.currency ?? "USD";
 
+  const bagNeedsBondPayment = useMemo(() => {
+    for (const row of bagSnapshots) {
+      if (!row.cart) continue;
+      const payable = cartChargeableTotal(row.cart, row.approvalByProductId);
+      if (payable != null && payable > BOND_KIND_LINE_MIN) return true;
+    }
+    return false;
+  }, [bagSnapshots]);
+
   const paymentOptionsQuery = useQuery({
     queryKey: ["bond", "consumer-payment-options", orgId, primaryAccountUserId],
     queryFn: () => fetchConsumerPaymentOptions(orgId, primaryAccountUserId),
     enabled:
       open &&
+      bagNeedsBondPayment &&
       orgId > 0 &&
       primaryAccountUserId > 0 &&
       (mode === "bag" || (mode === "checkout" && step === "payment")),
@@ -697,6 +708,9 @@ export function BookingCheckoutDrawer({
   );
   const paymentChoicesRef = useRef(paymentChoices);
   paymentChoicesRef.current = paymentChoices;
+  const paymentOptionsBlocking = bagNeedsBondPayment && paymentOptionsQuery.isPending;
+  const paymentMethodMissing =
+    bagNeedsBondPayment && paymentChoices.length > 0 && selectedPaymentMethodId == null;
 
   const pickedSlotContextKey = useMemo(
     () => pickedSlots.map((slot) => slot.key).join("|"),
@@ -1395,39 +1409,25 @@ export function BookingCheckoutDrawer({
         throw new BondBffError(400, "No cart to finalize", null);
       }
       const body: Record<string, unknown> = {};
-      const pmSel = selectedPaymentMethodIdRef.current;
-      const choice = paymentChoicesRef.current.find((c) => c.id === pmSel);
-      if (choice != null) {
-        body.paymentMethodId = choice.finalizePaymentMethodId;
-      }
       const freshCart = await getOrganizationCart(orgId, cartId);
       const combinedApprovalMap: Record<number, boolean> = {};
       for (const row of bagSnapshots) {
         if (row.approvalByProductId) Object.assign(combinedApprovalMap, row.approvalByProductId);
       }
-      const payableTotal = bondCartPayableTotalForFinalize(freshCart, combinedApprovalMap);
-      let amount = payableTotal;
-      if (overrideAmount != null && overrideAmount > 0 && payableTotal != null && payableTotal > 0) {
-        const cartMinimum = cartChargeableMinimum(freshCart);
-        const requestedAmount = Math.round(overrideAmount * CURRENCY_CENTS) / CURRENCY_CENTS;
-        const normalizedMinimum =
-          cartMinimum != null && requestedAmount <= cartMinimum + BOND_KIND_LINE_MIN
-            ? cartMinimum
-            : requestedAmount;
-        amount = Math.min(normalizedMinimum, payableTotal);
-      }
-      if (amount == null) {
-        const punchPackDue = bagSnapshots.reduce(
-          (sum, row) => sum + punchPassPackDisplayAmount(row.punchPassPurchase),
-          0
-        );
-        const ui = estimatedAmountDueRef.current;
-        if (punchPackDue <= 0 && ui != null && Number.isFinite(ui) && ui > 0) {
-          amount = Math.round(ui * CURRENCY_CENTS) / CURRENCY_CENTS;
-        }
-      }
-      if (amount != null && amount > 0) {
+      const amount = resolveFinalizeAmountToPay({
+        bondPayable: bondCartPayableTotalForFinalize(freshCart, combinedApprovalMap),
+        punchPackDue: punchPassPackDueOnSnapshots(bagSnapshots),
+        uiEstimate: estimatedAmountDueRef.current,
+        overrideAmount,
+        cartMinimum: cartChargeableMinimum(freshCart),
+      });
+      if (amount != null) {
         body.amountToPay = amount;
+        const pmSel = selectedPaymentMethodIdRef.current;
+        const choice = paymentChoicesRef.current.find((c) => c.id === pmSel);
+        if (choice != null) {
+          body.paymentMethodId = choice.finalizePaymentMethodId;
+        }
       }
       return finalizeCart(orgId, cartId, body);
     },
@@ -3333,6 +3333,7 @@ export function BookingCheckoutDrawer({
     const cartChargeableDollars = sumPerRow((row) =>
       cartChargeableTotal(row.cart, approvalMapForRow(row)),
     );
+    const bagPayDisplayDollars = bagEstimatedTotal ?? (cartChargeableDollars || cartFullDollars);
     const cartMinimumDollars = bagSnapshots.some((r) => r.cart && cartChargeableMinimum(r.cart) != null)
       ? sumPerRow((row) => cartChargeableMinimum(row.cart))
       : null;
@@ -3457,6 +3458,8 @@ export function BookingCheckoutDrawer({
                 ))}
               </section>
 
+              {bagNeedsBondPayment ? (
+                <>
               <div className="cb-co-divider" aria-hidden />
 
               <section className="cb-co-section">
@@ -3533,6 +3536,8 @@ export function BookingCheckoutDrawer({
                   </div>
                 )}
               </section>
+                </>
+              ) : null}
 
               <div className="cb-co-divider" aria-hidden />
 
@@ -3567,7 +3572,7 @@ export function BookingCheckoutDrawer({
               ) : null}
 
               {cartFooterState !== "request_only" ? (() => {
-                const grand = bagEstimatedTotal ?? (cartChargeableDollars || cartFullDollars);
+                const grand = bagPayDisplayDollars;
                 const taxN = aggregateTaxTotal ?? 0;
                 const discN = aggregateDiscountTotal ?? 0;
                 const feeN = aggregateFeeTotal ?? 0;
@@ -3684,8 +3689,8 @@ export function BookingCheckoutDrawer({
                     data-cb-primary-action="true"
                     disabled={
                       submitBookingRequestMutation.isPending ||
-                      paymentOptionsQuery.isPending ||
-                      (paymentChoices.length > 0 && selectedPaymentMethodId == null)
+                      paymentOptionsBlocking ||
+                      paymentMethodMissing
                     }
                     onClick={requestBookingSubmit}
                   >
@@ -3700,8 +3705,8 @@ export function BookingCheckoutDrawer({
                     data-cb-primary-action="true"
                     disabled={
                       submitBookingRequestMutation.isPending ||
-                      paymentOptionsQuery.isPending ||
-                      (paymentChoices.length > 0 && selectedPaymentMethodId == null) ||
+                      paymentOptionsBlocking ||
+                      paymentMethodMissing ||
                       (paymentAmountChoice === "custom" && customDepositAmount == null)
                     }
                     onClick={() => {
@@ -3735,15 +3740,15 @@ export function BookingCheckoutDrawer({
                     data-cb-primary-action="true"
                     disabled={
                       submitBookingRequestMutation.isPending ||
-                      paymentOptionsQuery.isPending ||
-                      (paymentChoices.length > 0 && selectedPaymentMethodId == null)
+                      paymentOptionsBlocking ||
+                      paymentMethodMissing
                     }
                     onClick={requestBookingSubmit}
                   >
                     <CbBusyInline busy={submitBookingRequestMutation.isPending}>
                       {submitBookingRequestMutation.isPending
                         ? tx("submitting")
-                        : tx("cartBtnPayNow", { amount: formatPrice(cartChargeableDollars, bagCurrency) })}
+                        : tx("cartBtnPayNow", { amount: formatPrice(bagPayDisplayDollars, bagCurrency) })}
                     </CbBusyInline>
                   </button>
                 )}
@@ -4091,6 +4096,8 @@ export function BookingCheckoutDrawer({
               );
             })()}
 
+            {bagNeedsBondPayment ? (
+              <>
             <h3 className="cb-checkout-section-title">{tc("paymentMethodSectionTitle")}</h3>
             <div className="cb-checkout-payment-methods mb-4">
               {paymentOptionsQuery.isPending ? (
@@ -4169,6 +4176,8 @@ export function BookingCheckoutDrawer({
                 </div>
               )}
             </div>
+              </>
+            ) : null}
 
             {submitBookingRequestMutation.isError ? (
               <p className="mt-2 text-sm text-[var(--cb-error-text)]" role="alert">
@@ -4188,9 +4197,9 @@ export function BookingCheckoutDrawer({
                   data-cb-primary-action="true"
                   disabled={
                     submitBookingRequestMutation.isPending ||
-                    paymentOptionsQuery.isPending ||
+                    paymentOptionsBlocking ||
                     paymentLines.length === 0 ||
-                    (paymentChoices.length > 0 && selectedPaymentMethodId == null) ||
+                    paymentMethodMissing ||
                     (pickedSlots.length === 0 && bagSnapshots.length === 0 && !lastCart && !approvalDeferred)
                   }
                   onClick={requestBookingSubmit}
@@ -4207,9 +4216,9 @@ export function BookingCheckoutDrawer({
                     data-cb-primary-action="true"
                     disabled={
                       submitBookingRequestMutation.isPending ||
-                      paymentOptionsQuery.isPending ||
+                      paymentOptionsBlocking ||
                       paymentLines.length === 0 ||
-                      (paymentChoices.length > 0 && selectedPaymentMethodId == null) ||
+                      paymentMethodMissing ||
                       (pickedSlots.length === 0 && bagSnapshots.length === 0 && !lastCart && !approvalDeferred) ||
                       (paymentAmountChoice === "custom" && checkoutDepositAmount == null)
                     }
@@ -4246,9 +4255,9 @@ export function BookingCheckoutDrawer({
                     data-cb-primary-action="true"
                     disabled={
                       submitBookingRequestMutation.isPending ||
-                      paymentOptionsQuery.isPending ||
+                      paymentOptionsBlocking ||
                       paymentLines.length === 0 ||
-                      (paymentChoices.length > 0 && selectedPaymentMethodId == null) ||
+                      paymentMethodMissing ||
                       (pickedSlots.length === 0 && bagSnapshots.length === 0 && !lastCart && !approvalDeferred)
                     }
                     onClick={requestBookingSubmit}
@@ -4257,7 +4266,7 @@ export function BookingCheckoutDrawer({
                       {submitBookingRequestMutation.isPending
                         ? tx("submitting")
                         : tx("payNowWithAmount", {
-                            amount: formatPrice(presummaryPrecheckoutAmountDue ?? 0, bagCurrency),
+                            amount: formatPrice(checkoutPaymentTotal, bagCurrency),
                           })}
                     </CbBusyInline>
                   </button>
@@ -4269,9 +4278,9 @@ export function BookingCheckoutDrawer({
                   data-cb-primary-action="true"
                   disabled={
                     submitBookingRequestMutation.isPending ||
-                    paymentOptionsQuery.isPending ||
+                    paymentOptionsBlocking ||
                     paymentLines.length === 0 ||
-                    (paymentChoices.length > 0 && selectedPaymentMethodId == null) ||
+                    paymentMethodMissing ||
                     (pickedSlots.length === 0 && bagSnapshots.length === 0 && !lastCart && !approvalDeferred) ||
                     (paymentAmountChoice === "custom" && checkoutDepositAmount == null)
                   }
@@ -4308,15 +4317,19 @@ export function BookingCheckoutDrawer({
                   data-cb-primary-action="true"
                   disabled={
                     submitBookingRequestMutation.isPending ||
-                    paymentOptionsQuery.isPending ||
+                    paymentOptionsBlocking ||
                     paymentLines.length === 0 ||
-                    (paymentChoices.length > 0 && selectedPaymentMethodId == null) ||
+                    paymentMethodMissing ||
                     (pickedSlots.length === 0 && bagSnapshots.length === 0 && !lastCart && !approvalDeferred)
                   }
                   onClick={requestBookingSubmit}
                 >
                   <CbBusyInline busy={submitBookingRequestMutation.isPending}>
-                    {submitBookingRequestMutation.isPending ? tx("submitting") : tx("payNow")}
+                    {submitBookingRequestMutation.isPending
+                      ? tx("submitting")
+                      : tx("payNowWithAmount", {
+                          amount: formatPrice(checkoutPaymentTotal, bagCurrency),
+                        })}
                   </CbBusyInline>
                 </button>
               )}

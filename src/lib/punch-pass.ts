@@ -192,6 +192,13 @@ export function punchPassPackDisplayAmount(purchase: PunchPassCartPurchase | und
   return Number.isFinite(amount) && amount > 0 ? amount : 0;
 }
 
+/** Sum of demo pack amounts on session cart rows (Bond carts stay $0 for visits). */
+export function punchPassPackDueOnSnapshots(
+  rows: ReadonlyArray<{ punchPassPurchase?: PunchPassCartPurchase | null }>
+): number {
+  return rows.reduce((sum, row) => sum + punchPassPackDisplayAmount(row.punchPassPurchase), 0);
+}
+
 export function cartLooksPayable(cart: { price?: unknown; total?: unknown } | null | undefined): boolean {
   if (!cart) return false;
   const price = typeof cart.price === "number" ? cart.price : null;
