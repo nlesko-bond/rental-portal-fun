@@ -117,7 +117,7 @@ type Props = {
   autoScrollKey: string;
   /** Snapped preferred start (matches slot fetch); when set, matrix scrolls to that column or first available at/after it. */
   preferredStartResolved: string | null;
-  /** When set, slot cells show this instead of cash (punch-pass redeem). */
+  /** When set, slot cells show this instead of cash. Empty string hides the price (punch-pass). */
   slotPriceLabel?: string;
 };
 
@@ -276,6 +276,7 @@ export function ScheduleMatrix({
                           </span>
                         ) : null}
                         {slot.isAvailable && !blocked ? (
+                          slotPriceLabel !== "" ? (
                           <span className="cb-matrix-slot-price text-sm font-bold leading-none text-[var(--cb-primary)] sm:text-base">
                             {slotPriceLabel ? (
                               slotPriceLabel
@@ -290,6 +291,7 @@ export function ScheduleMatrix({
                               <span className="text-sm font-semibold">{String(slot.price)}</span>
                             )}
                           </span>
+                          ) : null
                         ) : (
                           <span className="text-[0.7rem] text-[var(--cb-text-faint)]">—</span>
                         )}

@@ -2602,7 +2602,7 @@ export function BookingExperience() {
                 adjustSlotUnitPrice={entitlementAdjust}
                 autoScrollKey={state.date ?? ""}
                 preferredStartResolved={resolvedPreferredStartForFetch}
-                slotPriceLabel={punchPassParsed != null ? tb("punchPassSlotLabel") : undefined}
+                slotPriceLabel={punchPassParsed != null ? "" : undefined}
               />
             </div>
           )}
@@ -2623,7 +2623,7 @@ export function BookingExperience() {
                 resourceSelectorSearchPlaceholder={scheduleResourceSelectorSearchPlaceholder}
                 onToggleSlot={toggleSlot}
                 adjustSlotUnitPrice={entitlementAdjust}
-                slotPriceLabel={punchPassParsed != null ? tb("punchPassSlotLabel") : undefined}
+                slotPriceLabel={punchPassParsed != null ? "" : undefined}
                 selectedDate={state.date}
               />
             </div>

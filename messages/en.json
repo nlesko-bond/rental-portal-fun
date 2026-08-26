@@ -218,7 +218,6 @@
     "punchPassRemaining": "{remaining} of {total} remaining",
     "punchPassRemainingShort": "{remaining} of {total}",
     "punchPassPickTimesToRedeem": "Pick times to redeem.",
-    "punchPassSlotLabel": "1 punch",
     "punchPassDurationLocked": "Visit length is set by this pass",
     "punchPassNeedMore": "{who} cannot add another visit on this pass in this checkout.",
     "punchPassBuysAnotherPack": "You have {remaining, plural, one {# punch} other {# punches}} left. Another visit buys a new {count}-visit pass.",

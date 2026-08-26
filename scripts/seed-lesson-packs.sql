@@ -107,6 +107,53 @@ BEGIN
 END;
 $f$;
 
+CREATE OR REPLACE FUNCTION pg_temp.clone_product_packages(
+	p_clone_product_id integer,
+	p_new_product_id integer
+)
+RETURNS integer
+LANGUAGE plpgsql
+AS $f$
+DECLARE
+	v_tmp text := '_punch_pkg_clone';
+	v_copied integer;
+	v_pkg_regclass regclass := 'public."ProductPackages"'::regclass;
+BEGIN
+	EXECUTE format('DROP TABLE IF EXISTS %I', v_tmp);
+	EXECUTE format(
+		'CREATE TEMP TABLE %I ON COMMIT DROP AS SELECT * FROM "ProductPackages" WHERE "parentProductId" = $1 AND "deletedAt" IS NULL',
+		v_tmp
+	)
+	USING p_clone_product_id;
+
+	EXECUTE format('SELECT count(*) FROM %I', v_tmp) INTO v_copied;
+	IF v_copied = 0 THEN
+		RETURN 0;
+	END IF;
+
+	EXECUTE format(
+		'UPDATE %I SET id = pg_temp.alloc_id($1), "parentProductId" = $2, "deletedAt" = NULL',
+		v_tmp
+	)
+	USING v_pkg_regclass, p_new_product_id;
+
+	IF EXISTS (
+		SELECT 1 FROM pg_attribute
+		WHERE attrelid = v_pkg_regclass AND attname = 'createdAt' AND NOT attisdropped
+	) THEN
+		EXECUTE format('UPDATE %I SET "createdAt" = now(), "updatedAt" = now()', v_tmp);
+	END IF;
+
+	IF pg_temp.table_id_is_identity(v_pkg_regclass) THEN
+		EXECUTE format('INSERT INTO "ProductPackages" OVERRIDING SYSTEM VALUE SELECT * FROM %I', v_tmp);
+	ELSE
+		EXECUTE format('INSERT INTO "ProductPackages" SELECT * FROM %I', v_tmp);
+	END IF;
+
+	RETURN v_copied;
+END;
+$f$;
+
 CREATE OR REPLACE FUNCTION pg_temp.insert_price(
 	p_org_id integer,
 	p_product_id integer,
@@ -325,6 +372,7 @@ BEGIN
 			v_clone_product_id,
 			v_new_id
 		);
+		PERFORM pg_temp.clone_product_packages(v_clone_product_id, v_new_id);
 
 		DROP TABLE IF EXISTS _punch_clone_taxes;
 		CREATE TEMP TABLE _punch_clone_taxes ON COMMIT DROP AS

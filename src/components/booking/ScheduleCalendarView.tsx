@@ -63,7 +63,7 @@ type Props = {
   onToggleSlot: (resourceId: number, resourceName: string, slot: ScheduleTimeSlotDto) => void;
   /** Apply member entitlement discount to schedule unit price before pro-rating (display). */
   adjustSlotUnitPrice?: (unitPrice: number) => number;
-  /** When set, slot cells show this instead of cash (punch-pass redeem). */
+  /** When set, slot cells show this instead of cash. Empty string hides the price (punch-pass). */
   slotPriceLabel?: string;
   /** Selected civil date (`YYYY-MM-DD`). Slot tiles show Bond `startDate` when it differs. */
   selectedDate?: string | null;
@@ -180,7 +180,7 @@ export function ScheduleCalendarView({
                     {isRequested ? ts("requested") : "In cart"}
                   </span>
                 ) : null}
-                {s.isAvailable && !blocked ? (
+                {s.isAvailable && !blocked && slotPriceLabel !== "" ? (
                   <span className="cb-slot-btn-price">
                     {slotPriceLabel ? (
                       slotPriceLabel

@@ -1334,7 +1334,7 @@ export function BookingCheckoutDrawer({
       if (approvalRequiredPropRef.current) setApprovalDeferred(true);
       if (cart != null) onSuccessRef.current(cart);
       if (checkoutModeRef.current === "checkout") {
-        setStep("addedToCart");
+        setStep(punchPassRef.current != null ? "payment" : "addedToCart");
       }
       queueMicrotask(() => {
         onAddedToCart?.();
