@@ -1,31 +1,31 @@
 import { describe, expect, it } from "vitest";
 import { buildFinalizeCartBody, punchPassCartSkipsBondFinalize, resolveFinalizeAmountToPay } from "@/lib/finalize-cart-body";
-import { punchPassPackDueOnSnapshots } from "@/lib/punch-pass";
+import { visitPassPackDueOnSnapshots } from "@/lib/visit-pass";
 
-describe("punchPassPackDueOnSnapshots", () => {
+describe("visitPassPackDueOnSnapshots", () => {
   it("sums buy-and-redeem pack amounts only", () => {
     expect(
-      punchPassPackDueOnSnapshots([
+      visitPassPackDueOnSnapshots([
         {
-          punchPassPurchase: {
+          visitPassPurchase: {
             kind: "buyAndRedeem",
             productId: 1,
             packName: "Court 10-pack",
-            punchCount: 10,
+            visitCount: 10,
             packAmount: 150,
-            punchesNeeded: 1,
+            visitsNeeded: 1,
             packSubtitle: "10 visits",
             visitSubtitle: "Included",
           },
         },
         {
-          punchPassPurchase: {
+          visitPassPurchase: {
             kind: "redeem",
             productId: 1,
             packName: "Court 10-pack",
-            punchCount: 10,
+            visitCount: 10,
             packAmount: 150,
-            punchesNeeded: 1,
+            visitsNeeded: 1,
             packSubtitle: "10 visits",
             visitSubtitle: "1 punch",
           },

@@ -1,35 +1,35 @@
-export type PunchPassWalletEntry = {
+export type VisitPassWalletEntry = {
   productId: number;
   name: string;
   remaining: number;
   total: number;
 };
 
-export type PunchPassWallet = {
-  entries: PunchPassWalletEntry[];
+export type VisitPassWallet = {
+  entries: VisitPassWalletEntry[];
 };
 
-export type PunchPassWalletStorage = {
+export type VisitPassWalletStorage = {
   getItem: (key: string) => string | null;
   setItem: (key: string, value: string) => void;
 };
 
-const WALLET_KEY_PREFIX = "cb-punch-wallet";
+const WALLET_KEY_PREFIX = "cb-visit-wallet";
 
 function walletStorageKey(orgId: number): string {
   return `${WALLET_KEY_PREFIX}:${orgId}`;
 }
 
-export function emptyPunchPassWallet(): PunchPassWallet {
+export function emptyVisitPassWallet(): VisitPassWallet {
   return { entries: [] };
 }
 
-function browserWalletStorage(): PunchPassWalletStorage | null {
+function browserWalletStorage(): VisitPassWalletStorage | null {
   if (typeof localStorage === "undefined") return null;
   return localStorage;
 }
 
-function isWalletEntry(value: unknown): value is PunchPassWalletEntry {
+function isWalletEntry(value: unknown): value is VisitPassWalletEntry {
   if (!value || typeof value !== "object") return false;
   const row = value as Record<string, unknown>;
   return (
@@ -48,50 +48,50 @@ function isWalletEntry(value: unknown): value is PunchPassWalletEntry {
  * Prototype holder wallet for an org on this browser. Bond has no public
  * rental punch inventory, so remaining visits are local only.
  */
-export function loadPunchPassWallet(
+export function loadVisitPassWallet(
   orgId: number,
-  storage: PunchPassWalletStorage | null = browserWalletStorage()
-): PunchPassWallet {
-  if (!storage) return emptyPunchPassWallet();
+  storage: VisitPassWalletStorage | null = browserWalletStorage()
+): VisitPassWallet {
+  if (!storage) return emptyVisitPassWallet();
   const raw = storage.getItem(walletStorageKey(orgId));
-  if (raw == null || raw === "") return emptyPunchPassWallet();
+  if (raw == null || raw === "") return emptyVisitPassWallet();
   try {
     const parsed: unknown = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object") return emptyPunchPassWallet();
+    if (!parsed || typeof parsed !== "object") return emptyVisitPassWallet();
     const entriesRaw = (parsed as { entries?: unknown }).entries;
-    if (!Array.isArray(entriesRaw)) return emptyPunchPassWallet();
+    if (!Array.isArray(entriesRaw)) return emptyVisitPassWallet();
     return { entries: entriesRaw.filter(isWalletEntry) };
   } catch {
-    return emptyPunchPassWallet();
+    return emptyVisitPassWallet();
   }
 }
 
 /** Writes the prototype wallet for this org into local storage. */
-export function savePunchPassWallet(
+export function saveVisitPassWallet(
   orgId: number,
-  wallet: PunchPassWallet,
-  storage: PunchPassWalletStorage | null = browserWalletStorage()
+  wallet: VisitPassWallet,
+  storage: VisitPassWalletStorage | null = browserWalletStorage()
 ): void {
   if (!storage) return;
   storage.setItem(walletStorageKey(orgId), JSON.stringify(wallet));
 }
 
-export function walletEntryForProduct(wallet: PunchPassWallet, productId: number): PunchPassWalletEntry | null {
+export function walletEntryForProduct(wallet: VisitPassWallet, productId: number): VisitPassWalletEntry | null {
   return wallet.entries.find((entry) => entry.productId === productId) ?? null;
 }
 
-export function remainingPunchesForProduct(wallet: PunchPassWallet, productId: number): number {
+export function remainingVisitsForProduct(wallet: VisitPassWallet, productId: number): number {
   const entry = walletEntryForProduct(wallet, productId);
   if (!entry) return 0;
   return Math.max(0, Math.floor(entry.remaining));
 }
 
-export function creditPunchPass(
-  wallet: PunchPassWallet,
-  credit: { productId: number; name: string; punches: number }
-): PunchPassWallet {
-  const punches = Math.floor(credit.punches);
-  if (!Number.isFinite(punches) || punches <= 0) return wallet;
+export function creditVisitPass(
+  wallet: VisitPassWallet,
+  credit: { productId: number; name: string; visits: number }
+): VisitPassWallet {
+  const visits = Math.floor(credit.visits);
+  if (!Number.isFinite(visits) || visits <= 0) return wallet;
   const existing = walletEntryForProduct(wallet, credit.productId);
   if (!existing) {
     return {
@@ -100,8 +100,8 @@ export function creditPunchPass(
         {
           productId: credit.productId,
           name: credit.name,
-          remaining: punches,
-          total: punches,
+          remaining: visits,
+          total: visits,
         },
       ],
     };
@@ -112,8 +112,8 @@ export function creditPunchPass(
         ? {
             ...entry,
             name: credit.name,
-            remaining: entry.remaining + punches,
-            total: entry.total + punches,
+            remaining: entry.remaining + visits,
+            total: entry.total + visits,
           }
         : entry
     ),
@@ -121,26 +121,26 @@ export function creditPunchPass(
 }
 
 /**
- * Credits a new pack when checkout buys one, then spends punches for the picked slots.
+ * Credits a new pack when checkout buys one, then spends visits for the picked slots.
  */
-export function applyPunchPassCheckoutToWallet(
-  wallet: PunchPassWallet,
-  pass: { productId: number; name: string; punchCount: number },
-  checkout: { kind: "redeem" | "buyAndRedeem"; punchesNeeded: number }
-): PunchPassWallet {
+export function applyVisitPassCheckoutToWallet(
+  wallet: VisitPassWallet,
+  pass: { productId: number; name: string; visitCount: number },
+  checkout: { kind: "redeem" | "buyAndRedeem"; visitsNeeded: number }
+): VisitPassWallet {
   const credited =
     checkout.kind === "buyAndRedeem"
-      ? creditPunchPass(wallet, {
+      ? creditVisitPass(wallet, {
           productId: pass.productId,
           name: pass.name,
-          punches: pass.punchCount,
+          visits: pass.visitCount,
         })
       : wallet;
-  return debitPunchPass(credited, pass.productId, checkout.punchesNeeded);
+  return debitVisitPass(credited, pass.productId, checkout.visitsNeeded);
 }
 
-export function debitPunchPass(wallet: PunchPassWallet, productId: number, punches: number): PunchPassWallet {
-  const spend = Math.floor(punches);
+export function debitVisitPass(wallet: VisitPassWallet, productId: number, visits: number): VisitPassWallet {
+  const spend = Math.floor(visits);
   if (!Number.isFinite(spend) || spend <= 0) return wallet;
   return {
     entries: wallet.entries.map((entry) => {
@@ -150,7 +150,7 @@ export function debitPunchPass(wallet: PunchPassWallet, productId: number, punch
   };
 }
 
-export function parseSeedPunchesParam(raw: string | null): number | null {
+export function parseSeedVisitsParam(raw: string | null): number | null {
   if (raw == null || raw === "") return null;
   const n = Number.parseInt(raw, 10);
   if (!Number.isFinite(n) || n <= 0) return null;

@@ -204,13 +204,13 @@ describe("checkoutCardsFromSnapshot", () => {
         ],
       } as unknown as OrganizationCartDto,
       productName: "Court 10-pack",
-      punchPassPurchase: {
+      visitPassPurchase: {
         kind: "buyAndRedeem",
         productId: 1089823,
         packName: "Court 10-pack",
-        punchCount: 10,
+        visitCount: 10,
         packAmount: 150,
-        punchesNeeded: 1,
+        visitsNeeded: 1,
         packSubtitle: "10 visits on this pass",
         visitSubtitle: "Included visit",
       },
@@ -228,13 +228,13 @@ describe("checkoutCardsFromSnapshot", () => {
   });
 
   it("keeps one included visit when Bond returns the same $0 slot twice", () => {
-    const punchPassPurchase = {
+    const visitPassPurchase = {
       kind: "buyAndRedeem" as const,
       productId: 1089823,
       packName: "Court 10-pack",
-      punchCount: 10,
+      visitCount: 10,
       packAmount: 150,
-      punchesNeeded: 1,
+      visitsNeeded: 1,
       packSubtitle: "10 visits on this pass",
       visitSubtitle: "Included visit",
     };
@@ -259,7 +259,7 @@ describe("checkoutCardsFromSnapshot", () => {
         ],
       } as unknown as OrganizationCartDto,
       productName: "Court 10-pack",
-      punchPassPurchase,
+      visitPassPurchase,
     };
 
     const cards = checkoutCardsFromSnapshot(row, 0);
@@ -291,13 +291,13 @@ describe("checkoutCardsFromSnapshot", () => {
         ],
       } as unknown as OrganizationCartDto,
       productName: "Court 10-pack",
-      punchPassPurchase: {
+      visitPassPurchase: {
         kind: "buyAndRedeem",
         productId: 1089823,
         packName: "Court 10-pack",
-        punchCount: 10,
+        visitCount: 10,
         packAmount: 150,
-        punchesNeeded: 1,
+        visitsNeeded: 1,
         packSubtitle: "10 visits on this pass",
         visitSubtitle: "Included visit",
       },

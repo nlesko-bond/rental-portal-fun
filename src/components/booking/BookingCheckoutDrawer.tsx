@@ -27,7 +27,7 @@ import {
 } from "@/lib/online-booking-user-api";
 import { buildOnlineBookingCreateBody, splitAddonPayloadForCreate } from "@/lib/online-booking-create-body";
 import { formatBookingPriceOrFree, productMembershipGated } from "@/lib/booking-pricing";
-import { punchPassPackDueOnSnapshots, type PunchPassCheckout } from "@/lib/punch-pass";
+import { punchPassPackDueOnSnapshots, type VisitPassCheckout } from "@/lib/visit-pass";
 import {
   buildFinalizeCartBody,
   PUNCH_PASS_LOCAL_FINALIZE,
@@ -513,7 +513,7 @@ type Props = {
   /**
    * Punch-pass checkout: buy a pack and redeem picked slots, or redeem only.
    */
-  punchPass?: PunchPassCheckout | null;
+  punchPass?: VisitPassCheckout | null;
 };
 
 /** Outlined info-circle for the totals-box callouts (deposit + approval notes). */
@@ -1422,9 +1422,9 @@ export function BookingCheckoutDrawer({
         overrideAmount,
         cartMinimum: cartChargeableMinimum(freshCart),
       });
-      const isPunchPassCheckout =
+      const isVisitPassCheckout =
         punchPass != null || bagSnapshots.some((row) => row.punchPassPurchase != null);
-      if (punchPassCartSkipsBondFinalize(isPunchPassCheckout, amount)) {
+      if (punchPassCartSkipsBondFinalize(isVisitPassCheckout, amount)) {
         return PUNCH_PASS_LOCAL_FINALIZE;
       }
       const pmSel = selectedPaymentMethodIdRef.current;

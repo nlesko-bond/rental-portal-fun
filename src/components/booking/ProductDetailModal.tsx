@@ -34,7 +34,7 @@ import {
   IconPassTicket,
   IconPeakTrend,
 } from "./booking-icons";
-import { PunchPassRemainingMeter } from "./PunchPassRemainingMeter";
+import { VisitPassRemainingMeter } from "./VisitPassRemainingMeter";
 import { describeEntitlementsForDisplay } from "@/lib/entitlement-discount";
 
 function formatPrice(amount: number, currency: string): string {
@@ -503,12 +503,12 @@ export function ProductDetailModal({
                 {punchRemaining != null && punchRemaining.total > 0 ? (
                   <DetailRow
                     icon={<IconPassTicket className="text-[var(--cb-primary)]" />}
-                    label={tc("punchPassRemainingLabel")}
+                    label={tc("visitPassRemainingLabel")}
                   >
-                    <PunchPassRemainingMeter
+                    <VisitPassRemainingMeter
                       remaining={punchRemaining.remaining}
                       total={punchRemaining.total}
-                      label={tb("punchPassRemaining", {
+                      label={tb("visitPassRemaining", {
                         remaining: punchRemaining.remaining,
                         total: punchRemaining.total,
                       })}
