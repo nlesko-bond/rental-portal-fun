@@ -2951,7 +2951,7 @@ body {
   padding-bottom: 0.7rem;
 }
 
-.consumer-booking .cb-punch-meter {
+.consumer-booking .cb-visit-meter {
   display: flex;
   flex-direction: column;
   gap: 0.28rem;
@@ -2959,21 +2959,21 @@ body {
   min-width: 0;
 }
 
-.consumer-booking .cb-punch-meter-label {
+.consumer-booking .cb-visit-meter-label {
   font-size: 0.72rem;
   font-weight: 600;
   line-height: 1.25;
   color: var(--cb-primary);
 }
 
-.consumer-booking .cb-punch-meter-track {
+.consumer-booking .cb-visit-meter-track {
   height: 0.38rem;
   overflow: hidden;
   border-radius: 9999px;
   background: color-mix(in srgb, var(--cb-primary) 16%, var(--cb-bg-surface-muted));
 }
 
-.consumer-booking .cb-punch-meter-fill {
+.consumer-booking .cb-visit-meter-fill {
   display: block;
   height: 100%;
   border-radius: inherit;

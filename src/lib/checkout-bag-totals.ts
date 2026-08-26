@@ -1,6 +1,6 @@
 /** Display-only parsing of `OrganizationCartDto` (BFF → Bond). No invented prices — only `coerce` + key fallbacks. */
 import type { OrganizationCartDto } from "@/types/online-booking";
-import { punchPassPackDisplayAmount } from "@/lib/punch-pass";
+import { visitPassPackDisplayAmount } from "@/lib/visit-pass";
 import type { SessionCartSnapshot } from "@/lib/session-cart-snapshot";
 import {
   groupSessionCartSnapshotsByLabel,
@@ -215,10 +215,10 @@ export function flattenBondCartItemNodes(nodes: unknown[] | undefined): Record<s
 }
 
 /**
- * True when Bond already put a positive pack/punch-pass line on the cart (so the
+ * True when Bond already put a positive pack/visit-pass line on the cart (so the
  * client must not add a second pack amount).
  */
-export function bondCartInvoicesPunchPack(
+export function bondCartInvoicesVisitPack(
   cart: OrganizationCartDto | null | undefined,
   packProductId: number
 ): boolean {
@@ -783,7 +783,7 @@ export function aggregateSessionCartRowTotals(row: SessionCartSnapshot): {
 } {
   const base = getOrganizationCartNumericBreakdown(row.cart);
   const dl = row.displayLines;
-  if (!dl || dl.length === 0) return withPunchPassPackOnTotals(base, row);
+  if (!dl || dl.length === 0) return withVisitPassPackOnTotals(base, row);
   let gross = 0;
   let net = 0;
   let count = 0;
@@ -799,10 +799,10 @@ export function aggregateSessionCartRowTotals(row: SessionCartSnapshot): {
         : l.amount;
     gross += s;
   }
-  if (count === 0) return withPunchPassPackOnTotals(base, row);
+  if (count === 0) return withVisitPassPackOnTotals(base, row);
   const impliedDisc = Math.max(0, gross - net);
   if (impliedDisc > 0.005) {
-    return withPunchPassPackOnTotals(
+    return withVisitPassPackOnTotals(
       {
         line: gross,
         discount: impliedDisc,
@@ -813,7 +813,7 @@ export function aggregateSessionCartRowTotals(row: SessionCartSnapshot): {
       row
     );
   }
-  return withPunchPassPackOnTotals(
+  return withVisitPassPackOnTotals(
     {
       line: net,
       discount: base.discount,
@@ -825,7 +825,7 @@ export function aggregateSessionCartRowTotals(row: SessionCartSnapshot): {
   );
 }
 
-function withPunchPassPackOnTotals(
+function withVisitPassPackOnTotals(
   totals: {
     line: number | null;
     discount: number | null;
@@ -841,10 +841,10 @@ function withPunchPassPackOnTotals(
   fee: number | null;
   total: number | null;
 } {
-  const pack = punchPassPackDisplayAmount(row.punchPassPurchase);
+  const pack = visitPassPackDisplayAmount(row.visitPassPurchase);
   if (pack <= 0) return totals;
-  const packProductId = row.punchPassPurchase?.productId;
-  if (packProductId != null && bondCartInvoicesPunchPack(row.cart, packProductId)) return totals;
+  const packProductId = row.visitPassPurchase?.productId;
+  if (packProductId != null && bondCartInvoicesVisitPack(row.cart, packProductId)) return totals;
   return {
     line: (totals.line ?? 0) + pack,
     discount: totals.discount,

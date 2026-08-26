@@ -27,7 +27,7 @@ import {
 } from "@/lib/online-booking-user-api";
 import { buildOnlineBookingCreateBody, splitAddonPayloadForCreate } from "@/lib/online-booking-create-body";
 import { formatBookingPriceOrFree, productMembershipGated } from "@/lib/booking-pricing";
-import { punchPassPackDueOnSnapshots, type PunchPassCheckout } from "@/lib/punch-pass";
+import { visitPassPackDueOnSnapshots, type VisitPassCheckout } from "@/lib/visit-pass";
 import {
   buildFinalizeCartBody,
   PUNCH_PASS_LOCAL_FINALIZE,
@@ -513,7 +513,7 @@ type Props = {
   /**
    * Punch-pass checkout: buy a pack and redeem picked slots, or redeem only.
    */
-  punchPass?: PunchPassCheckout | null;
+  punchPass?: VisitPassCheckout | null;
 };
 
 /** Outlined info-circle for the totals-box callouts (deposit + approval notes). */
@@ -1417,14 +1417,14 @@ export function BookingCheckoutDrawer({
       }
       const amount = resolveFinalizeAmountToPay({
         bondPayable: bondCartPayableTotalForFinalize(freshCart, combinedApprovalMap),
-        punchPackDue: punchPassPackDueOnSnapshots(bagSnapshots),
+        punchPackDue: visitPassPackDueOnSnapshots(bagSnapshots),
         uiEstimate: estimatedAmountDueRef.current,
         overrideAmount,
         cartMinimum: cartChargeableMinimum(freshCart),
       });
-      const isPunchPassCheckout =
-        punchPass != null || bagSnapshots.some((row) => row.punchPassPurchase != null);
-      if (punchPassCartSkipsBondFinalize(isPunchPassCheckout, amount)) {
+      const isVisitPassCheckout =
+        punchPass != null || bagSnapshots.some((row) => row.visitPassPurchase != null);
+      if (punchPassCartSkipsBondFinalize(isVisitPassCheckout, amount)) {
         return PUNCH_PASS_LOCAL_FINALIZE;
       }
       const pmSel = selectedPaymentMethodIdRef.current;
@@ -1971,9 +1971,9 @@ export function BookingCheckoutDrawer({
         }
         switch (punchPass.kind) {
           case "buyAndRedeem":
-            return tx("punchPassIncludedVisit");
+            return tx("visitPassIncludedVisit");
           case "redeem":
-            return tx("punchPassUnitPunch", { duration: formatDurationPriceBadge(dur) });
+            return tx("visitPassUnitVisit", { duration: formatDurationPriceBadge(dur) });
           default: {
             const _never: never = punchPass.kind;
             return _never;
@@ -2098,7 +2098,7 @@ export function BookingCheckoutDrawer({
         ? {
             key: "punch-pack",
             title: punchPass.packName,
-            unitSubtitle: tx("punchPassPackSubtitle", { count: punchPass.punchCount }),
+            unitSubtitle: tx("visitPassPackSubtitle", { count: punchPass.visitCount }),
             amount: punchPass.packAmount,
           }
         : null;
@@ -2211,17 +2211,17 @@ export function BookingCheckoutDrawer({
     switch (punchPass.kind) {
       case "redeem":
         return {
-          reviewTitle: tx("punchPassRedeemTitle"),
-          addedTitle: tx("punchPassRedeemedTitle"),
-          addedSubtitle: tx("punchPassRedeemedSubtitle", { count: punchPass.remainingAfter }),
-          persistCta: tx("punchPassRedeemCta"),
+          reviewTitle: tx("visitPassRedeemTitle"),
+          addedTitle: tx("visitPassRedeemedTitle"),
+          addedSubtitle: tx("visitPassRedeemedSubtitle", { count: punchPass.remainingAfter }),
+          persistCta: tx("visitPassRedeemCta"),
         };
       case "buyAndRedeem":
         return {
-          reviewTitle: tx("punchPassBuyAndBookTitle"),
-          addedTitle: tx("punchPassPurchasedTitle"),
-          addedSubtitle: tx("punchPassPurchasedSubtitle", { count: punchPass.remainingAfter }),
-          persistCta: tx("punchPassBuyAndBookCta"),
+          reviewTitle: tx("visitPassBuyAndBookTitle"),
+          addedTitle: tx("visitPassPurchasedTitle"),
+          addedSubtitle: tx("visitPassPurchasedSubtitle", { count: punchPass.remainingAfter }),
+          persistCta: tx("visitPassBuyAndBookCta"),
         };
       default: {
         const _never: never = punchPass.kind;
@@ -3858,7 +3858,7 @@ export function BookingCheckoutDrawer({
                 <span className="cb-checkout-added-to-cart-plus" aria-hidden>
                   +
                 </span>
-                {punchPass != null ? tx("punchPassBookAnother") : tx("bookAnotherRental")}
+                {punchPass != null ? tx("visitPassBookAnother") : tx("bookAnotherRental")}
               </button>
               <button
                 type="button"
@@ -4628,7 +4628,7 @@ export function BookingCheckoutDrawer({
               : null}
             {punchPass != null ? (
               <p className="cb-muted mb-3 text-sm">
-                {tx("punchPassRemainingAfter", { count: punchPass.remainingAfter })}
+                {tx("visitPassRemainingAfter", { count: punchPass.remainingAfter })}
               </p>
             ) : null}
             {persistCartMutation.isPending ? (

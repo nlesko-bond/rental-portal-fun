@@ -2,17 +2,17 @@ import { describe, expect, it } from "vitest";
 import type { ExtendedProductDto } from "@/types/online-booking";
 import {
   cartLooksPayable,
-  isPunchPassProduct,
-  parsePunchPassProduct,
-  punchPassCartPurchaseForSnapshot,
-  punchPassPackDisplayAmount,
-  punchPassPackPrice,
-  punchPassFillPercent,
-  punchPassOverflowsHeldPunches,
-  punchPassSlotCap,
-  punchesNeededForSlots,
-  resolvePunchPassCheckout,
-} from "@/lib/punch-pass";
+  isVisitPassProduct,
+  parseVisitPassProduct,
+  visitPassCartPurchaseForSnapshot,
+  visitPassPackDisplayAmount,
+  visitPassPackPrice,
+  visitPassFillPercent,
+  visitPassOverflowsHeldVisits,
+  visitPassSlotCap,
+  visitsNeededForSlots,
+  resolveVisitPassCheckout,
+} from "@/lib/visit-pass";
 
 function product(overrides: Partial<ExtendedProductDto> = {}): ExtendedProductDto {
   return {
@@ -28,18 +28,18 @@ function product(overrides: Partial<ExtendedProductDto> = {}): ExtendedProductDt
   };
 }
 
-describe("isPunchPassProduct", () => {
+describe("isVisitPassProduct", () => {
   it("is true only when isPunchPass is true", () => {
-    expect(isPunchPassProduct(product())).toBe(true);
-    expect(isPunchPassProduct(product({ isPunchPass: false }))).toBe(false);
-    expect(isPunchPassProduct(undefined)).toBe(false);
+    expect(isVisitPassProduct(product())).toBe(true);
+    expect(isVisitPassProduct(product({ isPunchPass: false }))).toBe(false);
+    expect(isVisitPassProduct(undefined)).toBe(false);
   });
 });
 
-describe("punchPassPackPrice", () => {
+describe("visitPassPackPrice", () => {
   it("prefers a named Pack row over a cheaper Visit row", () => {
     expect(
-      punchPassPackPrice(
+      visitPassPackPrice(
         product({
           prices: [
             { id: 1, organizationId: 1, name: "Visit", price: 0, currency: "USD" },
@@ -52,7 +52,7 @@ describe("punchPassPackPrice", () => {
 
   it("uses the highest positive price when names are missing", () => {
     expect(
-      punchPassPackPrice(
+      visitPassPackPrice(
         product({
           prices: [
             { id: 1, organizationId: 1, price: 0, currency: "USD" },
@@ -65,14 +65,14 @@ describe("punchPassPackPrice", () => {
   });
 });
 
-describe("parsePunchPassProduct", () => {
+describe("parseVisitPassProduct", () => {
   it("returns null for non-pass products", () => {
-    expect(parsePunchPassProduct(product({ isPunchPass: false }))).toBeNull();
+    expect(parseVisitPassProduct(product({ isPunchPass: false }))).toBeNull();
   });
 
   it("reads punch count, duration minutes, and pack price", () => {
     expect(
-      parsePunchPassProduct(
+      parseVisitPassProduct(
         product({
           quantity: 8,
           duration: { amount: 90, unit: "minute" },
@@ -80,7 +80,7 @@ describe("parsePunchPassProduct", () => {
       )
     ).toMatchObject({
       productId: 701,
-      punchCount: 8,
+      visitCount: 8,
       durationMinutes: 90,
       packPrice: { amount: 200, currency: "USD" },
     });
@@ -88,7 +88,7 @@ describe("parsePunchPassProduct", () => {
 
   it("uses a demo pack price when Bond omits prices", () => {
     expect(
-      parsePunchPassProduct(
+      parseVisitPassProduct(
         product({
           prices: [],
         })
@@ -98,99 +98,99 @@ describe("parsePunchPassProduct", () => {
 
   it("converts hour duration to minutes and defaults missing quantity", () => {
     expect(
-      parsePunchPassProduct(
+      parseVisitPassProduct(
         product({
           quantity: 0,
           duration: { amount: 1, unit: "hour" },
         })
       )
-    ).toMatchObject({ punchCount: 1, durationMinutes: 60 });
+    ).toMatchObject({ visitCount: 1, durationMinutes: 60 });
   });
 });
 
-describe("punchesNeededForSlots", () => {
+describe("visitsNeededForSlots", () => {
   it("is one punch per slot", () => {
-    expect(punchesNeededForSlots(3)).toBe(3);
-    expect(punchesNeededForSlots(0)).toBe(0);
+    expect(visitsNeededForSlots(3)).toBe(3);
+    expect(visitsNeededForSlots(0)).toBe(0);
   });
 });
 
-describe("resolvePunchPassCheckout", () => {
-  const pass = parsePunchPassProduct(product())!;
+describe("resolveVisitPassCheckout", () => {
+  const pass = parseVisitPassProduct(product())!;
 
   it("returns null with no slots", () => {
-    expect(resolvePunchPassCheckout(pass, 0, 0)).toBeNull();
+    expect(resolveVisitPassCheckout(pass, 0, 0)).toBeNull();
   });
 
   it("buys the pack and redeems picked slots when remaining is 0", () => {
-    expect(resolvePunchPassCheckout(pass, 0, 2)).toMatchObject({
+    expect(resolveVisitPassCheckout(pass, 0, 2)).toMatchObject({
       kind: "buyAndRedeem",
-      punchesNeeded: 2,
+      visitsNeeded: 2,
       remainingAfter: 8,
       packAmount: 200,
     });
   });
 
   it("redeems only when remaining covers the slots", () => {
-    expect(resolvePunchPassCheckout(pass, 8, 2)).toMatchObject({
+    expect(resolveVisitPassCheckout(pass, 8, 2)).toMatchObject({
       kind: "redeem",
-      punchesNeeded: 2,
+      visitsNeeded: 2,
       remainingAfter: 6,
     });
   });
 
   it("buys another pack when remaining is short", () => {
-    expect(resolvePunchPassCheckout(pass, 1, 3)).toMatchObject({
+    expect(resolveVisitPassCheckout(pass, 1, 3)).toMatchObject({
       kind: "buyAndRedeem",
-      punchesNeeded: 3,
+      visitsNeeded: 3,
       remainingAfter: 8,
     });
   });
 });
 
-describe("punchPassFillPercent", () => {
+describe("visitPassFillPercent", () => {
   it("fills remaining over pack total", () => {
-    expect(punchPassFillPercent(7, 10)).toBe(70);
-    expect(punchPassFillPercent(0, 10)).toBe(0);
-    expect(punchPassFillPercent(10, 10)).toBe(100);
+    expect(visitPassFillPercent(7, 10)).toBe(70);
+    expect(visitPassFillPercent(0, 10)).toBe(0);
+    expect(visitPassFillPercent(10, 10)).toBe(100);
   });
 
   it("clamps empty or invalid totals", () => {
-    expect(punchPassFillPercent(3, 0)).toBe(0);
-    expect(punchPassFillPercent(12, 10)).toBe(100);
+    expect(visitPassFillPercent(3, 0)).toBe(0);
+    expect(visitPassFillPercent(12, 10)).toBe(100);
   });
 });
 
-describe("punchPassOverflowsHeldPunches", () => {
+describe("visitPassOverflowsHeldVisits", () => {
   it("warns only when extra visits would buy another pack", () => {
-    expect(punchPassOverflowsHeldPunches(2, 3)).toBe(true);
-    expect(punchPassOverflowsHeldPunches(2, 2)).toBe(false);
-    expect(punchPassOverflowsHeldPunches(0, 1)).toBe(false);
+    expect(visitPassOverflowsHeldVisits(2, 3)).toBe(true);
+    expect(visitPassOverflowsHeldVisits(2, 2)).toBe(false);
+    expect(visitPassOverflowsHeldVisits(0, 1)).toBe(false);
   });
 });
 
-describe("punchPassSlotCap", () => {
+describe("visitPassSlotCap", () => {
   it("allows remaining punches plus one new pack", () => {
-    const pass = parsePunchPassProduct(product())!;
-    expect(punchPassSlotCap(pass, 0)).toBe(10);
-    expect(punchPassSlotCap(pass, 4)).toBe(14);
+    const pass = parseVisitPassProduct(product())!;
+    expect(visitPassSlotCap(pass, 0)).toBe(10);
+    expect(visitPassSlotCap(pass, 4)).toBe(14);
   });
 });
 
-describe("punchPassCartPurchaseForSnapshot", () => {
-  const pass = parsePunchPassProduct(product())!;
+describe("visitPassCartPurchaseForSnapshot", () => {
+  const pass = parseVisitPassProduct(product())!;
 
   it("keeps the pack amount only for buy-and-redeem", () => {
-    const buy = resolvePunchPassCheckout(pass, 0, 2)!;
+    const buy = resolveVisitPassCheckout(pass, 0, 2)!;
     expect(
-      punchPassPackDisplayAmount(
-        punchPassCartPurchaseForSnapshot(pass, buy, { packSubtitle: "10 visits", visitSubtitle: "Included" })
+      visitPassPackDisplayAmount(
+        visitPassCartPurchaseForSnapshot(pass, buy, { packSubtitle: "10 visits", visitSubtitle: "Included" })
       )
     ).toBe(200);
-    const redeem = resolvePunchPassCheckout(pass, 8, 2)!;
+    const redeem = resolveVisitPassCheckout(pass, 8, 2)!;
     expect(
-      punchPassPackDisplayAmount(
-        punchPassCartPurchaseForSnapshot(pass, redeem, { packSubtitle: "10 visits", visitSubtitle: "1 punch" })
+      visitPassPackDisplayAmount(
+        visitPassCartPurchaseForSnapshot(pass, redeem, { packSubtitle: "10 visits", visitSubtitle: "1 punch" })
       )
     ).toBe(0);
   });

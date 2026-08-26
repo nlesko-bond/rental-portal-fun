@@ -20,7 +20,7 @@ import {
   flattenBondCartItemNodes,
   getBondCartReceiptLineItems,
   resolveBondLineDisplayAmounts,
-  bondCartInvoicesPunchPack,
+  bondCartInvoicesVisitPack,
   BOND_KIND_LINE_MIN,
 } from "@/lib/checkout-bag-totals";
 import {
@@ -30,7 +30,7 @@ import {
 } from "@/lib/bond-cart-removal";
 import { dedupeDiscountCaptionSegments, describeEntitlementsForDisplay } from "@/lib/entitlement-discount";
 import { membershipDisplaySummary, type MembershipDisplaySummary } from "@/lib/required-products-extended";
-import { punchPassPackDisplayAmount, type PunchPassCartPurchase } from "@/lib/punch-pass";
+import { visitPassPackDisplayAmount, type VisitPassCartPurchase } from "@/lib/visit-pass";
 import type { SessionCartSnapshot } from "@/lib/session-cart-snapshot";
 import { flatLineIndexSegmentsForMergedBookings } from "@/lib/session-cart-grouping";
 import type { OrganizationCartDto } from "@/types/online-booking";
@@ -482,7 +482,7 @@ function finalizePurchaseDisplayLines(
     : [];
   const hasAnyDeposit = flatBond.some((it) => bondItemHasDownpayment(row, it));
   if (!want && !needApprovalFlags && !hasPerProductApproval && !hasAnyDeposit) {
-    return withPunchPassPurchaseLines(lines, row, rowIndex);
+    return withVisitPassPurchaseLines(lines, row, rowIndex);
   }
 
   const segByFlat = flatIndexToSegmentMap(c);
@@ -537,7 +537,7 @@ function finalizePurchaseDisplayLines(
       ...(depositRequired ? { depositRequired: true } : {}),
     };
   });
-  return withPunchPassPurchaseLines(annotated, row, rowIndex);
+  return withVisitPassPurchaseLines(annotated, row, rowIndex);
 }
 
 function cartItemHasBookingChildren(it: Record<string, unknown>): boolean {
@@ -551,11 +551,11 @@ function cartItemHasBookingChildren(it: Record<string, unknown>): boolean {
   );
 }
 
-function collapseExtraPunchPassVisitLines(
+function collapseExtraVisitPassVisitLines(
   lines: CartPurchaseDisplayLine[],
-  purchase: PunchPassCartPurchase
+  purchase: VisitPassCartPurchase
 ): CartPurchaseDisplayLine[] {
-  if (purchase.punchesNeeded !== 1) return lines;
+  if (purchase.visitsNeeded !== 1) return lines;
   let keptVisit = false;
   const out: CartPurchaseDisplayLine[] = [];
   for (const line of lines) {
@@ -576,12 +576,12 @@ function collapseExtraPunchPassVisitLines(
 /**
  * Bond only holds the redeemed visit. Prepend the pack purchase captured at add-to-cart.
  */
-function withPunchPassPurchaseLines(
+function withVisitPassPurchaseLines(
   lines: CartPurchaseDisplayLine[],
   row: SessionCartSnapshot,
   rowIndex: number
 ): CartPurchaseDisplayLine[] {
-  const purchase = row.punchPassPurchase;
+  const purchase = row.visitPassPurchase;
   if (purchase == null) return lines;
   const visitLines = purchase.visitSubtitle
     ? lines.map((line) => {
@@ -595,10 +595,10 @@ function withPunchPassPurchaseLines(
         };
       })
     : lines;
-  const packAmount = punchPassPackDisplayAmount(purchase);
-  if (packAmount <= 0) return collapseExtraPunchPassVisitLines(visitLines, purchase);
-  if (bondCartInvoicesPunchPack(row.cart, purchase.productId)) {
-    return collapseExtraPunchPassVisitLines(visitLines, purchase);
+  const packAmount = visitPassPackDisplayAmount(purchase);
+  if (packAmount <= 0) return collapseExtraVisitPassVisitLines(visitLines, purchase);
+  if (bondCartInvoicesVisitPack(row.cart, purchase.productId)) {
+    return collapseExtraVisitPassVisitLines(visitLines, purchase);
   }
   const cartId = (row.cart as OrganizationCartDto).id;
   const packLine: CartPurchaseDisplayLine = {
@@ -608,7 +608,7 @@ function withPunchPassPurchaseLines(
     amount: packAmount,
     unitSubtitle: purchase.packSubtitle,
   };
-  return collapseExtraPunchPassVisitLines([packLine, ...visitLines], purchase);
+  return collapseExtraVisitPassVisitLines([packLine, ...visitLines], purchase);
 }
 
 function productIdFromBondItem(it: Record<string, unknown>): number | null {

@@ -34,17 +34,17 @@ type Props = {
   bookBusy?: boolean;
   bookDisabled?: boolean;
   /**
-   * Punch-pass sibling SKU: `buy` is buy-pack-and-book after slots are picked;
+   * Visit-pass sibling SKU: `buy` is buy-pack-and-book after slots are picked;
    * `redeem` relabels the slot checkout CTA.
    */
-  punchPassAction?: "buy" | "redeem" | null;
-  /** Formatted extras total when punch-pass add-ons are selected. */
-  punchPassExtrasAmount?: string | null;
+  visitPassAction?: "buy" | "redeem" | null;
+  /** Formatted extras total when visit-pass add-ons are selected. */
+  visitPassExtrasAmount?: string | null;
   /** Non-blocking copy under the slot bar (e.g. another pack will be purchased). */
   hint?: string | null;
 };
 
-function punchPassCtaCopy(
+function visitPassCtaCopy(
   t: ReturnType<typeof useTranslations>,
   action: "buy" | "redeem",
   slotCount: number,
@@ -55,19 +55,19 @@ function punchPassCtaCopy(
     case "buy":
       if (extras != null) {
         return size === "desktop"
-          ? t("booking.punchPassBuyCtaWithExtras", { amount: extras })
-          : t("booking.punchPassBuyCtaShortWithExtras", { amount: extras });
+          ? t("booking.visitPassBuyCtaWithExtras", { amount: extras })
+          : t("booking.visitPassBuyCtaShortWithExtras", { amount: extras });
       }
-      return size === "desktop" ? t("booking.punchPassBuyCta") : t("booking.punchPassBuyCtaShort");
+      return size === "desktop" ? t("booking.visitPassBuyCta") : t("booking.visitPassBuyCtaShort");
     case "redeem":
       if (extras != null) {
         return size === "desktop"
-          ? t("booking.punchPassSlotsRedeemWithExtras", { count: slotCount, amount: extras })
-          : t("booking.punchPassSlotsRedeemShortWithExtras", { count: slotCount, amount: extras });
+          ? t("booking.visitPassSlotsRedeemWithExtras", { count: slotCount, amount: extras })
+          : t("booking.visitPassSlotsRedeemShortWithExtras", { count: slotCount, amount: extras });
       }
       return size === "desktop"
-        ? t("booking.punchPassSlotsRedeem", { count: slotCount })
-        : t("booking.punchPassSlotsRedeemShort", { count: slotCount });
+        ? t("booking.visitPassSlotsRedeem", { count: slotCount })
+        : t("booking.visitPassSlotsRedeemShort", { count: slotCount });
     default: {
       const _never: never = action;
       return _never;
@@ -99,8 +99,8 @@ export function BookingSelectionPortal({
   onBook,
   bookBusy,
   bookDisabled,
-  punchPassAction = null,
-  punchPassExtrasAmount = null,
+  visitPassAction = null,
+  visitPassExtrasAmount = null,
   hint = null,
 }: Props) {
   /** Root namespace avoids Turbopack/client edge cases where nested `useTranslations(ns)` misses keys in portaled subtrees. */
@@ -123,14 +123,14 @@ export function BookingSelectionPortal({
   const fabBadge = cartBadge;
   /** Show draft slot CTA whenever slots are selected; cart FAB still opens bag when there are saved bookings. */
   const showSlotBar = slotCount > 0;
-  const extras = punchPassExtrasAmount != null && punchPassExtrasAmount.length > 0 ? punchPassExtrasAmount : null;
+  const extras = visitPassExtrasAmount != null && visitPassExtrasAmount.length > 0 ? visitPassExtrasAmount : null;
   const primaryActionLabel =
-    punchPassAction === "buy" || punchPassAction === "redeem"
-      ? punchPassCtaCopy(t, punchPassAction, slotCount, extras, "desktop")
+    visitPassAction === "buy" || visitPassAction === "redeem"
+      ? visitPassCtaCopy(t, visitPassAction, slotCount, extras, "desktop")
       : t("booking.slotsSelectedCompleteBooking", { count: slotCount });
   const primaryActionMobileLabel =
-    punchPassAction === "buy" || punchPassAction === "redeem"
-      ? punchPassCtaCopy(t, punchPassAction, slotCount, extras, "mobile")
+    visitPassAction === "buy" || visitPassAction === "redeem"
+      ? visitPassCtaCopy(t, visitPassAction, slotCount, extras, "mobile")
       : t("booking.slotsSelectedCheckout", { count: slotCount });
   const fabOpensBag = cartSessionCount > 0 && onOpenCart != null;
   const fabOpensCheckout = slotCount > 0 && onBook != null;
