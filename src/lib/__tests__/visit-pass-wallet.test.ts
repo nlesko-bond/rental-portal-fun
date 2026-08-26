@@ -27,7 +27,7 @@ describe("punch-pass wallet", () => {
     const credited = creditVisitPass(emptyVisitPassWallet(), {
       productId: 701,
       name: "Court 10-pack",
-      punches: 10,
+      visits: 10,
     });
     expect(remainingVisitsForProduct(credited, 701)).toBe(10);
     saveVisitPassWallet(9, credited, storage);
@@ -39,9 +39,9 @@ describe("punch-pass wallet", () => {
     const once = creditVisitPass(emptyVisitPassWallet(), {
       productId: 701,
       name: "Court 10-pack",
-      punches: 10,
+      visits: 10,
     });
-    const twice = creditVisitPass(once, { productId: 701, name: "Court 10-pack", punches: 10 });
+    const twice = creditVisitPass(once, { productId: 701, name: "Court 10-pack", visits: 10 });
     expect(twice.entries[0]).toMatchObject({ remaining: 20, total: 20 });
     const after = debitVisitPass(twice, 701, 3);
     expect(remainingVisitsForProduct(after, 701)).toBe(17);
@@ -61,7 +61,7 @@ describe("punch-pass wallet", () => {
     const owned = creditVisitPass(emptyVisitPassWallet(), {
       productId: 701,
       name: "Court 10-pack",
-      punches: 8,
+      visits: 8,
     });
     const after = applyVisitPassCheckoutToWallet(
       owned,
@@ -76,7 +76,7 @@ describe("punch-pass wallet", () => {
     const wallet = creditVisitPass(emptyVisitPassWallet(), {
       productId: 1,
       name: "Pass",
-      punches: 1,
+      visits: 1,
     });
     expect(remainingVisitsForProduct(debitVisitPass(wallet, 1, 5), 1)).toBe(0);
   });

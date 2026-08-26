@@ -81,17 +81,17 @@ import { countSessionCartLineItems } from "@/lib/cart-purchase-lines";
 import {
   isVisitPassProduct,
   parseVisitPassProduct,
-  punchPassCartPurchaseForSnapshot,
+  visitPassCartPurchaseForSnapshot,
   visitPassOverflowsHeldVisits,
   visitPassSlotCap,
   resolveVisitPassCheckout,
 } from "@/lib/visit-pass";
 import {
   applyVisitPassCheckoutToWallet,
-  creditPunchPass,
-  emptyPunchPassWallet,
+  creditVisitPass,
+  emptyVisitPassWallet,
   loadVisitPassWallet,
-  parseSeedPunchesParam,
+  parseSeedVisitsParam,
   remainingVisitsForProduct,
   saveVisitPassWallet,
   walletEntryForProduct,
@@ -147,7 +147,7 @@ import { ScheduleCalendarView } from "./ScheduleCalendarView";
 import { ScheduleMatrix } from "./ScheduleMatrix";
 import { getEffectiveAddonSlotKeys } from "@/lib/addon-slot-targeting";
 import { BookingAddonPanel, type AddonSlotTargeting } from "./BookingAddonPanel";
-import { PunchPassRemainingMeter } from "./PunchPassRemainingMeter";
+import { VisitPassRemainingMeter } from "./VisitPassRemainingMeter";
 import { ProductDetailModal } from "./ProductDetailModal";
 import { ModalShell } from "./ModalShell";
 import { readBookingDevOverrides } from "./booking-url";
@@ -760,7 +760,7 @@ export function BookingExperience() {
   );
 
   const punchWallet = useMemo(() => {
-    if (!env.ok) return emptyPunchPassWallet();
+    if (!env.ok) return emptyVisitPassWallet();
     return loadVisitPassWallet(env.orgId);
   }, [env, punchWalletRevision]);
 
@@ -770,7 +770,7 @@ export function BookingExperience() {
 
   useEffect(() => {
     if (!env.ok || visitPassParsed == null) return;
-    const seed = parseSeedPunchesParam(searchParams.get("seedPunches"));
+    const seed = parseSeedVisitsParam(searchParams.get("seedPunches"));
     if (seed == null) return;
     const stamp = `${env.orgId}:${visitPassParsed.productId}:${seed}`;
     if (punchWalletSeededRef.current === stamp) return;
@@ -778,10 +778,10 @@ export function BookingExperience() {
       punchWalletSeededRef.current = stamp;
       return;
     }
-    const next = creditPunchPass(punchWallet, {
+    const next = creditVisitPass(punchWallet, {
       productId: visitPassParsed.productId,
       name: visitPassParsed.name,
-      punches: seed,
+      visits: seed,
     });
     saveVisitPassWallet(env.orgId, next);
     punchWalletSeededRef.current = stamp;
@@ -1236,7 +1236,7 @@ export function BookingExperience() {
         if (visitPassParsed != null) {
           const punchCap = visitPassSlotCap(visitPassParsed, punchRemaining);
           if (next.size > punchCap) {
-            setSlotBarError(tb("punchPassNeedMore", { who: bookingForLabel }));
+            setSlotBarError(tb("visitPassNeedMore", { who: bookingForLabel }));
             return prev;
           }
         }
@@ -1299,7 +1299,7 @@ export function BookingExperience() {
     ? walletEntryForProduct(punchWallet, visitPassParsed.productId)
     : null;
   const selectedPunchWalletTotal =
-    selectedPunchWalletEntry?.total ?? visitPassParsed?.punchCount ?? 0;
+    selectedPunchWalletEntry?.total ?? visitPassParsed?.visitCount ?? 0;
 
   const productsForRail = useMemo(() => {
     const rows = productsQuery.data?.data;
@@ -1343,9 +1343,13 @@ export function BookingExperience() {
 
   const punchPassAnotherPackHint =
     visitPassParsed != null && visitPassOverflowsHeldVisits(punchRemaining, pickedSlotsOrdered.length)
-      ? tb("punchPassBuysAnotherPack", {
+      ? tb("visitPassBuysAnotherPack", {
           remaining: punchRemaining,
-          count: visitPassParsed.punchCount,
+          count: visitPassParsed.visitCount,
+          amount: formatPrice(
+            visitPassParsed.packPrice?.amount ?? 0,
+            visitPassParsed.packPrice?.currency ?? "USD"
+          ),
         })
       : null;
 
@@ -1392,12 +1396,12 @@ export function BookingExperience() {
     if (env.ok) {
       let wallet = loadVisitPassWallet(env.orgId);
       for (const row of sessionCartRowsRef.current) {
-        const purchase = row.punchPassPurchase;
+        const purchase = row.visitPassPurchase;
         if (purchase == null) continue;
         wallet = applyVisitPassCheckoutToWallet(
           wallet,
-          { productId: purchase.productId, name: purchase.packName, punchCount: purchase.punchCount },
-          { kind: purchase.kind, punchesNeeded: purchase.punchesNeeded }
+          { productId: purchase.productId, name: purchase.packName, visitCount: purchase.visitCount },
+          { kind: purchase.kind, visitsNeeded: purchase.visitsNeeded }
         );
       }
       saveVisitPassWallet(env.orgId, wallet);
@@ -1745,17 +1749,17 @@ export function BookingExperience() {
     visitPassParsed == null ? null : (
       <div className="cb-punch-schedule-meter">
         {selectedPunchWalletEntry != null ? (
-          <PunchPassRemainingMeter
+          <VisitPassRemainingMeter
             remaining={punchRemaining}
             total={selectedPunchWalletTotal}
-            label={tb("punchPassRemaining", {
+            label={tb("visitPassRemaining", {
               remaining: punchRemaining,
               total: selectedPunchWalletTotal,
             })}
           />
         ) : null}
         <p className="cb-punch-schedule-hint">
-          {punchRemaining > 0 ? tb("punchPassPickTimesToRedeem") : tb("punchPassBuyThenRedeemHint")}
+          {punchRemaining > 0 ? tb("visitPassPickTimesToRedeem") : tb("visitPassBuyThenRedeemHint")}
         </p>
       </div>
     );
@@ -2025,7 +2029,7 @@ export function BookingExperience() {
                     aria-current={selected ? "true" : undefined}
                     aria-label={
                       punchOwnedEntry != null
-                        ? `${p.name}, ${tb("punchPassRemaining", {
+                        ? `${p.name}, ${tb("visitPassRemaining", {
                             remaining: ownedRemaining,
                             total: punchOwnedEntry.total,
                           })}`
@@ -2059,7 +2063,7 @@ export function BookingExperience() {
                         <span className="cb-product-chip-price-row">
                           {ownedRemaining > 0 && punchOwnedEntry != null ? (
                             <span className="cb-product-chip-price-amount">
-                              {tb("punchPassRemainingShort", {
+                              {tb("visitPassRemainingShort", {
                                 remaining: ownedRemaining,
                                 total: punchOwnedEntry.total,
                               })}
@@ -2074,7 +2078,7 @@ export function BookingExperience() {
                               <span className="cb-product-chip-price-sep">{punchMeta != null ? "·" : "/"}</span>
                               <span className="cb-product-chip-price-dur">
                                 {punchMeta != null
-                                  ? tb("punchPassVisitCount", { count: punchMeta.punchCount })
+                                  ? tb("visitPassVisitCount", { count: punchMeta.visitCount })
                                   : durBadge}
                               </span>
                             </>
@@ -2098,10 +2102,10 @@ export function BookingExperience() {
                     <div className={`cb-product-card-footer ${punchOwnedEntry != null ? "cb-product-card-footer--meter" : ""}`}>
                       <span className="cb-product-card-title">{p.name}</span>
                       {punchOwnedEntry != null ? (
-                        <PunchPassRemainingMeter
+                        <VisitPassRemainingMeter
                           remaining={ownedRemaining}
                           total={punchOwnedEntry.total}
-                          label={tb("punchPassRemaining", {
+                          label={tb("visitPassRemaining", {
                             remaining: ownedRemaining,
                             total: punchOwnedEntry.total,
                           })}
@@ -2139,10 +2143,10 @@ export function BookingExperience() {
                   if (entry == null) return null;
                   const remaining = Math.max(0, entry.remaining);
                   return (
-                    <PunchPassRemainingMeter
+                    <VisitPassRemainingMeter
                       remaining={remaining}
                       total={entry.total}
-                      label={tb("punchPassRemaining", { remaining, total: entry.total })}
+                      label={tb("visitPassRemaining", { remaining, total: entry.total })}
                     />
                   );
                 })()}
@@ -2322,7 +2326,7 @@ export function BookingExperience() {
                       aria-expanded={picker === "duration"}
                       aria-label={tb("selectDuration")}
                       aria-disabled={visitPassParsed != null}
-                      title={visitPassParsed != null ? tb("punchPassDurationLocked") : undefined}
+                      title={visitPassParsed != null ? tb("visitPassDurationLocked") : undefined}
                       onClick={() => {
                         if (visitPassParsed != null) return;
                         setPicker("duration");
@@ -2405,7 +2409,7 @@ export function BookingExperience() {
                         aria-selected={active}
                         className={`cb-date-chip cb-duration-chip ${active ? "cb-date-chip--active" : ""}`}
                         disabled={visitPassParsed != null}
-                        title={visitPassParsed != null ? tb("punchPassDurationLocked") : undefined}
+                        title={visitPassParsed != null ? tb("visitPassDurationLocked") : undefined}
                         onClick={() => setDuration(m)}
                       >
                         {formatDurationLabel(m)}
@@ -2577,7 +2581,7 @@ export function BookingExperience() {
                 adjustSlotUnitPrice={entitlementAdjust}
                 autoScrollKey={state.date ?? ""}
                 preferredStartResolved={resolvedPreferredStartForFetch}
-                slotPriceLabel={visitPassParsed != null ? tb("punchPassSlotLabel") : undefined}
+                slotPriceLabel={visitPassParsed != null ? tb("visitPassSlotLabel") : undefined}
               />
             </div>
           )}
@@ -2598,7 +2602,7 @@ export function BookingExperience() {
                 resourceSelectorSearchPlaceholder={scheduleResourceSelectorSearchPlaceholder}
                 onToggleSlot={toggleSlot}
                 adjustSlotUnitPrice={entitlementAdjust}
-                slotPriceLabel={visitPassParsed != null ? tb("punchPassSlotLabel") : undefined}
+                slotPriceLabel={visitPassParsed != null ? tb("visitPassSlotLabel") : undefined}
                 selectedDate={state.date}
               />
             </div>
@@ -2736,14 +2740,14 @@ export function BookingExperience() {
           onBook={onBookNow}
           bookBusy={checkoutBusy}
           bookDisabled={pickedSlotsOrdered.length === 0}
-          punchPassAction={
+          visitPassAction={
             visitPassCheckout?.kind === "buyAndRedeem"
               ? "buy"
               : visitPassCheckout?.kind === "redeem"
                 ? "redeem"
                 : null
           }
-          punchPassExtrasAmount={punchPassExtrasLabel}
+          visitPassExtrasAmount={punchPassExtrasLabel}
           hint={punchPassAnotherPackHint}
         />
       ) : null}
@@ -2888,14 +2892,14 @@ export function BookingExperience() {
             }
           }}
           onSuccess={(cart) => {
-            const punchPassPurchase =
+            const visitPassPurchase =
               visitPassParsed != null && visitPassCheckout != null
-                ? punchPassCartPurchaseForSnapshot(visitPassParsed, visitPassCheckout, {
-                    packSubtitle: tx("punchPassPackSubtitle", { count: visitPassCheckout.punchCount }),
+                ? visitPassCartPurchaseForSnapshot(visitPassParsed, visitPassCheckout, {
+                    packSubtitle: tx("visitPassPackSubtitle", { count: visitPassCheckout.visitCount }),
                     visitSubtitle:
                       visitPassCheckout.kind === "buyAndRedeem"
-                        ? tx("punchPassIncludedVisit")
-                        : tx("punchPassUnitPunch", {
+                        ? tx("visitPassIncludedVisit")
+                        : tx("visitPassUnitVisit", {
                             duration: formatDurationPriceBadge(visitPassParsed.durationMinutes),
                           }),
                   })
@@ -3070,8 +3074,8 @@ export function BookingExperience() {
                     currentApproval ||
                     anySiblingApproval ||
                     Object.values(approvalByProductId).some(Boolean);
-                  const mergedPunchPassPurchase =
-                    punchPassPurchase ?? siblings.find((s) => s.punchPassPurchase != null)?.punchPassPurchase;
+                  const mergedVisitPassPurchase =
+                    visitPassPurchase ?? siblings.find((s) => s.visitPassPurchase != null)?.visitPassPurchase;
                   return [
                     ...rest,
                     {
@@ -3090,7 +3094,7 @@ export function BookingExperience() {
                       ...(mergedProductDiscountLabelByProductId != null ? { productDiscountLabelByProductId: mergedProductDiscountLabelByProductId } : {}),
                       ...(displayLines != null ? { displayLines } : {}),
                       ...(reservationGroups != null ? { reservationGroups } : {}),
-                      ...(mergedPunchPassPurchase != null ? { punchPassPurchase: mergedPunchPassPurchase } : {}),
+                      ...(mergedVisitPassPurchase != null ? { visitPassPurchase: mergedVisitPassPurchase } : {}),
                     },
                   ];
                 }
@@ -3115,7 +3119,7 @@ export function BookingExperience() {
                     ...(productDownpaymentByProductId != null ? { productDownpaymentByProductId } : {}),
                     ...(productDiscountLabelByProductId != null ? { productDiscountLabelByProductId } : {}),
                     ...(displayLines != null ? { displayLines } : {}),
-                    ...(punchPassPurchase != null ? { punchPassPurchase } : {}),
+                    ...(visitPassPurchase != null ? { visitPassPurchase } : {}),
                   },
                 ];
               });

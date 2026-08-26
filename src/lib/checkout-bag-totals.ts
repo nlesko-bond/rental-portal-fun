@@ -799,10 +799,10 @@ export function aggregateSessionCartRowTotals(row: SessionCartSnapshot): {
         : l.amount;
     gross += s;
   }
-  if (count === 0) return withPunchPassPackOnTotals(base, row);
+  if (count === 0) return withVisitPassPackOnTotals(base, row);
   const impliedDisc = Math.max(0, gross - net);
   if (impliedDisc > 0.005) {
-    return withPunchPassPackOnTotals(
+    return withVisitPassPackOnTotals(
       {
         line: gross,
         discount: impliedDisc,
@@ -813,7 +813,7 @@ export function aggregateSessionCartRowTotals(row: SessionCartSnapshot): {
       row
     );
   }
-  return withPunchPassPackOnTotals(
+  return withVisitPassPackOnTotals(
     {
       line: net,
       discount: base.discount,

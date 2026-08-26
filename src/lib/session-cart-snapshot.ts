@@ -76,26 +76,30 @@ export type SessionCartSnapshot = {
 /** Bump when cart row shape or client logic changes so stale tabs don’t keep broken session rows. */
 const STORAGE_KEY = "bond-rental-portal-session-carts-v4";
 
+function finitePositiveInt(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  return value;
+}
+
 function normalizeVisitPassPurchase(raw: unknown): VisitPassCartPurchase | undefined {
   if (!raw || typeof raw !== "object") return undefined;
   const o = raw as Record<string, unknown>;
   if (o.kind !== "buyAndRedeem" && o.kind !== "redeem") return undefined;
-  const productId = typeof o.productId === "number" && Number.isFinite(o.productId) ? o.productId : null;
+  const productId = finitePositiveInt(o.productId);
   const packName = typeof o.packName === "string" && o.packName.trim().length > 0 ? o.packName.trim() : null;
-  const punchCount = typeof o.punchCount === "number" && Number.isFinite(o.punchCount) ? o.punchCount : null;
+  const visitCount = finitePositiveInt(o.visitCount) ?? finitePositiveInt(o.punchCount);
   const packAmount = typeof o.packAmount === "number" && Number.isFinite(o.packAmount) ? o.packAmount : 0;
-  const punchesNeeded =
-    typeof o.punchesNeeded === "number" && Number.isFinite(o.punchesNeeded) ? o.punchesNeeded : null;
+  const visitsNeeded = finitePositiveInt(o.visitsNeeded) ?? finitePositiveInt(o.punchesNeeded);
   const packSubtitle = typeof o.packSubtitle === "string" ? o.packSubtitle : "";
   const visitSubtitle = typeof o.visitSubtitle === "string" ? o.visitSubtitle : "";
-  if (productId == null || packName == null || punchCount == null || punchesNeeded == null) return undefined;
+  if (productId == null || packName == null || visitCount == null || visitsNeeded == null) return undefined;
   return {
     kind: o.kind,
     productId,
     packName,
-    punchCount,
+    visitCount,
     packAmount,
-    punchesNeeded,
+    visitsNeeded,
     packSubtitle,
     visitSubtitle,
   };
