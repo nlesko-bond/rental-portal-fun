@@ -274,7 +274,7 @@ Public Bond APIs expose `isPunchPass` + `quantity` on catalog products. There is
 
 **App behavior:** the pass sits in the product rail like any other SKU; remaining punches show as a bar on the card (`7 of 10 remaining`). Selecting it shows the normal schedule with duration locked to Y; slot cells show **1 punch**. Optional add-ons stay available after a slot is picked (cash on top of punches). Pick times, then checkout: with **0 remaining** the CTA is **Buy pass & book**. Bond invoices the **$0 visit** on that SKU (a Visit price row). Do **not** send the pack on `requiredProducts[]` — Bond treats the same product id as a second reservation. The bag snapshot still shows **Court 10-pack $Z**. Bond `POST …/finalize` **500s** on punchCard carts for every body we have tried (`{}`, payment method, `amountToPay: 0`), so Pay now completes the demo locally (wallet + confirmation) and does not call finalize when Bond payable is $0. The Bond cart stays open (slot hold until expiry); there is no Bond invoice. With remaining punches the CTA is **Redeem**. A visit past remaining punches warns that another pack will be purchased. Dev seed: `?seedPunches=10`.
 
-Helpers: `src/lib/punch-pass.ts`, `src/lib/punch-pass-wallet.ts`. Seed: `scripts/discover-punch-pass-targets.sql`, `scripts/seed-punch-pass-siblings.sql` (clone an hourly product already on the target portal category).
+Helpers: `src/lib/punch-pass.ts`, `src/lib/punch-pass-wallet.ts`. Seed: `scripts/seed-punch-pass-sibling.sql` (court), `scripts/seed-lesson-packs.sql` (lessons category 7994). After Pay now, confirmation is stored on the finalize snapshot so remaining punches still show after slots clear. Bond `finalize` is skipped for $0 punch-pass carts.
 
 ---
 

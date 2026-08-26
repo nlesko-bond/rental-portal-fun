@@ -27,7 +27,7 @@ import {
 } from "@/lib/online-booking-user-api";
 import { buildOnlineBookingCreateBody, splitAddonPayloadForCreate } from "@/lib/online-booking-create-body";
 import { formatBookingPriceOrFree, productMembershipGated } from "@/lib/booking-pricing";
-import { punchPassPackDueOnSnapshots, type PunchPassCheckout } from "@/lib/punch-pass";
+import { punchPassPackDueOnSnapshots, punchPassConfirmCopyKind, type PunchPassCheckout } from "@/lib/punch-pass";
 import {
   buildFinalizeCartBody,
   PUNCH_PASS_LOCAL_FINALIZE,
@@ -684,6 +684,8 @@ export function BookingCheckoutDrawer({
   onSuccessRef.current = onSuccess;
   const approvalRequiredPropRef = useRef(approvalRequired);
   approvalRequiredPropRef.current = approvalRequired;
+  const punchPassRef = useRef(punchPass);
+  punchPassRef.current = punchPass;
 
   const currency = product?.prices?.[0]?.currency ?? "USD";
 
@@ -1442,11 +1444,21 @@ export function BookingCheckoutDrawer({
     },
     onSuccess: (data) => {
       const keys = [...finalizeReservedSlotKeysRef.current];
+      const parsed = parseFinalizeCartResponse(data);
+      const pass = punchPassRef.current;
+      setFinalizeSuccess(
+        pass != null
+          ? {
+              ...parsed,
+              punchPassKind: pass.kind,
+              punchPassRemainingAfter: pass.remainingAfter,
+            }
+          : parsed
+      );
       onFinalizeBookingSuccess?.(keys);
       setLastCart(null);
       setApprovalDeferred(false);
       setFinalizeCheckoutKind(finalizeCheckoutKindRef.current);
-      setFinalizeSuccess(parseFinalizeCartResponse(data));
       answersStaleAfterFinalizeRef.current = true;
     },
     onSettled: () => {
@@ -3096,8 +3108,50 @@ export function BookingCheckoutDrawer({
    * (Pay in full / Pay minimum / Submit request CTAs added in e896dee) or
    * checkout-mode, so the early return below routes both modes to this one view.
    */
+  const punchPassConfirmKind =
+    finalizeSuccess?.punchPassKind != null
+      ? punchPassConfirmCopyKind(
+          finalizeSuccess.punchPassKind,
+          finalizeCheckoutKind === "submit" ? "submit" : "pay"
+        )
+      : null;
+  const punchPassConfirmRemaining = finalizeSuccess?.punchPassRemainingAfter;
+  const punchPassConfirmTitle = ((): string | null => {
+    if (punchPassConfirmKind == null) return null;
+    switch (punchPassConfirmKind) {
+      case "purchased":
+        return tx("punchPassPurchasedTitle");
+      case "redeemed":
+        return tx("punchPassRedeemedTitle");
+      case "submitted":
+        return tx("punchPassSubmittedTitle");
+      default: {
+        const _never: never = punchPassConfirmKind;
+        return _never;
+      }
+    }
+  })();
+  const punchPassConfirmSubtitle = ((): string | null => {
+    if (punchPassConfirmKind == null || punchPassConfirmRemaining == null) return null;
+    switch (punchPassConfirmKind) {
+      case "purchased":
+        return tx("punchPassPurchasedSubtitle", { count: punchPassConfirmRemaining });
+      case "redeemed":
+        return tx("punchPassRedeemedSubtitle", { count: punchPassConfirmRemaining });
+      case "submitted":
+        return tx("punchPassSubmittedSubtitle", { count: punchPassConfirmRemaining });
+      default: {
+        const _never: never = punchPassConfirmKind;
+        return _never;
+      }
+    }
+  })();
   const finalizeTitle =
-    finalizeCheckoutKind === "submit" ? tx("bookingSubmittedTitle") : tx("bookingConfirmedTitle");
+    punchPassConfirmTitle ??
+    (finalizeCheckoutKind === "submit" ? tx("bookingSubmittedTitle") : tx("bookingConfirmedTitle"));
+  const finalizeSubtitle =
+    punchPassConfirmSubtitle ??
+    (finalizeCheckoutKind === "submit" ? tx("bookingConfirmedSubtitleSubmit") : tx("bookingConfirmedSubtitle"));
   const finalizeConfirmationBody =
     finalizeSuccess != null ? (
       <div
@@ -3123,12 +3177,27 @@ export function BookingCheckoutDrawer({
               {finalizeTitle}
             </h2>
             <p className="cb-booking-confirmed-sub cb-muted">
-              {finalizeCheckoutKind === "submit"
-                ? tx("bookingConfirmedSubtitleSubmit")
-                : tx("bookingConfirmedSubtitle")}
+              {finalizeSubtitle}
             </p>
           </div>
           <div className="cb-booking-confirmed-details">
+            {punchPassConfirmKind != null && punchPassConfirmRemaining != null ? (
+              <div className="cb-booking-confirmed-detail-row cb-booking-confirmed-detail-row--inline-copy">
+                <span className="cb-booking-confirmed-detail-label">
+                  {tx("punchPassRemainingLabel")}
+                  <span className="cb-booking-confirmed-detail-colon" aria-hidden>
+                    :
+                  </span>
+                </span>
+                <div className="cb-booking-confirmed-detail-inline-value">
+                  <span className="cb-booking-confirmed-invoice-id cb-booking-confirmed-invoice-id--plain cb-booking-confirmed-invoice-id--inline">
+                    {tx("punchPassRemainingAfter", { count: punchPassConfirmRemaining })}
+                  </span>
+                </div>
+              </div>
+            ) : null}
+            {punchPassConfirmKind == null ? (
+            <>
             <div className="cb-booking-confirmed-detail-row cb-booking-confirmed-detail-row--inline-copy">
               <span className="cb-booking-confirmed-detail-label">
                 {tx("reservationLabel")}
@@ -3238,13 +3307,18 @@ export function BookingCheckoutDrawer({
                 </div>
               </div>
             ) : null}
+            </>
+            ) : null}
           </div>
+          {punchPassConfirmKind == null ? (
           <p className="cb-booking-confirmed-email cb-muted text-center text-sm">
             {confirmationAccountEmail != null
               ? tx("confirmationEmailSent", { email: confirmationAccountEmail })
               : tx("confirmationEmailGeneric")}
           </p>
+          ) : null}
           <div className="cb-booking-confirmed-actions cb-booking-confirmed-actions--adjacent">
+            {punchPassConfirmKind == null ? (
             <button type="button" className="cb-btn-outline cb-booking-confirmed-action-btn" onClick={openCalendarTemplate}>
               <svg
                 width="18"
@@ -3259,6 +3333,7 @@ export function BookingCheckoutDrawer({
               </svg>
               {tx("addToCalendar")}
             </button>
+            ) : null}
             <button
               type="button"
               className="cb-btn-primary cb-booking-confirmed-action-btn"

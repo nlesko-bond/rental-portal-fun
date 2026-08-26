@@ -225,7 +225,9 @@
     "punchPassSlotsRedeemWithExtras": "{count, plural, one {# punch — Redeem · {amount}} other {# punches — Redeem · {amount}}}",
     "punchPassSlotsRedeemShortWithExtras": "{count, plural, one {# punch · {amount}} other {# punches · {amount}}}",
     "punchPassBuyCtaWithExtras": "Buy pass & book · {amount}",
-    "punchPassBuyCtaShortWithExtras": "Buy & book · {amount}"
+    "punchPassBuyCtaShortWithExtras": "Buy & book · {amount}",
+    "productSoloKicker": "You're booking",
+    "fromPriceLabel": "From"
   },
   "checkout": {
     "loadingPricing": "Loading pricing…",
@@ -458,6 +460,8 @@
     "punchPassRedeemedSubtitle": "Your time is held. {count, plural, one {# punch remaining} other {# punches remaining}} on this pass.",
     "punchPassPurchasedTitle": "Pass purchased",
     "punchPassPurchasedSubtitle": "Pack added and visits booked. {count, plural, one {# punch remaining} other {# punches remaining}} on this pass.",
+    "punchPassSubmittedTitle": "Visits submitted",
+    "punchPassSubmittedSubtitle": "Your request is in. {count, plural, one {# punch remaining} other {# punches remaining}} on this pass.",
     "punchPassBookAnother": "Redeem another visit"
   },
   "membership": {

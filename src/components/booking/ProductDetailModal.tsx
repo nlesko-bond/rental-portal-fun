@@ -35,6 +35,7 @@ import {
   IconPeakTrend,
 } from "./booking-icons";
 import { PunchPassRemainingMeter } from "./PunchPassRemainingMeter";
+import { parsePunchPassProduct } from "@/lib/punch-pass";
 import { describeEntitlementsForDisplay } from "@/lib/entitlement-discount";
 
 function formatPrice(amount: number, currency: string): string {
@@ -427,6 +428,8 @@ export function ProductDetailModal({
   const hasScheduleResources =
     Array.isArray(scheduleResources) && scheduleResources.length > 0;
   const currency = product.prices?.[0]?.currency ?? "USD";
+  const punchMeta = parsePunchPassProduct(product);
+  const punchPack = punchMeta?.packPrice ?? null;
 
   return (
     <RightDrawer
@@ -471,7 +474,17 @@ export function ProductDetailModal({
               <h3 className="cb-detail-block-title">{tb("productDetailDetails")}</h3>
               <ul className="cb-detail-row-list">
                 <DetailRow icon={<IconDollarDetail className="text-[var(--cb-primary)]" />} label={tb("productDetailPrice")}>
-                  {productMembershipGated(product) && productCatalogAllPricesNearZero(product) ? (
+                  {punchMeta != null && punchPack != null ? (
+                    <div className="cb-detail-price-group">
+                      <span className="cb-detail-price-pill">
+                        <span className="cb-detail-price-pill-amount">{formatPrice(punchPack.amount, punchPack.currency)}</span>
+                        <span className="cb-detail-price-pill-sep">·</span>
+                        <span className="cb-detail-price-pill-dur">
+                          {tb("punchPassVisitCount", { count: punchMeta.punchCount })}
+                        </span>
+                      </span>
+                    </div>
+                  ) : productMembershipGated(product) && productCatalogAllPricesNearZero(product) ? (
                     <span className="cb-detail-price-pill">
                       <span className="cb-detail-price-pill-amount">{tb("productDetailFreeForMembers")}</span>
                     </span>

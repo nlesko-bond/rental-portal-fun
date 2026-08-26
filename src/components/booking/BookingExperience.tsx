@@ -82,6 +82,7 @@ import {
   isPunchPassProduct,
   parsePunchPassProduct,
   punchPassCartPurchaseForSnapshot,
+  punchPassMeterState,
   punchPassOverflowsHeldPunches,
   punchPassSlotCap,
   resolvePunchPassCheckout,
@@ -788,6 +789,12 @@ export function BookingExperience() {
     setPunchWalletRevision((n) => n + 1);
   }, [env, punchPassParsed, punchWallet, searchParams]);
 
+  useEffect(() => {
+    if (!state || punchPassParsed == null) return;
+    if (state.duration === punchPassParsed.durationMinutes) return;
+    pushBookingState({ ...state, duration: punchPassParsed.durationMinutes });
+  }, [state, punchPassParsed, pushBookingState]);
+
   const memberRequiredProductQueries = useQueries({
     queries: partyMembers.map((m) => ({
       queryKey: ["bond", "memberRequiredProducts", env.ok ? env.orgId : 0, state?.productId ?? 0, m.id],
@@ -1298,8 +1305,9 @@ export function BookingExperience() {
   const selectedPunchWalletEntry = punchPassParsed
     ? walletEntryForProduct(punchWallet, punchPassParsed.productId)
     : null;
-  const selectedPunchWalletTotal =
-    selectedPunchWalletEntry?.total ?? punchPassParsed?.punchCount ?? 0;
+  const selectedPunchMeter = punchPassParsed
+    ? punchPassMeterState(punchPassParsed, selectedPunchWalletEntry)
+    : null;
 
   const productsForRail = useMemo(() => {
     const rows = productsQuery.data?.data;
@@ -1315,10 +1323,10 @@ export function BookingExperience() {
   const detailPunchRemaining = useMemo(() => {
     if (productInfoId == null) return null;
     const p = productsQuery.data?.data.find((row) => row.id === productInfoId);
-    if (p == null || !isPunchPassProduct(p)) return null;
-    const entry = walletEntryForProduct(punchWallet, p.id);
-    if (entry == null) return null;
-    return { remaining: Math.max(0, entry.remaining), total: entry.total };
+    if (p == null) return null;
+    const parsed = parsePunchPassProduct(p);
+    if (parsed == null) return null;
+    return punchPassMeterState(parsed, walletEntryForProduct(punchWallet, parsed.productId));
   }, [productInfoId, productsQuery.data?.data, punchWallet]);
 
   const punchPassExtrasTotal = useMemo(() => {
@@ -1742,18 +1750,16 @@ export function BookingExperience() {
     packageAddons.length > 0 &&
     selectedSlots.size > 0;
   const punchScheduleHint =
-    punchPassParsed == null ? null : (
+    punchPassParsed == null || selectedPunchMeter == null ? null : (
       <div className="cb-punch-schedule-meter">
-        {selectedPunchWalletEntry != null ? (
-          <PunchPassRemainingMeter
-            remaining={punchRemaining}
-            total={selectedPunchWalletTotal}
-            label={tb("punchPassRemaining", {
-              remaining: punchRemaining,
-              total: selectedPunchWalletTotal,
-            })}
-          />
-        ) : null}
+        <PunchPassRemainingMeter
+          remaining={selectedPunchMeter.remaining}
+          total={selectedPunchMeter.total}
+          label={tb("punchPassRemaining", {
+            remaining: selectedPunchMeter.remaining,
+            total: selectedPunchMeter.total,
+          })}
+        />
         <p className="cb-punch-schedule-hint">
           {punchRemaining > 0 ? tb("punchPassPickTimesToRedeem") : tb("punchPassBuyThenRedeemHint")}
         </p>
@@ -2131,18 +2137,20 @@ export function BookingExperience() {
           {soloProduct ? (
             <aside className="cb-product-solo-info" aria-label={tb("productDetailAbout")}>
               <div className="cb-product-solo-info-head">
-                <span className="cb-product-solo-info-kicker">You&apos;re booking</span>
+                <span className="cb-product-solo-info-kicker">{tb("productSoloKicker")}</span>
                 <h3 className="cb-product-solo-info-title">{soloProduct.name}</h3>
                 {(() => {
                   const meta = parsePunchPassProduct(soloProduct);
-                  const entry = meta ? walletEntryForProduct(punchWallet, meta.productId) : null;
-                  if (entry == null) return null;
-                  const remaining = Math.max(0, entry.remaining);
+                  if (meta == null) return null;
+                  const meter = punchPassMeterState(
+                    meta,
+                    walletEntryForProduct(punchWallet, meta.productId)
+                  );
                   return (
                     <PunchPassRemainingMeter
-                      remaining={remaining}
-                      total={entry.total}
-                      label={tb("punchPassRemaining", { remaining, total: entry.total })}
+                      remaining={meter.remaining}
+                      total={meter.total}
+                      label={tb("punchPassRemaining", { remaining: meter.remaining, total: meter.total })}
                     />
                   );
                 })()}
@@ -2160,16 +2168,19 @@ export function BookingExperience() {
               <div className="cb-product-solo-info-rows">
                 {(() => {
                   const selectedDuration = state.duration ?? MINUTES_PER_HOUR;
-                  const memberFreeChip = productCatalogShowsMemberFree(soloProduct);
+                  const punchMeta = parsePunchPassProduct(soloProduct);
+                  const memberFreeChip = punchMeta == null && productCatalogShowsMemberFree(soloProduct);
                   const priceLabel = memberFreeChip
                     ? tb("freeForMembers")
-                    : productPriceRangeForDuration(soloProduct, selectedDuration);
-                  const hasPeakPricing = productHasVariableSchedulePricing(soloProduct);
+                    : punchMeta?.packPrice != null
+                      ? `${formatSlotCurrency(punchMeta.packPrice.amount, punchMeta.packPrice.currency)} · ${tb("punchPassVisitCount", { count: punchMeta.punchCount })}`
+                      : productPriceRangeForDuration(soloProduct, selectedDuration);
+                  const hasPeakPricing = punchMeta == null && productHasVariableSchedulePricing(soloProduct);
                   return (
                     <div className="cb-product-solo-info-meta-row">
                       <span className="cb-product-solo-info-meta-pill">
                         <span className="cb-product-solo-info-meta-value">
-                          <span className="cb-product-solo-info-meta-label">From</span>
+                          <span className="cb-product-solo-info-meta-label">{tb("fromPriceLabel")}</span>
                           {priceLabel}
                           {hasPeakPricing ? <IconPeakTrend className="cb-product-solo-info-peak" aria-hidden /> : null}
                         </span>
@@ -2314,6 +2325,15 @@ export function BookingExperience() {
                         signedIn={bondAuth.session.status === "authenticated"}
                       />
                     </div>
+                    {punchPassParsed != null ? (
+                      <div
+                        className="cb-duration-select cb-duration-select--locked w-full"
+                        title={tb("punchPassDurationLocked")}
+                      >
+                        <span>{formatDurationLabel(scheduleDurationMinutes)}</span>
+                        <span className="cb-duration-locked-hint">{tb("punchPassDurationLocked")}</span>
+                      </div>
+                    ) : (
                     <button
                       id="duration-select-wide"
                       type="button"
@@ -2321,15 +2341,11 @@ export function BookingExperience() {
                       aria-haspopup="dialog"
                       aria-expanded={picker === "duration"}
                       aria-label={tb("selectDuration")}
-                      aria-disabled={punchPassParsed != null}
-                      title={punchPassParsed != null ? tb("punchPassDurationLocked") : undefined}
-                      onClick={() => {
-                        if (punchPassParsed != null) return;
-                        setPicker("duration");
-                      }}
+                      onClick={() => setPicker("duration")}
                     >
                       {formatDurationLabel(scheduleDurationMinutes)}
                     </button>
+                    )}
                     {punchScheduleHint}
                     {showPreferredStart ? (
                       <button
@@ -2395,23 +2411,32 @@ export function BookingExperience() {
                   role="tablist"
                   aria-labelledby="pick-duration-heading"
                 >
-                  {durations.map((m) => {
-                    const active = (state.duration ?? durations[0] ?? 60) === m;
-                    return (
-                      <button
-                        key={m}
-                        type="button"
-                        role="tab"
-                        aria-selected={active}
-                        className={`cb-date-chip cb-duration-chip ${active ? "cb-date-chip--active" : ""}`}
-                        disabled={punchPassParsed != null}
-                        title={punchPassParsed != null ? tb("punchPassDurationLocked") : undefined}
-                        onClick={() => setDuration(m)}
-                      >
-                        {formatDurationLabel(m)}
-                      </button>
-                    );
-                  })}
+                  {punchPassParsed != null ? (
+                    <span
+                      role="tab"
+                      aria-selected
+                      className="cb-date-chip cb-duration-chip cb-date-chip--active cb-duration-chip--locked"
+                      title={tb("punchPassDurationLocked")}
+                    >
+                      {formatDurationLabel(scheduleDurationMinutes)}
+                    </span>
+                  ) : (
+                    durations.map((m) => {
+                      const active = (state.duration ?? durations[0] ?? 60) === m;
+                      return (
+                        <button
+                          key={m}
+                          type="button"
+                          role="tab"
+                          aria-selected={active}
+                          className={`cb-date-chip cb-duration-chip ${active ? "cb-date-chip--active" : ""}`}
+                          onClick={() => setDuration(m)}
+                        >
+                          {formatDurationLabel(m)}
+                        </button>
+                      );
+                    })
+                  )}
                 </div>
                 {punchScheduleHint}
 

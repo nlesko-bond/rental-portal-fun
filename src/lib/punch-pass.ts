@@ -129,6 +129,47 @@ export function punchPassFillPercent(remaining: number, total: number): number {
   return Math.min(PUNCH_METER_MAX_PERCENT, Math.round((held / total) * PUNCH_METER_MAX_PERCENT));
 }
 
+export type PunchPassMeterState = {
+  remaining: number;
+  total: number;
+};
+
+/**
+ * Remaining/total for the meter. Unowned passes show 0 of pack size so the
+ * empty bar is visible before the first buy.
+ */
+export function punchPassMeterState(
+  pass: PunchPassProduct,
+  entry: { remaining: number; total: number } | null
+): PunchPassMeterState {
+  if (entry == null) {
+    return { remaining: 0, total: pass.punchCount };
+  }
+  const remaining = Math.max(0, Math.floor(entry.remaining));
+  const total = Math.max(pass.punchCount, Math.floor(entry.total));
+  return { remaining, total };
+}
+
+export type PunchPassConfirmCopyKind = "purchased" | "redeemed" | "submitted";
+
+/** Confirmation title/subtitle variant after punch-pass pay or submit. */
+export function punchPassConfirmCopyKind(
+  kind: PunchPassCheckoutKind,
+  checkoutKind: "pay" | "submit"
+): PunchPassConfirmCopyKind {
+  if (checkoutKind === "submit") return "submitted";
+  switch (kind) {
+    case "buyAndRedeem":
+      return "purchased";
+    case "redeem":
+      return "redeemed";
+    default: {
+      const _never: never = kind;
+      return _never;
+    }
+  }
+}
+
 /**
  * True when the shopper still has punches and this checkout would spend past them
  * (the extra visits buy another pack). First-time buy (0 remaining) is not a warning.

@@ -5,9 +5,11 @@ import {
   isPunchPassProduct,
   parsePunchPassProduct,
   punchPassCartPurchaseForSnapshot,
+  punchPassConfirmCopyKind,
   punchPassPackDisplayAmount,
   punchPassPackPrice,
   punchPassFillPercent,
+  punchPassMeterState,
   punchPassOverflowsHeldPunches,
   punchPassSlotCap,
   punchesNeededForSlots,
@@ -158,6 +160,28 @@ describe("punchPassFillPercent", () => {
   it("clamps empty or invalid totals", () => {
     expect(punchPassFillPercent(3, 0)).toBe(0);
     expect(punchPassFillPercent(12, 10)).toBe(100);
+  });
+});
+
+describe("punchPassMeterState", () => {
+  const pass = parsePunchPassProduct(product())!;
+
+  it("shows 0 of pack size when the wallet has no entry", () => {
+    expect(punchPassMeterState(pass, null)).toEqual({ remaining: 0, total: 10 });
+  });
+
+  it("uses the wallet remaining and keeps pack size as a floor for total", () => {
+    expect(punchPassMeterState(pass, { remaining: 7, total: 10 })).toEqual({ remaining: 7, total: 10 });
+    expect(punchPassMeterState(pass, { remaining: 12, total: 20 })).toEqual({ remaining: 12, total: 20 });
+  });
+});
+
+describe("punchPassConfirmCopyKind", () => {
+  it("maps buy and redeem on pay, and submit for approval carts", () => {
+    expect(punchPassConfirmCopyKind("buyAndRedeem", "pay")).toBe("purchased");
+    expect(punchPassConfirmCopyKind("redeem", "pay")).toBe("redeemed");
+    expect(punchPassConfirmCopyKind("buyAndRedeem", "submit")).toBe("submitted");
+    expect(punchPassConfirmCopyKind("redeem", "submit")).toBe("submitted");
   });
 });
 

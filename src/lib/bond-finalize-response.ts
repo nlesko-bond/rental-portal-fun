@@ -1,4 +1,5 @@
 import { consumerInvoiceUrl } from "@/lib/bond-consumer-web";
+import type { PunchPassCheckoutKind } from "@/lib/punch-pass";
 
 /** Best-effort fields from `POST …/cart/{id}/finalize` (`GenericResponseDto` + `SimpleInvoiceDto` / variants). */
 export type FinalizeSuccessDisplay = {
@@ -7,6 +8,10 @@ export type FinalizeSuccessDisplay = {
   /** Bond invoice primary key (`data.id`) for Squad C deep links. */
   invoiceNumericId?: number;
   reservationRef?: string;
+  /** Demo punch-pass completed without Bond `finalize` (no invoice). */
+  punchPassLocalComplete?: boolean;
+  punchPassKind?: PunchPassCheckoutKind;
+  punchPassRemainingAfter?: number;
 };
 
 /** Consumer invoice screen on Squad C (`invoiceId` path segment + org + user query params). */
@@ -21,6 +26,9 @@ export function buildSquadCInvoicePortalUrl(
 export function parseFinalizeCartResponse(raw: unknown): FinalizeSuccessDisplay {
   if (raw == null || typeof raw !== "object") return {};
   const root = raw as Record<string, unknown>;
+  if (root.punchPassLocalComplete === true) {
+    return { punchPassLocalComplete: true };
+  }
   const data =
     root.data != null && typeof root.data === "object"
       ? (root.data as Record<string, unknown>)

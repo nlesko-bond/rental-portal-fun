@@ -40,4 +40,10 @@ describe("parseFinalizeCartResponse", () => {
     expect(parseFinalizeCartResponse("string")).toEqual({});
     expect(parseFinalizeCartResponse(42)).toEqual({});
   });
+
+  it("marks demo punch-pass local complete without an invoice", () => {
+    expect(parseFinalizeCartResponse({ punchPassLocalComplete: true })).toEqual({
+      punchPassLocalComplete: true,
+    });
+  });
 });
